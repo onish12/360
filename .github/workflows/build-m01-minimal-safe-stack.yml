@@ -1,0 +1,799 @@
+name: Build PHASER360 M0.1 minimal safe stack
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: x64 minimal bus + ADSP probe
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout PHASER360
+        uses: actions/checkout@v7
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore WDK packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          nuget restore .\packages.config -PackagesDirectory .\packages -NonInteractive
+
+      - name: Verify existing ADSP probe safety gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\scripts\verify-bootstrap.ps1
+
+      - name: Generate M0.1 minimal PCI bus source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = '.\_ci_m01_safe_bus'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+          @'
+          #include <ntddk.h>
+          #include <wdf.h>
+          #include <initguid.h>
+          #include <guiddef.h>
+
+          #define PHASER_CONTROLLER_VENDOR_ID 0x8086u
+          #define PHASER_CONTROLLER_DEVICE_ID 0x3198u
+          #define PHASER_ADSP_INTERFACE_VERSION 1u
+
+          // Public sklhdaudbus-compatible ADSP query-interface GUID.
+          // {752A2CAE-3455-4D18-A184-8B34B22632CE}
+          DEFINE_GUID(GUID_ADSP_BUS_INTERFACE,
+              0x752a2cae, 0x3455, 0x4d18,
+              0xa1, 0x84, 0x8b, 0x34, 0xb2, 0x26, 0x32, 0xce);
+
+          // M0.1 preserves the public v1 ABI but deliberately exposes no
+          // hardware-operation callbacks. The child function driver can only
+          // identify the interface and controller at this milestone.
+          typedef struct _PHASER_ADSP_BUS_INTERFACE_V1 {
+              USHORT Size;
+              USHORT Version;
+              PVOID Context;
+              PINTERFACE_REFERENCE InterfaceReference;
+              PINTERFACE_DEREFERENCE InterfaceDereference;
+              USHORT CtlrDevId;
+              PVOID GetResources;
+              PVOID SetDSPPowerState;
+              PVOID RegisterInterrupt;
+              PVOID UnregisterInterrupt;
+              PVOID GetRenderStream;
+              PVOID GetCaptureStream;
+              PVOID FreeStream;
+              PVOID PrepareDSP;
+              PVOID CleanupDSP;
+              PVOID TriggerDSP;
+              PVOID StreamPosition;
+              PVOID DSPEnableSPIB;
+              PVOID DSPDisableSPIB;
+          } PHASER_ADSP_BUS_INTERFACE_V1, *PPHASER_ADSP_BUS_INTERFACE_V1;
+
+          static_assert(sizeof(PHASER_ADSP_BUS_INTERFACE_V1) == 144,
+              "Unexpected PHASER ADSP v1 ABI size on x64.");
+
+          typedef struct _PHASER_CHILD_ID {
+              WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Header;
+              USHORT ControllerVendorId;
+              USHORT ControllerDeviceId;
+          } PHASER_CHILD_ID, *PPHASER_CHILD_ID;
+
+          typedef struct _PHASER_PDO_CONTEXT {
+              USHORT ControllerVendorId;
+              USHORT ControllerDeviceId;
+          } PHASER_PDO_CONTEXT, *PPHASER_PDO_CONTEXT;
+
+          WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(PHASER_PDO_CONTEXT, PhaserGetPdoContext)
+
+          extern "C" DRIVER_INITIALIZE DriverEntry;
+          EVT_WDF_DRIVER_DEVICE_ADD PhaserEvtDeviceAdd;
+          EVT_WDF_DEVICE_SELF_MANAGED_IO_INIT PhaserEvtSelfManagedIoInit;
+          EVT_WDF_CHILD_LIST_CREATE_DEVICE PhaserEvtCreateChild;
+          EVT_WDF_CHILD_LIST_IDENTIFICATION_DESCRIPTION_DUPLICATE PhaserEvtChildDuplicate;
+          EVT_WDF_CHILD_LIST_IDENTIFICATION_DESCRIPTION_COMPARE PhaserEvtChildCompare;
+          EVT_WDF_CHILD_LIST_IDENTIFICATION_DESCRIPTION_CLEANUP PhaserEvtChildCleanup;
+
+          extern "C"
+          NTSTATUS
+          DriverEntry(
+              _In_ PDRIVER_OBJECT DriverObject,
+              _In_ PUNICODE_STRING RegistryPath
+          )
+          {
+              WDF_DRIVER_CONFIG config;
+              WDF_DRIVER_CONFIG_INIT(&config, PhaserEvtDeviceAdd);
+
+              return WdfDriverCreate(
+                  DriverObject,
+                  RegistryPath,
+                  WDF_NO_OBJECT_ATTRIBUTES,
+                  &config,
+                  WDF_NO_HANDLE);
+          }
+
+          NTSTATUS
+          PhaserEvtChildDuplicate(
+              _In_ WDFCHILDLIST ChildList,
+              _In_ PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Source,
+              _Out_ PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Destination
+          )
+          {
+              UNREFERENCED_PARAMETER(ChildList);
+
+              auto src = CONTAINING_RECORD(Source, PHASER_CHILD_ID, Header);
+              auto dst = CONTAINING_RECORD(Destination, PHASER_CHILD_ID, Header);
+
+              dst->ControllerVendorId = src->ControllerVendorId;
+              dst->ControllerDeviceId = src->ControllerDeviceId;
+              return STATUS_SUCCESS;
+          }
+
+          BOOLEAN
+          PhaserEvtChildCompare(
+              _In_ WDFCHILDLIST ChildList,
+              _In_ PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER First,
+              _In_ PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER Second
+          )
+          {
+              UNREFERENCED_PARAMETER(ChildList);
+
+              auto a = CONTAINING_RECORD(First, PHASER_CHILD_ID, Header);
+              auto b = CONTAINING_RECORD(Second, PHASER_CHILD_ID, Header);
+
+              return (a->ControllerVendorId == b->ControllerVendorId) &&
+                     (a->ControllerDeviceId == b->ControllerDeviceId);
+          }
+
+          VOID
+          PhaserEvtChildCleanup(
+              _In_ WDFCHILDLIST ChildList,
+              _Inout_ PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER IdentificationDescription
+          )
+          {
+              UNREFERENCED_PARAMETER(ChildList);
+              UNREFERENCED_PARAMETER(IdentificationDescription);
+          }
+
+          NTSTATUS
+          PhaserEvtCreateChild(
+              _In_ WDFCHILDLIST ChildList,
+              _In_ PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER IdentificationDescription,
+              _Inout_ PWDFDEVICE_INIT ChildInit
+          )
+          {
+              UNREFERENCED_PARAMETER(ChildList);
+
+              auto desc = CONTAINING_RECORD(
+                  IdentificationDescription,
+                  PHASER_CHILD_ID,
+                  Header);
+
+              DECLARE_UNICODE_STRING_SIZE(deviceId, 96);
+              DECLARE_CONST_UNICODE_STRING(instanceId, L"00");
+              DECLARE_CONST_UNICODE_STRING(location, L"PHASER360 Gemini Lake AudioDSP");
+              DECLARE_CONST_UNICODE_STRING(description, L"PHASER360 M0.1 AudioDSP interface");
+
+              NTSTATUS status = RtlUnicodeStringPrintf(
+                  &deviceId,
+                  L"CSAUDIO\\ADSP&CTLR_VEN_%04X&CTLR_DEV_%04X",
+                  desc->ControllerVendorId,
+                  desc->ControllerDeviceId);
+              if (!NT_SUCCESS(status)) {
+                  return status;
+              }
+
+              WdfDeviceInitSetDeviceType(ChildInit, FILE_DEVICE_BUS_EXTENDER);
+
+              status = WdfPdoInitAssignDeviceID(ChildInit, &deviceId);
+              if (!NT_SUCCESS(status)) {
+                  return status;
+              }
+
+              status = WdfPdoInitAddHardwareID(ChildInit, &deviceId);
+              if (!NT_SUCCESS(status)) {
+                  return status;
+              }
+
+              status = WdfPdoInitAddCompatibleID(ChildInit, &deviceId);
+              if (!NT_SUCCESS(status)) {
+                  return status;
+              }
+
+              status = WdfPdoInitAssignInstanceID(ChildInit, &instanceId);
+              if (!NT_SUCCESS(status)) {
+                  return status;
+              }
+
+              status = WdfPdoInitAddDeviceText(
+                  ChildInit,
+                  &description,
+                  &location,
+                  MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US));
+              if (!NT_SUCCESS(status)) {
+                  return status;
+              }
+              WdfPdoInitSetDefaultLocale(
+                  ChildInit,
+                  MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US));
+
+              WDF_OBJECT_ATTRIBUTES attributes;
+              WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, PHASER_PDO_CONTEXT);
+
+              WDFDEVICE child = nullptr;
+              status = WdfDeviceCreate(&ChildInit, &attributes, &child);
+              if (!NT_SUCCESS(status)) {
+                  return status;
+              }
+
+              auto ctx = PhaserGetPdoContext(child);
+              ctx->ControllerVendorId = desc->ControllerVendorId;
+              ctx->ControllerDeviceId = desc->ControllerDeviceId;
+
+              WDF_DEVICE_PNP_CAPABILITIES pnpCaps;
+              WDF_DEVICE_PNP_CAPABILITIES_INIT(&pnpCaps);
+              pnpCaps.Removable = WdfFalse;
+              pnpCaps.EjectSupported = WdfFalse;
+              pnpCaps.SurpriseRemovalOK = WdfFalse;
+              WdfDeviceSetPnpCapabilities(child, &pnpCaps);
+
+              PHASER_ADSP_BUS_INTERFACE_V1 adsp = {};
+              adsp.Size = sizeof(adsp);
+              adsp.Version = PHASER_ADSP_INTERFACE_VERSION;
+              adsp.Context = ctx;
+              adsp.InterfaceReference = WdfDeviceInterfaceReferenceNoOp;
+              adsp.InterfaceDereference = WdfDeviceInterfaceDereferenceNoOp;
+              adsp.CtlrDevId = ctx->ControllerDeviceId;
+
+              // Intentionally NULL in M0.1:
+              // GetResources, SetDSPPowerState, interrupt, DMA, stream,
+              // DSP preparation/trigger and SPIB callbacks.
+              adsp.GetResources = nullptr;
+              adsp.SetDSPPowerState = nullptr;
+              adsp.RegisterInterrupt = nullptr;
+              adsp.UnregisterInterrupt = nullptr;
+              adsp.GetRenderStream = nullptr;
+              adsp.GetCaptureStream = nullptr;
+              adsp.FreeStream = nullptr;
+              adsp.PrepareDSP = nullptr;
+              adsp.CleanupDSP = nullptr;
+              adsp.TriggerDSP = nullptr;
+              adsp.StreamPosition = nullptr;
+              adsp.DSPEnableSPIB = nullptr;
+              adsp.DSPDisableSPIB = nullptr;
+
+              WDF_QUERY_INTERFACE_CONFIG qi;
+              WDF_QUERY_INTERFACE_CONFIG_INIT(
+                  &qi,
+                  reinterpret_cast<PINTERFACE>(&adsp),
+                  &GUID_ADSP_BUS_INTERFACE,
+                  nullptr);
+
+              return WdfDeviceAddQueryInterface(child, &qi);
+          }
+
+          NTSTATUS
+          PhaserEvtSelfManagedIoInit(
+              _In_ WDFDEVICE Device
+          )
+          {
+              PHASER_CHILD_ID desc;
+              WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(
+                  &desc.Header,
+                  sizeof(desc));
+
+              desc.ControllerVendorId = PHASER_CONTROLLER_VENDOR_ID;
+              desc.ControllerDeviceId = PHASER_CONTROLLER_DEVICE_ID;
+
+              WDFCHILDLIST childList = WdfFdoGetDefaultChildList(Device);
+              WdfChildListBeginScan(childList);
+
+              NTSTATUS status = WdfChildListAddOrUpdateChildDescriptionAsPresent(
+                  childList,
+                  &desc.Header,
+                  nullptr);
+
+              WdfChildListEndScan(childList);
+              return status;
+          }
+
+          NTSTATUS
+          PhaserEvtDeviceAdd(
+              _In_ WDFDRIVER Driver,
+              _Inout_ PWDFDEVICE_INIT DeviceInit
+          )
+          {
+              UNREFERENCED_PARAMETER(Driver);
+
+              WDF_CHILD_LIST_CONFIG childConfig;
+              WDF_CHILD_LIST_CONFIG_INIT(
+                  &childConfig,
+                  sizeof(PHASER_CHILD_ID),
+                  PhaserEvtCreateChild);
+
+              childConfig.EvtChildListIdentificationDescriptionDuplicate = PhaserEvtChildDuplicate;
+              childConfig.EvtChildListIdentificationDescriptionCompare = PhaserEvtChildCompare;
+              childConfig.EvtChildListIdentificationDescriptionCleanup = PhaserEvtChildCleanup;
+
+              WdfFdoInitSetDefaultChildListConfig(
+                  DeviceInit,
+                  &childConfig,
+                  WDF_NO_OBJECT_ATTRIBUTES);
+
+              WDF_PNPPOWER_EVENT_CALLBACKS pnp;
+              WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
+              pnp.EvtDeviceSelfManagedIoInit = PhaserEvtSelfManagedIoInit;
+              WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &pnp);
+
+              WDFDEVICE device = nullptr;
+              return WdfDeviceCreate(
+                  &DeviceInit,
+                  WDF_NO_OBJECT_ATTRIBUTES,
+                  &device);
+          }
+          '@ | Set-Content "$dir\driver.cpp" -Encoding ascii
+
+          @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+            <ItemGroup Label="ProjectConfigurations">
+              <ProjectConfiguration Include="Release|x64">
+                <Configuration>Release</Configuration>
+                <Platform>x64</Platform>
+              </ProjectConfiguration>
+            </ItemGroup>
+
+            <PropertyGroup Label="Globals">
+              <ProjectGuid>{D1964D30-7D67-4D12-A3A5-360000000001}</ProjectGuid>
+              <RootNamespace>phaser360_bus_m01</RootNamespace>
+              <ProjectName>phaser360_bus_m01</ProjectName>
+              <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
+              <KMDF_VERSION_MINOR>33</KMDF_VERSION_MINOR>
+            </PropertyGroup>
+
+            <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+            <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+              <ConfigurationType>Driver</ConfigurationType>
+              <DriverType>KMDF</DriverType>
+              <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+              <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+              <TargetVersion>Windows10</TargetVersion>
+              <UseDebugLibraries>false</UseDebugLibraries>
+              <SignMode>Off</SignMode>
+            </PropertyGroup>
+
+            <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+            <PropertyGroup>
+              <OutDir>$(MSBuildProjectDirectory)\out\</OutDir>
+              <IntDir>$(MSBuildProjectDirectory)\obj\</IntDir>
+              <TargetName>phaser360_bus_m01</TargetName>
+            </PropertyGroup>
+
+            <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+              <ClCompile>
+                <WarningLevel>Level4</WarningLevel>
+                <TreatWarningAsError>true</TreatWarningAsError>
+                <LanguageStandard>stdcpp17</LanguageStandard>
+                <PreprocessorDefinitions>_AMD64_;AMD64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+              </ClCompile>
+            </ItemDefinitionGroup>
+
+            <ItemGroup>
+              <ClCompile Include="driver.cpp" />
+            </ItemGroup>
+
+            <ItemGroup>
+              <FilesToPackage Include="$(TargetPath)" Condition="'$(ConfigurationType)'=='Driver'" />
+            </ItemGroup>
+
+            <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+          </Project>
+          '@ | Set-Content "$dir\phaser360_bus_m01.vcxproj" -Encoding ascii
+
+          @'
+          ; PHASER360 M0.1 minimal bus.
+          ; Exact PCI target only. No interrupt/MMIO/DMA/audio activity exists in the driver.
+
+          [Version]
+          Signature="$WINDOWS NT$"
+          Class=System
+          ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+          Provider=%ProviderName%
+          DriverVer=08/26/2026,0.1.1.0
+          CatalogFile=phaser360_bus_m01.cat
+          PnpLockdown=1
+
+          [DestinationDirs]
+          BusCopy=13
+
+          [SourceDisksNames]
+          1=%DiskName%,,,
+
+          [SourceDisksFiles]
+          phaser360_bus_m01.sys=1
+
+          [Manufacturer]
+          %ProviderName%=Models,NTamd64.10.0...22000
+
+          [Models.NTamd64.10.0...22000]
+          %DeviceDesc%=BusInstall,PCI\VEN_8086&DEV_3198&CC_0401
+
+          [BusInstall.NT]
+          CopyFiles=BusCopy
+
+          [BusCopy]
+          phaser360_bus_m01.sys
+
+          [BusInstall.NT.Services]
+          AddService=phaser360_bus_m01,0x00000002,BusService
+
+          [BusService]
+          DisplayName=%ServiceDesc%
+          ServiceType=1
+          StartType=3
+          ErrorControl=1
+          ServiceBinary=%13%\phaser360_bus_m01.sys
+
+          [BusInstall.NT.Wdf]
+          KmdfService=phaser360_bus_m01,BusWdf
+
+          [BusWdf]
+          KmdfLibraryVersion=1.33
+
+          [Strings]
+          ProviderName="PHASER360 Open Audio"
+          DiskName="PHASER360 M0.1 Minimal Bus"
+          DeviceDesc="PHASER360 Gemini Lake M0.1 Minimal AudioDSP Bus"
+          ServiceDesc="PHASER360 M0.1 Minimal AudioDSP Bus"
+          '@ | Set-Content "$dir\phaser360_bus_m01.inf" -Encoding ascii
+
+      - name: Static hard safety gate for minimal bus
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content '.\_ci_m01_safe_bus\driver.cpp' -Raw
+
+          $forbidden = @(
+            'WdfInterruptCreate',
+            'MmMapIoSpace',
+            'MmUnmapIoSpace',
+            'READ_REGISTER_',
+            'WRITE_REGISTER_',
+            'WdfDeviceStopIdle',
+            'WdfDeviceResumeIdle',
+            'KeStallExecutionProcessor',
+            'KeDelayExecutionThread',
+            'EvtDevicePrepareHardware',
+            'EvtDeviceReleaseHardware',
+            'EvtDeviceD0Entry',
+            'EvtDeviceD0Exit',
+            'GetBusData',
+            'SetBusData',
+            'WdfDma',
+            'MmAllocateContiguousMemory',
+            'MmAllocatePagesForMdl'
+          )
+
+          foreach ($token in $forbidden) {
+            if ($src.Contains($token)) {
+              throw "M0.1 safety violation: forbidden token '$token' exists in minimal bus source."
+            }
+          }
+
+          $requiredNulls = @(
+            'adsp.GetResources = nullptr;',
+            'adsp.SetDSPPowerState = nullptr;',
+            'adsp.RegisterInterrupt = nullptr;',
+            'adsp.UnregisterInterrupt = nullptr;',
+            'adsp.GetRenderStream = nullptr;',
+            'adsp.GetCaptureStream = nullptr;',
+            'adsp.FreeStream = nullptr;',
+            'adsp.PrepareDSP = nullptr;',
+            'adsp.CleanupDSP = nullptr;',
+            'adsp.TriggerDSP = nullptr;',
+            'adsp.StreamPosition = nullptr;',
+            'adsp.DSPEnableSPIB = nullptr;',
+            'adsp.DSPDisableSPIB = nullptr;'
+          )
+
+          foreach ($line in $requiredNulls) {
+            if (-not $src.Contains($line)) {
+              throw "M0.1 ABI safety gate missing: $line"
+            }
+          }
+
+          Write-Host 'PASS: minimal bus has no MMIO, interrupt, DMA, HDA or DSP operation path.'
+
+      - name: Build minimal bus
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild '.\_ci_m01_safe_bus\phaser360_bus_m01.vcxproj' /m /t:Rebuild `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:KMDF_VERSION_MAJOR=1 `
+            /p:KMDF_VERSION_MINOR=33 `
+            /p:TargetVersion=Windows10 `
+            /p:SignMode=Off `
+            /verbosity:minimal
+
+          if (-not (Test-Path '.\_ci_m01_safe_bus\out\phaser360_bus_m01.sys')) {
+            throw 'Minimal bus SYS was not generated.'
+          }
+
+      - name: Build existing M0.1 ADSP probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild '.\PHASER360-Open-Audio.sln' /m /t:Rebuild `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:KMDF_VERSION_MAJOR=1 `
+            /p:KMDF_VERSION_MINOR=33 `
+            /p:TargetVersion=Windows10 `
+            /p:SignMode=Off `
+            /verbosity:minimal
+
+          if (-not (Test-Path '.\artifacts\Release\x64\phaser360_adsp_probe.sys')) {
+            throw 'ADSP probe SYS was not generated.'
+          }
+
+      - name: Audit compiled minimal bus imports
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sys = '.\_ci_m01_safe_bus\out\phaser360_bus_m01.sys'
+          $imports = (& dumpbin /imports $sys | Out-String)
+          $imports | Set-Content '.\_ci_m01_safe_bus\imports.txt' -Encoding ascii
+          Write-Host $imports
+
+          $forbiddenImports = @(
+            'MmMapIoSpace',
+            'MmUnmapIoSpace',
+            'READ_REGISTER_',
+            'WRITE_REGISTER_',
+            'MmAllocateContiguousMemory',
+            'MmAllocatePagesForMdl',
+            'KeStallExecutionProcessor',
+            'KeDelayExecutionThread',
+            'WdfInterruptCreate',
+            'WdfDma'
+          )
+
+          foreach ($token in $forbiddenImports) {
+            if ($imports.Contains($token)) {
+              throw "Compiled minimal bus imports forbidden hardware API: $token"
+            }
+          }
+
+          Write-Host 'PASS: compiled bus import gate.'
+
+      - name: Assemble M0.1 minimal package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path '.\package\bus' | Out-Null
+          New-Item -ItemType Directory -Force -Path '.\package\probe' | Out-Null
+          New-Item -ItemType Directory -Force -Path '.\package\source' | Out-Null
+
+          Copy-Item '.\_ci_m01_safe_bus\out\phaser360_bus_m01.sys' '.\package\bus\' -Force
+          Copy-Item '.\_ci_m01_safe_bus\phaser360_bus_m01.inf' '.\package\bus\' -Force
+          Copy-Item '.\_ci_m01_safe_bus\driver.cpp' '.\package\source\phaser360_bus_m01.cpp' -Force
+          Copy-Item '.\_ci_m01_safe_bus\imports.txt' '.\package\source\phaser360_bus_m01_imports.txt' -Force
+
+          Copy-Item '.\artifacts\Release\x64\phaser360_adsp_probe.sys' '.\package\probe\' -Force
+
+          @'
+          ; PHASER360 M0.1 ADSP interface-query-only probe
+
+          [Version]
+          Signature="$WINDOWS NT$"
+          Class=System
+          ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+          Provider=%ProviderName%
+          DriverVer=08/26/2026,0.1.1.0
+          CatalogFile=phaser360_adsp_probe.cat
+          PnpLockdown=1
+
+          [DestinationDirs]
+          ProbeCopy=13
+
+          [SourceDisksNames]
+          1=%DiskName%,,,
+
+          [SourceDisksFiles]
+          phaser360_adsp_probe.sys=1
+
+          [Manufacturer]
+          %ProviderName%=Models,NTamd64.10.0...22000
+
+          [Models.NTamd64.10.0...22000]
+          %DeviceDesc%=ProbeInstall,CSAUDIO\ADSP&CTLR_VEN_8086&CTLR_DEV_3198
+
+          [ProbeInstall.NT]
+          CopyFiles=ProbeCopy
+
+          [ProbeCopy]
+          phaser360_adsp_probe.sys
+
+          [ProbeInstall.NT.Services]
+          AddService=phaser360_adsp_probe,0x00000002,ProbeService
+
+          [ProbeService]
+          DisplayName=%ServiceDesc%
+          ServiceType=1
+          StartType=3
+          ErrorControl=1
+          ServiceBinary=%13%\phaser360_adsp_probe.sys
+
+          [ProbeInstall.NT.Wdf]
+          KmdfService=phaser360_adsp_probe,ProbeWdf
+
+          [ProbeWdf]
+          KmdfLibraryVersion=1.33
+
+          [Strings]
+          ProviderName="PHASER360 Open Audio"
+          DiskName="PHASER360 M0.1 Minimal Stack"
+          DeviceDesc="PHASER360 ADSP M0.1 Interface Probe"
+          ServiceDesc="PHASER360 ADSP M0.1 Interface Probe"
+          '@ | Set-Content '.\package\probe\phaser360_adsp_probe.inf' -Encoding ascii
+
+      - name: Verify exact hardware IDs and demand start
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bus = Get-Content '.\package\bus\phaser360_bus_m01.inf' -Raw
+          $probe = Get-Content '.\package\probe\phaser360_adsp_probe.inf' -Raw
+
+          $busIds = [regex]::Matches($bus, 'PCI\\VEN_8086&DEV_[0-9A-Fa-f]{4}&CC_0401')
+          if ($busIds.Count -ne 1 -or $busIds[0].Value -ne 'PCI\VEN_8086&DEV_3198&CC_0401') {
+            throw 'Minimal bus INF must target exactly PCI VEN_8086 DEV_3198 CC_0401.'
+          }
+
+          $probeIds = [regex]::Matches($probe, 'CSAUDIO\\ADSP&CTLR_VEN_8086&CTLR_DEV_[0-9A-Fa-f]{4}')
+          if ($probeIds.Count -ne 1 -or $probeIds[0].Value -ne 'CSAUDIO\ADSP&CTLR_VEN_8086&CTLR_DEV_3198') {
+            throw 'Probe INF hardware ID mismatch.'
+          }
+
+          if (-not $bus.Contains('StartType=3') -or -not $probe.Contains('StartType=3')) {
+            throw 'Both M0.1 services must remain demand-start.'
+          }
+
+          if ($bus.Contains('ConnectInterrupt')) {
+            throw 'M0.1 minimal bus must not contain the misleading ConnectInterrupt registry setting.'
+          }
+
+          Write-Host 'PASS: package identifiers and start policy.'
+
+      - name: Run InfVerif
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Resolve-WdkTool([string]$Name) {
+            $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+            if ($cmd) { return $cmd.Source }
+
+            $tool = Get-ChildItem '.\packages' -Recurse -File -Filter $Name -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\x64\\' } |
+              Select-Object -First 1
+
+            if (-not $tool) {
+              $tool = Get-ChildItem '.\packages' -Recurse -File -Filter $Name -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            }
+
+            if (-not $tool) { throw "WDK tool not found: $Name" }
+            return $tool.FullName
+          }
+
+          $infverif = Resolve-WdkTool 'infverif.exe'
+          & $infverif /w '.\package\bus\phaser360_bus_m01.inf'
+          if ($LASTEXITCODE -ne 0) { throw "Bus InfVerif failed: $LASTEXITCODE" }
+
+          & $infverif /w '.\package\probe\phaser360_adsp_probe.inf'
+          if ($LASTEXITCODE -ne 0) { throw "Probe InfVerif failed: $LASTEXITCODE" }
+
+      - name: Generate unsigned catalogs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Resolve-WdkTool([string]$Name) {
+            $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+            if ($cmd) { return $cmd.Source }
+
+            $tool = Get-ChildItem '.\packages' -Recurse -File -Filter $Name -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\x64\\' } |
+              Select-Object -First 1
+
+            if (-not $tool) {
+              $tool = Get-ChildItem '.\packages' -Recurse -File -Filter $Name -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            }
+
+            if (-not $tool) { throw "WDK tool not found: $Name" }
+            return $tool.FullName
+          }
+
+          $inf2cat = Resolve-WdkTool 'inf2cat.exe'
+          $busDir = (Resolve-Path '.\package\bus').Path
+          $probeDir = (Resolve-Path '.\package\probe').Path
+
+          & $inf2cat "/driver:$busDir" '/os:10_NI_X64' /uselocaltime /verbose
+          if ($LASTEXITCODE -ne 0) { throw "Bus Inf2Cat failed: $LASTEXITCODE" }
+
+          & $inf2cat "/driver:$probeDir" '/os:10_NI_X64' /uselocaltime /verbose
+          if ($LASTEXITCODE -ne 0) { throw "Probe Inf2Cat failed: $LASTEXITCODE" }
+
+      - name: Create audit manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = '.\package\M0.1_MINIMAL_SAFE_AUDIT.txt'
+
+          @(
+            'PHASER360 M0.1 MINIMAL SAFE STACK'
+            'STATUS=BUILD_AND_AUDIT_ONLY'
+            'INSTALL_APPROVAL=NO'
+            'ARCH=x64'
+            'KMDF=1.33'
+            'BUS_HWID=PCI\VEN_8086&DEV_3198&CC_0401'
+            'ADSP_HWID=CSAUDIO\ADSP&CTLR_VEN_8086&CTLR_DEV_3198'
+            'BUS_START_TYPE=3'
+            'PROBE_START_TYPE=3'
+            'BUS_MMIO=NONE'
+            'BUS_INTERRUPT_OBJECT=NONE'
+            'BUS_DMA=NONE'
+            'BUS_D0_CALLBACKS=NONE'
+            'BUS_ADSP_HARDWARE_CALLBACKS=ALL_NULL'
+            ''
+            'SHA256:'
+          ) | Set-Content $manifest -Encoding ascii
+
+          Get-ChildItem '.\package' -Recurse -File |
+            Where-Object { $_.Name -ne 'M0.1_MINIMAL_SAFE_AUDIT.txt' } |
+            Sort-Object FullName |
+            ForEach-Object {
+              $hash = Get-FileHash $_.FullName -Algorithm SHA256
+              $rel = $_.FullName.Substring((Resolve-Path '.\package').Path.Length + 1)
+              "$($hash.Hash)  $rel" | Add-Content $manifest -Encoding ascii
+            }
+
+          Get-Content $manifest
+
+      - name: Add install hard stop
+        shell: pwsh
+        run: |
+          @'
+          PHASER360 M0.1 MINIMAL SAFE STACK
+
+          DO NOT INSTALL YET.
+
+          This artifact exists to prove that a PHASER360-specific PCI bus can
+          enumerate only the AudioDSP child and export the v1 query interface
+          without mapping MMIO, connecting interrupts, allocating DMA buffers,
+          starting HDA, changing DSP power, or enabling any audio path.
+
+          Installation is considered only after binary audit of this artifact.
+          '@ | Set-Content '.\package\DO_NOT_INSTALL_YET.txt' -Encoding ascii
+
+      - name: Upload M0.1 minimal safe stack
+        uses: actions/upload-artifact@v7
+        with:
+          name: phaser360-m01-minimal-safe-stack
+          path: package/
+          if-no-files-found: error
