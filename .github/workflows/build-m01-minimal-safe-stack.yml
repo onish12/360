@@ -179,19 +179,16 @@ jobs:
                   PHASER_CHILD_ID,
                   Header);
 
-              DECLARE_UNICODE_STRING_SIZE(deviceId, 96);
+              // M0.1 is deliberately hard-bound to the single audited PHASER360
+              // Gemini Lake target. Avoid runtime formatting and ntstrsafe.lib.
+              DECLARE_CONST_UNICODE_STRING(
+                  deviceId,
+                  L"CSAUDIO\\ADSP&CTLR_VEN_8086&CTLR_DEV_3198");
               DECLARE_CONST_UNICODE_STRING(instanceId, L"00");
               DECLARE_CONST_UNICODE_STRING(location, L"PHASER360 Gemini Lake AudioDSP");
               DECLARE_CONST_UNICODE_STRING(description, L"PHASER360 M0.1 AudioDSP interface");
 
-              NTSTATUS status = RtlUnicodeStringPrintf(
-                  &deviceId,
-                  L"CSAUDIO\\ADSP&CTLR_VEN_%04X&CTLR_DEV_%04X",
-                  desc->ControllerVendorId,
-                  desc->ControllerDeviceId);
-              if (!NT_SUCCESS(status)) {
-                  return status;
-              }
+              NTSTATUS status;
 
               WdfDeviceInitSetDeviceType(ChildInit, FILE_DEVICE_BUS_EXTENDER);
 
