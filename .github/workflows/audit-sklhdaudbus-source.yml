@@ -1,0 +1,66 @@
+name: Export sklhdaudbus power audit source
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    name: Exact upstream source snapshot
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clone exact audited upstream commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          COMMIT="5477b93a3b68c474819abf2094a49d0e2d8d9799"
+          git clone https://github.com/coolstar/sklhdaudbus.git upstream
+          cd upstream
+          git checkout --detach "$COMMIT"
+          ACTUAL="$(git rev-parse HEAD)"
+          test "$ACTUAL" = "$COMMIT"
+          printf '%s\n' "$ACTUAL" > ../SKLHDAUDBUS_UPSTREAM_COMMIT.txt
+
+      - name: Build source audit bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit-source
+          cp -a upstream/sklhdaudbus audit-source/
+          cp upstream/LICENSE.txt audit-source/
+          cp upstream/README.md audit-source/
+          cp upstream/sklhdaudbus.sln audit-source/
+          cp SKLHDAUDBUS_UPSTREAM_COMMIT.txt audit-source/
+
+          {
+            echo "PHASER360 SKLHDAUDBUS POWER/HARDWARE AUDIT SURFACE"
+            echo "COMMIT=$(cat SKLHDAUDBUS_UPSTREAM_COMMIT.txt)"
+            echo
+            echo "=== Power / PnP / interrupt / MMIO / DMA references ==="
+            grep -RniE \
+              'EvtDevice(D0Entry|D0Exit|PrepareHardware|ReleaseHardware|SelfManagedIo|SurpriseRemoval)|WdfDeviceAssignS0IdleSettings|WdfDeviceAssignSxWakeSettings|WdfDeviceInitSetPower|WdfDeviceStopIdle|WdfDeviceResumeIdle|WdfInterrupt|ConnectInterrupt|MmMapIoSpace|MmUnmapIoSpace|MmAllocateContiguousMemory|MmAllocatePagesForMdl|WRITE_REGISTER|READ_REGISTER|KeDelayExecutionThread|KeStallExecutionProcessor|SetDSPPowerState|PrepareDSP|TriggerDSP' \
+              upstream/sklhdaudbus || true
+            echo
+            echo "=== Source hashes ==="
+            find upstream/sklhdaudbus -type f -print0 | sort -z | xargs -0 sha256sum
+          } > audit-source/POWER_AUDIT_SURFACE.txt
+
+      - name: Verify snapshot identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Pinned commit: $(cat audit-source/SKLHDAUDBUS_UPSTREAM_COMMIT.txt)"
+          test "$(cat audit-source/SKLHDAUDBUS_UPSTREAM_COMMIT.txt)" = \
+               "5477b93a3b68c474819abf2094a49d0e2d8d9799"
+          find audit-source -maxdepth 2 -type f -printf '%P\n' | sort
+
+      - name: Upload exact source for independent audit
+        uses: actions/upload-artifact@v7
+        with:
+          name: sklhdaudbus-power-audit-source-5477b93
+          path: audit-source/
+          if-no-files-found: error
+          retention-days: 7
