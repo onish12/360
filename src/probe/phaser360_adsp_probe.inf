@@ -1,0 +1,40 @@
+; PHASER360 M0.1 probe INF
+; SOURCE ONLY in M0.1. The CI build intentionally does not package/sign/install it.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=08/26/2026,0.1.0.0
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[Manufacturer]
+%ProviderName%=Models,NTamd64
+
+[Models.NTamd64]
+%DeviceDesc%=Probe_Install,CSAUDIO\ADSP&CTLR_VEN_8086&CTLR_DEV_3198
+
+[Probe_Install.NT]
+CopyFiles=DriverCopyFiles
+
+[DriverCopyFiles]
+phaser360_adsp_probe.sys
+
+[Probe_Install.NT.Services]
+AddService=phaser360_adsp_probe,0x00000002,Probe_Service
+
+[Probe_Service]
+DisplayName=%ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\phaser360_adsp_probe.sys
+
+[Strings]
+ProviderName="PHASER360 Open Audio"
+DeviceDesc="PHASER360 ADSP Read-Only Probe"
+ServiceDesc="PHASER360 ADSP Read-Only Probe"
