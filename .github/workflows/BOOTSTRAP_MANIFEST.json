@@ -1,0 +1,101 @@
+{
+  "name": "360_BOOTSTRAP_V1",
+  "generated": "2026-08-26",
+  "files": [
+    {
+      "path": ".github/workflows/build-probe.yml",
+      "bytes": 2089,
+      "sha256": "f71544656645bb2edf4ce9cd5846a94df153203bc53955e9aafc2a4b785efc04"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 125,
+      "sha256": "a007af9d3594217b18c451536d8f5099de5a1ffcebbe57b969fd4ce7ed8ec788"
+    },
+    {
+      "path": "Directory.Build.props",
+      "bytes": 802,
+      "sha256": "9f76632352f94bb8e014dc8c1d6f32decb1931f82710da24b9344f5d8b048e54"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1090,
+      "sha256": "7f71f92672766fef6ca4ab1116436809cd85b0d6c4076b0a62330614cf8d9559"
+    },
+    {
+      "path": "LICENSES/THIRD_PARTY.md",
+      "bytes": 497,
+      "sha256": "95e6ba46b643677afcaec913617e7765978098ff22f68c06a6afea541b147a89"
+    },
+    {
+      "path": "PHASER360-Open-Audio.sln",
+      "bytes": 906,
+      "sha256": "10fee9253ad7b411c394f70f00331fc9d9ea7bc5c714fa063836c40c6d0240e2"
+    },
+    {
+      "path": "README.md",
+      "bytes": 2774,
+      "sha256": "5a811e2ac67aa81482cf450678396dfd9bc9b00afda297f6531606819e65e3e3"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "bytes": 1263,
+      "sha256": "b65cdff39ed60d98529fe138efb663c83b83f1b3e37c36f7cacddbf1765e678e"
+    },
+    {
+      "path": "docs/BASELINE_AUDIT.md",
+      "bytes": 903,
+      "sha256": "a8ad982a4260d10a106e01cc933f3ac56503d1ca68f21e5a61e05965a7274894"
+    },
+    {
+      "path": "docs/REFERENCES.md",
+      "bytes": 929,
+      "sha256": "c292de24c04ce350e869fd51f191c49a7b3e8100739e4856a950d6f207111448"
+    },
+    {
+      "path": "docs/SAFETY.md",
+      "bytes": 916,
+      "sha256": "21f5a2f2940d0f7257553658234ac8ef47242369a6f5510bc1ff281989bf316a"
+    },
+    {
+      "path": "external/README.md",
+      "bytes": 280,
+      "sha256": "1126833f1697681bb0c5194aafedff52ad69fce8533ab988022cb07f420c3144"
+    },
+    {
+      "path": "packages.config",
+      "bytes": 354,
+      "sha256": "88b5d2a3328178ecd649a994013fea16f3fa0a8f632310d9b75dd69a99cd2b92"
+    },
+    {
+      "path": "scripts/fetch-references.ps1",
+      "bytes": 758,
+      "sha256": "28802713e77d24f51ed814422d8ae3cb1c2a93ad153e9a2d8ecc73c2aa431b17"
+    },
+    {
+      "path": "scripts/verify-bootstrap.ps1",
+      "bytes": 1098,
+      "sha256": "783c6b52d9a39117867abdf3108b50340ee0a214796c2965e6cdf3237eb42cf2"
+    },
+    {
+      "path": "src/probe/adsp_bus_contract.h",
+      "bytes": 1650,
+      "sha256": "00e4df1097a0541255926cda4ae1e2db102d50b0636f89010c8383602a7cff77"
+    },
+    {
+      "path": "src/probe/driver.cpp",
+      "bytes": 4752,
+      "sha256": "052551e6a0ea4f87825f83d79b388561017ed93d3eae26387a7270175304e334"
+    },
+    {
+      "path": "src/probe/phaser360_adsp_probe.inf",
+      "bytes": 887,
+      "sha256": "5d78489acba3788ebef570dddf2e74d0231bd267cd50826ffc6e489dee655521"
+    },
+    {
+      "path": "src/probe/phaser360_adsp_probe.vcxproj",
+      "bytes": 2909,
+      "sha256": "ba1da6b3fcee8c48ccd30833830384dc2d308c5a75d24406923c3d479dfc33c4"
+    }
+  ]
+}

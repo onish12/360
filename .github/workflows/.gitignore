@@ -1,0 +1,11 @@
+.vs/
+packages/
+obj/
+artifacts/
+*.user
+*.suo
+*.VC.db
+external/sklhdaudbus/
+external/da7219/
+external/max98357a/
+external/sof/
