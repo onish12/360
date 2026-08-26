@@ -1,0 +1,76 @@
+name: Build ADSP probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/probe/**'
+      - 'packages.config'
+      - 'Directory.Build.props'
+      - 'PHASER360-Open-Audio.sln'
+      - '.github/workflows/build-probe.yml'
+  pull_request:
+    paths:
+      - 'src/probe/**'
+      - 'packages.config'
+      - 'Directory.Build.props'
+      - 'PHASER360-Open-Audio.sln'
+      - '.github/workflows/build-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: x64 ${{ matrix.configuration }}
+    runs-on: windows-2025-vs2026
+
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore WDK/SDK NuGet packages
+        shell: pwsh
+        run: |
+          nuget restore .\packages.config -PackagesDirectory .\packages -NonInteractive
+
+      - name: Static M0.1 safety gate
+        shell: pwsh
+        run: .\scripts\verify-bootstrap.ps1
+
+      - name: Build unsigned probe
+        shell: pwsh
+        run: |
+          msbuild .\PHASER360-Open-Audio.sln /m /t:Rebuild `
+            /p:Configuration=${{ matrix.configuration }} `
+            /p:Platform=x64 `
+            /p:SignMode=Off `
+            /verbosity:minimal
+
+      - name: Verify output
+        shell: pwsh
+        run: |
+          $sys = ".\artifacts\${{ matrix.configuration }}\x64\phaser360_adsp_probe.sys"
+          if (-not (Test-Path $sys)) { throw "Missing expected output: $sys" }
+          Get-FileHash $sys -Algorithm SHA256
+          Get-Item $sys | Format-List FullName,Length,LastWriteTime
+
+      - name: Upload unsigned build
+        uses: actions/upload-artifact@v7
+        with:
+          name: phaser360-adsp-probe-${{ matrix.configuration }}-x64
+          path: |
+            artifacts/${{ matrix.configuration }}/x64/phaser360_adsp_probe.sys
+            src/probe/phaser360_adsp_probe.inf
+            docs/SAFETY.md
+          if-no-files-found: error
