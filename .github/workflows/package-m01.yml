@@ -1,0 +1,412 @@
+name: Package PHASER360 M0.1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Controlled x64 package
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout PHASER360
+        uses: actions/checkout@v7
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore WDK packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          nuget restore .\packages.config -PackagesDirectory .\packages -NonInteractive
+
+      - name: Verify M0.1 probe safety gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\scripts\verify-bootstrap.ps1
+
+      - name: Build M0.1 probe with KMDF 1.33
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild .\PHASER360-Open-Audio.sln /m /t:Rebuild `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:KMDF_VERSION_MAJOR=1 `
+            /p:KMDF_VERSION_MINOR=33 `
+            /p:TargetVersion=Windows10 `
+            /p:SignMode=Off `
+            /verbosity:minimal
+
+          $probe = '.\artifacts\Release\x64\phaser360_adsp_probe.sys'
+          if (-not (Test-Path $probe)) {
+            throw "Probe SYS missing: $probe"
+          }
+
+      - name: Fetch pinned sklhdaudbus source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pin = '5477b93a3b68c474819abf2094a49d0e2d8d9799'
+          $dst = '.\external_build\sklhdaudbus'
+
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          git -C $dst init
+          git -C $dst remote add origin https://github.com/coolstar/sklhdaudbus.git
+          git -C $dst fetch --depth 1 origin $pin
+          git -C $dst checkout --detach FETCH_HEAD
+
+          $head = (git -C $dst rev-parse HEAD).Trim()
+          if ($head -ne $pin) {
+            throw "Pinned commit mismatch. Expected $pin, got $head"
+          }
+
+          $head | Set-Content '.\SKLHDAUDBUS_UPSTREAM_COMMIT.txt' -Encoding ascii
+          Write-Host "PASS: pinned upstream commit $head"
+
+      - name: Verify upstream Gemini Lake support
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $inf = '.\external_build\sklhdaudbus\sklhdaudbus\sklhdaudbus.inf'
+          if (-not (Test-Path $inf)) { throw 'Upstream INF missing.' }
+
+          $hit = Select-String -Path $inf -SimpleMatch 'PCI\VEN_8086&DEV_3198&CC_0401'
+          if (-not $hit) { throw 'Gemini Lake DEV_3198 is missing from pinned upstream INF.' }
+
+          Write-Host 'PASS: pinned source contains PCI\VEN_8086&DEV_3198&CC_0401'
+
+      - name: Build pinned sklhdaudbus with KMDF 1.33
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild '.\external_build\sklhdaudbus\sklhdaudbus\sklhdaudbus.vcxproj' /m /t:Rebuild `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:KMDF_VERSION_MAJOR=1 `
+            /p:KMDF_VERSION_MINOR=33 `
+            /p:TargetVersion=Windows10 `
+            /p:SignMode=Off `
+            /verbosity:minimal
+
+          $bus = Get-ChildItem '.\external_build\sklhdaudbus' -Recurse -Filter 'sklhdaudbus.sys' -File |
+            Where-Object { $_.FullName -match '\\x64\\Release\\' } |
+            Select-Object -First 1
+
+          if (-not $bus) {
+            throw 'Fresh x64 Release sklhdaudbus.sys was not found.'
+          }
+
+          New-Item -ItemType Directory -Force -Path '.\package\bus' | Out-Null
+          New-Item -ItemType Directory -Force -Path '.\package\probe' | Out-Null
+
+          Copy-Item $bus.FullName '.\package\bus\sklhdaudbus.sys' -Force
+          Copy-Item '.\external_build\sklhdaudbus\LICENSE.txt' '.\package\bus\SKLHDAUDBUS_LICENSE.txt' -Force
+          Copy-Item '.\SKLHDAUDBUS_UPSTREAM_COMMIT.txt' '.\package\bus\SKLHDAUDBUS_UPSTREAM_COMMIT.txt' -Force
+
+          Copy-Item '.\artifacts\Release\x64\phaser360_adsp_probe.sys' '.\package\probe\phaser360_adsp_probe.sys' -Force
+
+      - name: Create constrained PHASER360 INF files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          @'
+          ; PHASER360 constrained package for CoolStar sklhdaudbus
+          ; Upstream source: https://github.com/coolstar/sklhdaudbus
+          ; Target intentionally restricted to Intel Gemini Lake DEV_3198.
+
+          [Version]
+          Signature="$WINDOWS NT$"
+          Class=System
+          ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+          Provider=%ProviderName%
+          DriverVer=08/15/2022,1.0.0.360
+          CatalogFile=phaser360_sklhdaudbus.cat
+          PnpLockdown=1
+
+          [DestinationDirs]
+          Bus_CopyFiles=13
+
+          [SourceDisksNames]
+          1=%DiskName%,,,
+
+          [SourceDisksFiles]
+          sklhdaudbus.sys=1
+
+          [Manufacturer]
+          %ProviderName%=Models,NTamd64.10.0...22000
+
+          [Models.NTamd64.10.0...22000]
+          %BusDeviceDesc%=Bus_Install,PCI\VEN_8086&DEV_3198&CC_0401
+
+          [Bus_Install.NT]
+          CopyFiles=Bus_CopyFiles
+
+          [Bus_CopyFiles]
+          sklhdaudbus.sys
+
+          [Bus_Install.NT.HW]
+          AddReg=Bus_Device_Settings
+          Include=pci.inf
+          Needs=PciD3ColdSupported.HW
+
+          [Bus_Device_Settings]
+          HKR,Settings,"ConnectInterrupt",0x00010001,0
+
+          [Bus_Install.NT.Services]
+          AddService=SklHDAudBus,0x00000002,Bus_Service
+
+          [Bus_Service]
+          DisplayName=%BusServiceDesc%
+          ServiceType=1
+          StartType=3
+          ErrorControl=1
+          ServiceBinary=%13%\sklhdaudbus.sys
+
+          [Bus_Install.NT.Wdf]
+          KmdfService=SklHDAudBus,Bus_Wdf
+
+          [Bus_Wdf]
+          KmdfLibraryVersion=1.33
+
+          [Strings]
+          ProviderName="PHASER360 Open Audio"
+          DiskName="PHASER360 Open Audio Driver Package"
+          BusDeviceDesc="PHASER360 Gemini Lake HD Audio Bus"
+          BusServiceDesc="PHASER360 Gemini Lake HD Audio Bus Service"
+          '@ | Set-Content '.\package\bus\phaser360_sklhdaudbus.inf' -Encoding ascii
+
+          @'
+          ; PHASER360 M0.1 ADSP interface-query-only probe
+
+          [Version]
+          Signature="$WINDOWS NT$"
+          Class=System
+          ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+          Provider=%ProviderName%
+          DriverVer=08/26/2026,0.1.0.0
+          CatalogFile=phaser360_adsp_probe.cat
+          PnpLockdown=1
+
+          [DestinationDirs]
+          Probe_CopyFiles=13
+
+          [SourceDisksNames]
+          1=%DiskName%,,,
+
+          [SourceDisksFiles]
+          phaser360_adsp_probe.sys=1
+
+          [Manufacturer]
+          %ProviderName%=Models,NTamd64.10.0...22000
+
+          [Models.NTamd64.10.0...22000]
+          %ProbeDeviceDesc%=Probe_Install,CSAUDIO\ADSP&CTLR_VEN_8086&CTLR_DEV_3198
+
+          [Probe_Install.NT]
+          CopyFiles=Probe_CopyFiles
+
+          [Probe_CopyFiles]
+          phaser360_adsp_probe.sys
+
+          [Probe_Install.NT.Services]
+          AddService=phaser360_adsp_probe,0x00000002,Probe_Service
+
+          [Probe_Service]
+          DisplayName=%ProbeServiceDesc%
+          ServiceType=1
+          StartType=3
+          ErrorControl=1
+          ServiceBinary=%13%\phaser360_adsp_probe.sys
+
+          [Probe_Install.NT.Wdf]
+          KmdfService=phaser360_adsp_probe,Probe_Wdf
+
+          [Probe_Wdf]
+          KmdfLibraryVersion=1.33
+
+          [Strings]
+          ProviderName="PHASER360 Open Audio"
+          DiskName="PHASER360 Open Audio Driver Package"
+          ProbeDeviceDesc="PHASER360 ADSP M0.1 Read-Only Probe"
+          ProbeServiceDesc="PHASER360 ADSP M0.1 Read-Only Probe"
+          '@ | Set-Content '.\package\probe\phaser360_adsp_probe.inf' -Encoding ascii
+
+      - name: Enforce package safety invariants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $busInfPath = '.\package\bus\phaser360_sklhdaudbus.inf'
+          $probeInfPath = '.\package\probe\phaser360_adsp_probe.inf'
+          $busInf = Get-Content $busInfPath -Raw
+          $probeInf = Get-Content $probeInfPath -Raw
+
+          $busIds = [regex]::Matches($busInf, 'PCI\\VEN_8086&DEV_[0-9A-Fa-f]{4}&CC_0401')
+          if ($busIds.Count -ne 1 -or $busIds[0].Value -ne 'PCI\VEN_8086&DEV_3198&CC_0401') {
+            throw 'Bus INF is not restricted to exactly Gemini Lake DEV_3198.'
+          }
+
+          if (-not $busInf.Contains('HKR,Settings,"ConnectInterrupt",0x00010001,0')) {
+            throw 'ConnectInterrupt=0 safety gate missing.'
+          }
+
+          if (-not $busInf.Contains('StartType=3')) {
+            throw 'Bus must remain demand-start.'
+          }
+
+          if (-not $busInf.Contains('ServiceBinary=%13%\sklhdaudbus.sys')) {
+            throw 'Bus package is not configured to run from Driver Store.'
+          }
+
+          $probeIds = [regex]::Matches($probeInf, 'CSAUDIO\\ADSP&CTLR_VEN_8086&CTLR_DEV_[0-9A-Fa-f]{4}')
+          if ($probeIds.Count -ne 1 -or $probeIds[0].Value -ne 'CSAUDIO\ADSP&CTLR_VEN_8086&CTLR_DEV_3198') {
+            throw 'Probe INF child hardware ID mismatch.'
+          }
+
+          if (-not $probeInf.Contains('ServiceBinary=%13%\phaser360_adsp_probe.sys')) {
+            throw 'Probe package is not configured to run from Driver Store.'
+          }
+
+          if (-not $busInf.Contains('KmdfLibraryVersion=1.33') -or
+              -not $probeInf.Contains('KmdfLibraryVersion=1.33')) {
+            throw 'KMDF package version is not pinned to 1.33.'
+          }
+
+          Write-Host 'PASS: package safety invariants.'
+
+      - name: Run InfVerif
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Resolve-WdkTool([string]$Name) {
+            $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+            if ($cmd) { return $cmd.Source }
+
+            $tool = Get-ChildItem '.\packages' -Recurse -File -Filter $Name -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\x64\\' } |
+              Select-Object -First 1
+
+            if (-not $tool) {
+              $tool = Get-ChildItem '.\packages' -Recurse -File -Filter $Name -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            }
+
+            if (-not $tool) { throw "WDK tool not found: $Name" }
+            return $tool.FullName
+          }
+
+          $infverif = Resolve-WdkTool 'infverif.exe'
+          Write-Host "InfVerif=$infverif"
+
+          & $infverif /w '.\package\bus\phaser360_sklhdaudbus.inf'
+          if ($LASTEXITCODE -ne 0) { throw "Bus InfVerif failed: $LASTEXITCODE" }
+
+          & $infverif /w '.\package\probe\phaser360_adsp_probe.inf'
+          if ($LASTEXITCODE -ne 0) { throw "Probe InfVerif failed: $LASTEXITCODE" }
+
+      - name: Generate unsigned catalogs with Inf2Cat
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Resolve-WdkTool([string]$Name) {
+            $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+            if ($cmd) { return $cmd.Source }
+
+            $tool = Get-ChildItem '.\packages' -Recurse -File -Filter $Name -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\x64\\' } |
+              Select-Object -First 1
+
+            if (-not $tool) {
+              $tool = Get-ChildItem '.\packages' -Recurse -File -Filter $Name -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            }
+
+            if (-not $tool) { throw "WDK tool not found: $Name" }
+            return $tool.FullName
+          }
+
+          $inf2cat = Resolve-WdkTool 'inf2cat.exe'
+          Write-Host "Inf2Cat=$inf2cat"
+
+          $busDir = (Resolve-Path '.\package\bus').Path
+          $probeDir = (Resolve-Path '.\package\probe').Path
+
+          & $inf2cat "/driver:$busDir" '/os:10_NI_X64' /uselocaltime /verbose
+          if ($LASTEXITCODE -ne 0) { throw "Bus Inf2Cat failed: $LASTEXITCODE" }
+
+          & $inf2cat "/driver:$probeDir" '/os:10_NI_X64' /uselocaltime /verbose
+          if ($LASTEXITCODE -ne 0) { throw "Probe Inf2Cat failed: $LASTEXITCODE" }
+
+          if (-not (Test-Path '.\package\bus\phaser360_sklhdaudbus.cat')) {
+            throw 'Bus catalog was not generated.'
+          }
+
+          if (-not (Test-Path '.\package\probe\phaser360_adsp_probe.cat')) {
+            throw 'Probe catalog was not generated.'
+          }
+
+      - name: Create audit manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = '.\package\M0.1_AUDIT_MANIFEST.txt'
+
+          @(
+            'PHASER360 M0.1 CONTROLLED PACKAGE'
+            'STATUS=BUILD_AND_VALIDATION_ONLY'
+            'DO_NOT_INSTALL_UNTIL_BINARY_AND_POWER_AUDIT_IS_CLOSED'
+            'ARCH=x64'
+            'MIN_OS=Windows 11 build 22000'
+            'CATALOG_TEST_OS=Windows 11 22H2 x64 (10_NI_X64)'
+            'KMDF=1.33'
+            'BUS_HWID=PCI\VEN_8086&DEV_3198&CC_0401'
+            'ADSP_HWID=CSAUDIO\ADSP&CTLR_VEN_8086&CTLR_DEV_3198'
+            'BUS_CONNECT_INTERRUPT=0'
+            'BUS_START_TYPE=3'
+            'PROBE_START_TYPE=3'
+            'SKLHDAUDBUS_COMMIT=5477b93a3b68c474819abf2094a49d0e2d8d9799'
+            ''
+            'SHA256:'
+          ) | Set-Content $manifest -Encoding ascii
+
+          Get-ChildItem '.\package' -Recurse -File |
+            Where-Object { $_.Name -ne 'M0.1_AUDIT_MANIFEST.txt' } |
+            Sort-Object FullName |
+            ForEach-Object {
+              $hash = Get-FileHash $_.FullName -Algorithm SHA256
+              $rel = $_.FullName.Substring((Resolve-Path '.\package').Path.Length + 1)
+              "$($hash.Hash)  $rel" | Add-Content $manifest -Encoding ascii
+            }
+
+          Get-Content $manifest
+
+      - name: Add hard stop notice
+        shell: pwsh
+        run: |
+          @'
+          PHASER360 M0.1
+
+          THIS ARTIFACT IS NOT YET APPROVED FOR INSTALLATION.
+
+          It has been built and INF/catalog validated only.
+          The sklhdaudbus power-management and hardware-touching paths must be
+          audited before the first installation on the PHASER360 machine.
+          '@ | Set-Content '.\package\DO_NOT_INSTALL_YET.txt' -Encoding ascii
+
+      - name: Upload controlled M0.1 package
+        uses: actions/upload-artifact@v7
+        with:
+          name: phaser360-m01-controlled-package
+          path: package/
+          if-no-files-found: error
