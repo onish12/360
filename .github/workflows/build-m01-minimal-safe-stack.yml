@@ -552,7 +552,49 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $sys = '.\_ci_m01_safe_bus\out\phaser360_bus_m01.sys'
-          $imports = (& dumpbin /imports $sys | Out-String)
+
+          $dumpbinCmd = Get-Command dumpbin.exe -ErrorAction SilentlyContinue
+          if ($dumpbinCmd) {
+            $dumpbin = $dumpbinCmd.Source
+          }
+          else {
+            $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+            if (-not (Test-Path $vswhere)) {
+              throw "vswhere.exe not found: $vswhere"
+            }
+
+            $vsRoot = (& $vswhere -latest -products * `
+              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+              -property installationPath | Select-Object -First 1)
+
+            if (-not $vsRoot) {
+              throw 'Visual Studio installation with VC x64 tools was not found.'
+            }
+
+            $dumpbinFile = Get-ChildItem `
+              (Join-Path $vsRoot 'VC\Tools\MSVC') `
+              -Recurse `
+              -File `
+              -Filter 'dumpbin.exe' `
+              -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\bin\\Hostx64\\x64\\dumpbin\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+
+            if (-not $dumpbinFile) {
+              throw "dumpbin.exe was not found under Visual Studio: $vsRoot"
+            }
+
+            $dumpbin = $dumpbinFile.FullName
+          }
+
+          Write-Host "DUMPBIN=$dumpbin"
+          $imports = (& $dumpbin /imports $sys | Out-String)
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "dumpbin /imports failed with exit code $LASTEXITCODE"
+          }
+
           $imports | Set-Content '.\_ci_m01_safe_bus\imports.txt' -Encoding ascii
           Write-Host $imports
 
