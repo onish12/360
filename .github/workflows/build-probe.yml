@@ -1,1 +1,83 @@
+name: Build ADSP probe
 
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "src/probe/**"
+      - "scripts/**"
+      - "packages.config"
+      - "Directory.Build.props"
+      - "PHASER360-Open-Audio.sln"
+      - ".github/workflows/build-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: x64 ${{ matrix.configuration }}
+    runs-on: windows-2025-vs2026
+
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration:
+          - Debug
+          - Release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore WDK packages
+        shell: pwsh
+        run: |
+          nuget restore .\packages.config -PackagesDirectory .\packages -NonInteractive
+
+      - name: Verify M0.1 safety rules
+        shell: pwsh
+        run: |
+          .\scripts\verify-bootstrap.ps1
+
+      - name: Build driver
+        shell: pwsh
+        run: |
+          msbuild .\PHASER360-Open-Audio.sln /m /t:Rebuild `
+            /p:Configuration=${{ matrix.configuration }} `
+            /p:Platform=x64 `
+            /p:SignMode=Off `
+            /verbosity:minimal
+
+      - name: Find generated driver
+        shell: pwsh
+        run: |
+          Write-Host "Searching for generated SYS files..."
+          Get-ChildItem -Path . -Recurse -Filter *.sys |
+            Select-Object FullName,Length,LastWriteTime
+
+          $sys = Get-ChildItem -Path . -Recurse -Filter phaser360_adsp_probe.sys |
+            Select-Object -First 1
+
+          if (-not $sys) {
+            throw "phaser360_adsp_probe.sys was not generated."
+          }
+
+          Get-FileHash $sys.FullName -Algorithm SHA256
+
+          New-Item -ItemType Directory -Force -Path ".\ci-output" | Out-Null
+          Copy-Item $sys.FullName ".\ci-output\phaser360_adsp_probe.sys" -Force
+          Copy-Item ".\src\probe\phaser360_adsp_probe.inf" ".\ci-output\" -Force
+
+      - name: Upload driver artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: phaser360-adsp-probe-${{ matrix.configuration }}-x64
+          path: ci-output/
+          if-no-files-found: error
