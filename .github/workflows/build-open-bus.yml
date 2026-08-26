@@ -1,0 +1,153 @@
+name: Build open-source HDA bus
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: sklhdaudbus x64 Release
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout PHASER360 repository
+        uses: actions/checkout@v7
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore WDK packages
+        shell: pwsh
+        run: |
+          nuget restore .\packages.config `
+            -PackagesDirectory .\packages `
+            -NonInteractive
+
+      - name: Clone upstream sklhdaudbus
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory `
+            -Force `
+            -Path ".\external_build" | Out-Null
+
+          git clone `
+            --depth 1 `
+            --branch master `
+            https://github.com/coolstar/sklhdaudbus.git `
+            ".\external_build\sklhdaudbus"
+
+          Push-Location ".\external_build\sklhdaudbus"
+
+          $commit = git rev-parse HEAD
+          Write-Host "SKLHDAUDBUS_UPSTREAM_COMMIT=$commit"
+
+          $commit | Out-File `
+            -FilePath "..\..\SKLHDAUDBUS_UPSTREAM_COMMIT.txt" `
+            -Encoding ascii
+
+          Pop-Location
+
+      - name: Verify Gemini Lake target
+        shell: pwsh
+        run: |
+          $inf = ".\external_build\sklhdaudbus\sklhdaudbus\sklhdaudbus.inf"
+
+          if (-not (Test-Path $inf)) {
+            throw "Upstream sklhdaudbus INF was not found."
+          }
+
+          $match = Select-String `
+            -Path $inf `
+            -SimpleMatch `
+            'PCI\VEN_8086&DEV_3198&CC_0401'
+
+          if (-not $match) {
+            throw "Upstream source does not contain Gemini Lake DEV_3198 target."
+          }
+
+          Write-Host "PASS: Gemini Lake DEV_3198 target present."
+          $match.Line
+
+      - name: Build sklhdaudbus
+        shell: pwsh
+        run: |
+          msbuild `
+            ".\external_build\sklhdaudbus\sklhdaudbus\sklhdaudbus.vcxproj" `
+            /m `
+            /t:Rebuild `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:SignMode=Off `
+            /verbosity:minimal
+
+      - name: Locate built bus driver
+        shell: pwsh
+        run: |
+          Write-Host "Searching for sklhdaudbus.sys..."
+
+          $drivers = Get-ChildItem `
+            ".\external_build\sklhdaudbus" `
+            -Recurse `
+            -Filter "sklhdaudbus.sys" `
+            -ErrorAction SilentlyContinue
+
+          $drivers |
+            Select-Object FullName,Length,LastWriteTime
+
+          $sys = $drivers |
+            Where-Object { $_.FullName -match 'x64' } |
+            Select-Object -First 1
+
+          if (-not $sys) {
+            $sys = $drivers | Select-Object -First 1
+          }
+
+          if (-not $sys) {
+            throw "sklhdaudbus.sys was not generated."
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path ".\ci-open-bus" | Out-Null
+
+          Copy-Item `
+            $sys.FullName `
+            ".\ci-open-bus\sklhdaudbus.sys" `
+            -Force
+
+          Copy-Item `
+            ".\external_build\sklhdaudbus\sklhdaudbus\sklhdaudbus.inf" `
+            ".\ci-open-bus\sklhdaudbus.inf" `
+            -Force
+
+          Copy-Item `
+            ".\external_build\sklhdaudbus\LICENSE.txt" `
+            ".\ci-open-bus\SKLHDAUDBUS_LICENSE.txt" `
+            -Force
+
+          Copy-Item `
+            ".\SKLHDAUDBUS_UPSTREAM_COMMIT.txt" `
+            ".\ci-open-bus\" `
+            -Force
+
+          Write-Host ""
+          Write-Host "SHA256:"
+          Get-FileHash `
+            ".\ci-open-bus\sklhdaudbus.sys" `
+            -Algorithm SHA256
+
+          Get-FileHash `
+            ".\ci-open-bus\sklhdaudbus.inf" `
+            -Algorithm SHA256
+
+      - name: Upload open bus artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: phaser360-sklhdaudbus-Release-x64
+          path: ci-open-bus/
+          if-no-files-found: error
