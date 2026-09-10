@@ -1,0 +1,10 @@
+<Project>
+  <!--
+    The WDK NuGet flow needs BOTH halves: the .props (imported by
+    Directory.Build.props, before the project) and the .targets (imported after).
+    Without the .targets the kernel-mode toolset never resolves and a
+    ConfigurationType=Driver project fails. Directory.Build.props alone is not enough.
+  -->
+  <Import Project="packages\Microsoft.Windows.WDK.x64.10.0.28000.2526\build\native\Microsoft.Windows.WDK.x64.targets" Condition="Exists('packages\Microsoft.Windows.WDK.x64.10.0.28000.2526\build\native\Microsoft.Windows.WDK.x64.targets') and '$(Platform)' == 'x64'" />
+  <Import Project="packages\Microsoft.Windows.SDK.CPP.x64.10.0.28000.2526\build\native\Microsoft.Windows.SDK.cpp.x64.targets" Condition="Exists('packages\Microsoft.Windows.SDK.CPP.x64.10.0.28000.2526\build\native\Microsoft.Windows.SDK.cpp.x64.targets') and '$(Platform)' == 'x64'" />
+</Project>
