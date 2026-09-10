@@ -20,10 +20,61 @@ jobs:
         with:
           msbuild-architecture: x64
 
+      - name: Locate M0.5 source tree
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $hits = @(
+            Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Recurse -File `
+              -Filter 'phaser360_m05_mmio_ro.cpp' -ErrorAction Stop |
+            Where-Object {
+              $_.FullName -match '\\m05\\driver\\phaser360_m05_mmio_ro\.cpp$'
+            }
+          )
+
+          if ($hits.Count -ne 1) {
+            Write-Host '=== SEARCH DIAGNOSTIC ==='
+            Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Recurse -File |
+              Select-Object -ExpandProperty FullName |
+              Select-String -Pattern 'm05|phaser360_m05' |
+              ForEach-Object { Write-Host $_.Line }
+
+            throw "Expected exactly one M0.5 source file, found $($hits.Count)."
+          }
+
+          $driverDir = Split-Path -Parent $hits[0].FullName
+          $m05Root = Split-Path -Parent $driverDir
+          $sourceRoot = Split-Path -Parent $m05Root
+
+          if (-not (Test-Path (Join-Path $m05Root 'packages.config'))) {
+            throw "packages.config missing below discovered M05_ROOT=$m05Root"
+          }
+          if (-not (Test-Path (Join-Path $m05Root 'Directory.Build.props'))) {
+            throw "Directory.Build.props missing below discovered M05_ROOT=$m05Root"
+          }
+          if (-not (Test-Path (Join-Path $driverDir 'phaser360_m05_mmio_ro.inf'))) {
+            throw "M0.5 INF missing below discovered driver directory."
+          }
+          if (-not (Test-Path (Join-Path $driverDir 'phaser360_m05_mmio_ro.vcxproj'))) {
+            throw "M0.5 VCXPROJ missing below discovered driver directory."
+          }
+
+          "PHASER_SOURCE_ROOT=$sourceRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "M05_ROOT=$m05Root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "M05_DRIVER_DIR=$driverDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          Write-Host "GITHUB_WORKSPACE=$env:GITHUB_WORKSPACE"
+          Write-Host "PHASER_SOURCE_ROOT=$sourceRoot"
+          Write-Host "M05_ROOT=$m05Root"
+          Write-Host "M05_DRIVER_DIR=$driverDir"
+          Write-Host 'SOURCE_TREE_LOCATE=PASS'
+
       - name: Static source safety gate
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Set-Location -LiteralPath $env:PHASER_SOURCE_ROOT
           $src = Get-Content '.\m05\driver\phaser360_m05_mmio_ro.cpp' -Raw
           $inf = Get-Content '.\m05\driver\phaser360_m05_mmio_ro.inf' -Raw
 
@@ -78,6 +129,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Set-Location -LiteralPath $env:PHASER_SOURCE_ROOT
           nuget restore '.\m05\packages.config' -PackagesDirectory '.\m05\packages' -NonInteractive
           if ($LASTEXITCODE -ne 0) { throw "NuGet WDK restore failed: $LASTEXITCODE" }
 
@@ -94,6 +146,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Set-Location -LiteralPath $env:PHASER_SOURCE_ROOT
           msbuild '.\m05\driver\phaser360_m05_mmio_ro.vcxproj' /m /t:Rebuild `
             /p:Configuration=Release `
             /p:Platform=x64 `
@@ -112,6 +165,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Set-Location -LiteralPath $env:PHASER_SOURCE_ROOT
 
           function Find-Tool([string]$Name) {
             $cmd = Get-Command $Name -ErrorAction SilentlyContinue
@@ -148,6 +202,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Set-Location -LiteralPath $env:PHASER_SOURCE_ROOT
 
           $subject = 'CN=PHASER360 M0.5 Test Signing'
           $cert = New-SelfSignedCertificate `
@@ -180,6 +235,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Set-Location -LiteralPath $env:PHASER_SOURCE_ROOT
           $driverDir = (Resolve-Path '.\m05\driver').Path
 
           & $env:INF2CAT "/driver:$driverDir" '/os:10_NI_X64' /uselocaltime /verbose
@@ -196,6 +252,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Set-Location -LiteralPath $env:PHASER_SOURCE_ROOT
 
           $dumpbin = (Get-Command dumpbin.exe -ErrorAction Stop).Source
           $sys = '.\m05\driver\phaser360_m05_mmio_ro.sys'
@@ -237,6 +294,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Set-Location -LiteralPath $env:PHASER_SOURCE_ROOT
 
           Copy-Item '.\m05\RUN_M05_AFTER_BUILD_TEMPLATE.cmd' '.\m05\RUN_M05.cmd' -Force
           $thumb = (Get-Content '.\m05\CERT_THUMBPRINT.txt' -Raw).Trim()
@@ -269,9 +327,15 @@ jobs:
               "$h  $rel" | Add-Content $manifest -Encoding ascii
             }
 
+          $artifactZip = Join-Path $env:GITHUB_WORKSPACE 'PHASER360_M05_READONLY_MMIO.zip'
           Compress-Archive -Path '.\m05\*' `
-            -DestinationPath '.\PHASER360_M05_READONLY_MMIO.zip' -Force
+            -DestinationPath $artifactZip -Force
 
+          if (-not (Test-Path -LiteralPath $artifactZip)) {
+            throw "Artifact ZIP was not created: $artifactZip"
+          }
+
+          Write-Host ("ARTIFACT_ZIP=" + $artifactZip)
           Write-Host 'PACKAGE=PASS'
 
       - name: Upload M0.5
