@@ -9,3 +9,4 @@ external/sklhdaudbus/
 external/da7219/
 external/max98357a/
 external/sof/
+__pycache__/

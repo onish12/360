@@ -1,0 +1,27 @@
+{
+  "purpose": "Offline parser regression fixture, not a hardware deployment approval",
+  "repository": "https://github.com/thesofproject/sof-bin",
+  "commit": "a973fdba7a3555899ba3e58f89be3c258cf2a166",
+  "release_directory": "v1.9.x/sof-v1.9.3",
+  "glk_symlinks": ["sof-glk.ri -> intel-signed/sof-glk.ri", "intel-signed/sof-glk.ri -> sof-apl.ri"],
+  "url": "https://raw.githubusercontent.com/thesofproject/sof-bin/a973fdba7a3555899ba3e58f89be3c258cf2a166/v1.9.x/sof-v1.9.3/intel-signed/sof-apl.ri",
+  "license_url": "https://github.com/thesofproject/sof-bin/blob/a973fdba7a3555899ba3e58f89be3c258cf2a166/LICENCE.Intel",
+  "size": 287488,
+  "sha256": "40029b5a05665f19a492ef00b8c0a24c42e90d7c00fc57146e07947fd1407d5c",
+  "expected": {
+    "structure": "PASS",
+    "profile": "APL_GLK_CSE_V1_8",
+    "signature_verification": "NOT_PERFORMED",
+    "hardware_access": "NONE",
+    "installable": false,
+    "payload_offset": 768,
+    "payload_bytes": 286720,
+    "adsp_header_offset": 8960,
+    "module_table_offset": 9012,
+    "module_count": 2,
+    "file_backed_segments": 4,
+    "extended_element_count": 7,
+    "preload_pages": 70,
+    "version": "1.9.0.1"
+  }
+}

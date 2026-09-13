@@ -2,6 +2,20 @@
 
 Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen / PHASER360 (Intel Gemini Lake).
 
+## Current continuation status
+
+- **M0.5:** the read-only MMIO probe built and packaged successfully in
+  [CI run 34754361785](https://github.com/onish12/360/actions/runs/34754361785).
+  This is build/package evidence, not a successful test on the reinstalled Lenovo.
+- **M0.6:** [offline SOF firmware parser](docs/M06_FIRMWARE.md), malformed-input
+  tests and a SHA-256-pinned official APL/GLK regression image. This component
+  does not load firmware, install a driver or produce sound.
+- **Working Windows audio:** not yet implemented. DSP boot/authentication, IPC,
+  machine/codec integration and WaveRT remain separate milestones.
+
+The older bootstrap description below is retained for source history. Do not
+interpret either milestone's CI success as permission to enable hardware writes.
+
 ## Verified hardware target
 
 - Intel Gemini Lake HD Audio / AudioDSP controller: `PCI\\VEN_8086&DEV_3198`
@@ -14,7 +28,7 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 
 The generic Intel SST 9.22.0.4883 stack is not the solution for this Chromebook: it did not create usable internal audio endpoints on the target and caused a boot-loop when its kernel stack was active. The project therefore uses the public `sklhdaudbus` ADSP interface as the boundary and will implement a free/open-source SOF/WaveRT backend.
 
-## Milestone 0.1 — current bootstrap
+## Milestone 0.1 — original bootstrap
 
 `src/probe/phaser360_adsp_probe` is deliberately **read-only**. It binds only to the ADSP child and does exactly one hardware-stack operation: query `GUID_ADSP_BUS_INTERFACE` version 1. It validates that the returned controller ID is `0x3198` and logs the result.
 
