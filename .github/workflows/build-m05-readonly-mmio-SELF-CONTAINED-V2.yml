@@ -411,12 +411,16 @@ jobs:
           Write-Host 'M05_RUNTIME_TEMPLATE=PASS'
           $thumb = (Get-Content '.\m05\CERT_THUMBPRINT.txt' -Raw).Trim()
 
-          Write-Host 'M05_TRUST_IMPORT=START'
-          Import-Certificate -FilePath '.\m05\PHASER360_M05_TEST_SIGNING.cer' `
-            -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
-          Import-Certificate -FilePath '.\m05\PHASER360_M05_TEST_SIGNING.cer' `
-            -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
-          Write-Host 'M05_TRUST_IMPORT=PASS'
+          # PowerShell's certificate provider can stall on this hosted runner.
+          # Use the native Windows certificate-store utility for the same current-user
+          # Root trust operation required by SignTool's Authenticode policy check.
+          $certPath = (Resolve-Path '.\m05\PHASER360_M05_TEST_SIGNING.cer').Path
+          Write-Host 'M05_TRUST_ROOT=START'
+          & certutil.exe -user -f -addstore Root $certPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "certutil could not add the test certificate to CurrentUser Root: $LASTEXITCODE"
+          }
+          Write-Host 'M05_TRUST_ROOT=PASS'
 
           $cat = '.\m05\driver\phaser360_m05_mmio_ro.cat'
           $inf = '.\m05\driver\phaser360_m05_mmio_ro.inf'
