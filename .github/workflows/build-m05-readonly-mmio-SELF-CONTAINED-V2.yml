@@ -2,6 +2,9 @@ name: Build PHASER360 M0.5 read-only MMIO - self contained
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-m05-readonly-mmio-SELF-CONTAINED-V2.yml'
 
 permissions:
   contents: read
@@ -10,6 +13,7 @@ jobs:
   build:
     name: x64 M0.5 read-only MMIO
     runs-on: windows-2025-vs2026
+    timeout-minutes: 30
 
     steps:
       - name: Add MSBuild
@@ -430,16 +434,33 @@ jobs:
           Remove-Item -Recurse -Force '.\m05\driver\obj' -ErrorAction SilentlyContinue
           Remove-Item '.\m05\CERT_THUMBPRINT.txt' -Force -ErrorAction SilentlyContinue
 
-          $manifest = '.\m05\SHA256SUMS.txt'
-          if (Test-Path $manifest) { Remove-Item $manifest -Force }
+          # NuGet packages are CI build inputs, never runtime/package payload.
+          Remove-Item -Recurse -Force '.\m05\packages' -ErrorAction Stop
+          if (Test-Path -LiteralPath '.\m05\packages') {
+            throw 'Build-input directory remained after prune: m05\packages'
+          }
+          Write-Host 'BUILD_INPUT_PRUNE=PASS'
 
-          Get-ChildItem '.\m05' -Recurse -File |
-            Where-Object { $_.FullName -ne (Resolve-Path '.\m05').Path + '\SHA256SUMS.txt' } |
+          $manifest = '.\m05\SHA256SUMS.txt'
+          if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest -Force }
+
+          $payload = @(Get-ChildItem '.\m05' -Recurse -File)
+          if ($payload.Count -eq 0) {
+            throw 'No artifact payload files remained after build-input pruning.'
+          }
+          $payloadBytes = [Int64](($payload | Measure-Object -Property Length -Sum).Sum)
+          if ($payloadBytes -gt 52428800) {
+            throw "Artifact payload unexpectedly exceeds 50 MiB: $payloadBytes bytes"
+          }
+          Write-Host ("ARTIFACT_PAYLOAD_BYTES=" + $payloadBytes)
+
+          $m05Root = (Resolve-Path '.\m05').Path
+          $payload |
             Sort-Object FullName |
             ForEach-Object {
               $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-              $rel = $_.FullName.Substring((Resolve-Path '.\m05').Path.Length + 1)
-              "$h  $rel" | Add-Content $manifest -Encoding ascii
+              $rel = $_.FullName.Substring($m05Root.Length + 1)
+              "$h  $rel" | Add-Content -LiteralPath $manifest -Encoding ascii
             }
 
           $artifactZip = Join-Path $env:GITHUB_WORKSPACE 'PHASER360_M05_READONLY_MMIO.zip'
