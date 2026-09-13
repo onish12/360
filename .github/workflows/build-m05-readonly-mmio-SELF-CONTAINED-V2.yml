@@ -400,31 +400,42 @@ jobs:
           Write-Host 'BINARY_SAFETY_AUDIT=PASS'
 
       - name: Verify signatures and package
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location -LiteralPath $env:PHASER_SOURCE_ROOT
 
+          Write-Host 'M05_RUNTIME_TEMPLATE=START'
           Copy-Item '.\m05\RUN_M05_AFTER_BUILD_TEMPLATE.cmd' '.\m05\RUN_M05.cmd' -Force
+          Write-Host 'M05_RUNTIME_TEMPLATE=PASS'
           $thumb = (Get-Content '.\m05\CERT_THUMBPRINT.txt' -Raw).Trim()
 
+          Write-Host 'M05_TRUST_IMPORT=START'
           Import-Certificate -FilePath '.\m05\PHASER360_M05_TEST_SIGNING.cer' `
             -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
           Import-Certificate -FilePath '.\m05\PHASER360_M05_TEST_SIGNING.cer' `
             -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
+          Write-Host 'M05_TRUST_IMPORT=PASS'
 
           $cat = '.\m05\driver\phaser360_m05_mmio_ro.cat'
           $inf = '.\m05\driver\phaser360_m05_mmio_ro.inf'
           $sys = '.\m05\driver\phaser360_m05_mmio_ro.sys'
 
+          Write-Host 'M05_VERIFY_CAT_SIGNATURE=START'
           & $env:SIGNTOOL verify /v /pa $cat
           if ($LASTEXITCODE -ne 0) { throw 'CAT signature verification failed.' }
+          Write-Host 'M05_VERIFY_CAT_SIGNATURE=PASS'
 
+          Write-Host 'M05_VERIFY_INF_MEMBERSHIP=START'
           & $env:SIGNTOOL verify /v /pa /c $cat $inf
           if ($LASTEXITCODE -ne 0) { throw 'INF catalog membership/signature verification failed.' }
+          Write-Host 'M05_VERIFY_INF_MEMBERSHIP=PASS'
 
+          Write-Host 'M05_VERIFY_SYS_MEMBERSHIP=START'
           & $env:SIGNTOOL verify /v /pa /c $cat $sys
           if ($LASTEXITCODE -ne 0) { throw 'SYS catalog membership/signature verification failed.' }
+          Write-Host 'M05_VERIFY_SYS_MEMBERSHIP=PASS'
 
           Write-Host 'CAT_SIGNATURE=PASS'
           Write-Host 'INF_CATALOG_MEMBERSHIP=PASS'
@@ -434,6 +445,7 @@ jobs:
 
           # Build inputs/intermediates stay in place; copy only the approved runtime payload
           # into a small stage tree. This avoids recursively deleting or archiving WDK NuGet.
+          Write-Host 'M05_ARTIFACT_STAGE=START'
           $m05Root = (Resolve-Path '.\m05').Path
           $artifactStage = Join-Path $env:GITHUB_WORKSPACE '_artifact_m05'
           $stageRoot = Join-Path $artifactStage 'm05'
@@ -456,6 +468,7 @@ jobs:
             }
           }
           Write-Host 'ARTIFACT_STAGE_EXCLUSIONS=PASS'
+          Write-Host 'M05_ARTIFACT_STAGE=PASS'
 
           $manifest = Join-Path $stageRoot 'SHA256SUMS.txt'
           if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest -Force }
@@ -479,8 +492,10 @@ jobs:
             }
 
           $artifactZip = Join-Path $env:GITHUB_WORKSPACE 'PHASER360_M05_READONLY_MMIO.zip'
+          Write-Host 'M05_ARCHIVE=START'
           Compress-Archive -Path (Join-Path $stageRoot '*') `
             -DestinationPath $artifactZip -Force
+          Write-Host 'M05_ARCHIVE=PASS'
 
           if (-not (Test-Path -LiteralPath $artifactZip)) {
             throw "Artifact ZIP was not created: $artifactZip"
