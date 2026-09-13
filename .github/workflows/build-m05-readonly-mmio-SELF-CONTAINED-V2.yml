@@ -501,6 +501,10 @@ jobs:
           Write-Host ("ARTIFACT_ZIP=" + $artifactZip)
           Write-Host 'PACKAGE=PASS'
 
+          # Robocopy returns 1 when files were copied successfully. Do not allow
+          # that non-failure result to become PowerShell's process exit code.
+          exit 0
+
       - name: Upload M0.5
         uses: actions/upload-artifact@v7
         with:
