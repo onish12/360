@@ -7,6 +7,10 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 - **M0.5:** the read-only MMIO probe built and packaged successfully in
   [CI run 34754361785](https://github.com/onish12/360/actions/runs/34754361785).
   This is build/package evidence, not a successful test on the reinstalled Lenovo.
+  **Do not run the installer from that historical artifact.** Its script assumed
+  the retired Intel SST 9.22.0.4883 / oem0.inf baseline and automatically tried to
+  restore it. Both runtime entry points in new builds are now explicitly blocked
+  before system operations. Do not reinstall 4883 or disable signature checks.
 - **M0.6:** [offline SOF firmware parser](docs/M06_FIRMWARE.md), malformed-input
   tests and a SHA-256-pinned official APL/GLK regression image. This component
   does not load firmware, install a driver or produce sound.

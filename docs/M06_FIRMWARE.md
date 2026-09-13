@@ -3,7 +3,8 @@
 This is real source for a prerequisite of the future SOF loader. It is **not an
 audio driver or a loader**. No INF/SYS, signing certificate, installation script,
 MMIO, DMA, DSP power transition, IPC, codec access or audio output is added here.
-The M0.5 kernel probe and its last successful workflow are unchanged.
+The M0.5 kernel source is unchanged. Its legacy installer is separately blocked
+because it assumed the retired Intel SST 4883 / oem0.inf Windows baseline.
 
 ## What is implemented
 
@@ -98,8 +99,12 @@ Linux additionally runs ASan/UBSan. Local ptrace-based environments may require
 Known target remains PHASER360 / PCI `8086:3198`, DA7219 on SSP2, MAX98357A on
 SSP1 and PDM microphones. Reinstalling Windows does not turn a CI result into a
 hardware result. No M0.5 runtime snapshot from the reinstalled system has been
-supplied in this continuation. It remains required before approving a hardware
-write milestone. Do not install the rejected Intel SST 9.22.0.4883 stack.
+supplied in this continuation. The old M0.5 installer must NOT be used to obtain
+one: it requires Intel 9.22.0.4883 / oem0.inf and its rollback restores that stack.
+New M0.5 builds stop at both runtime entry points before any system operation.
+A separately reviewed fresh-Windows runtime/recovery path is required before
+collecting a new snapshot and before approving a hardware-write milestone. Do
+not reinstall Intel SST 9.22.0.4883 or disable signature checks for the old package.
 
 Still missing for sound: reviewed DSP boot/firmware authentication and transport,
 IPC3 handshake, board topology/clock programming, safe amplifier gating, Windows
