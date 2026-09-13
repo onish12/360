@@ -430,23 +430,39 @@ jobs:
           Write-Host 'INF_CATALOG_MEMBERSHIP=PASS'
           Write-Host 'SYS_CATALOG_MEMBERSHIP=PASS'
 
-          Remove-Item -Recurse -Force '.\m05\driver\out' -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force '.\m05\driver\obj' -ErrorAction SilentlyContinue
           Remove-Item '.\m05\CERT_THUMBPRINT.txt' -Force -ErrorAction SilentlyContinue
 
-          # NuGet packages are CI build inputs, never runtime/package payload.
-          Remove-Item -Recurse -Force '.\m05\packages' -ErrorAction Stop
-          if (Test-Path -LiteralPath '.\m05\packages') {
-            throw 'Build-input directory remained after prune: m05\packages'
-          }
-          Write-Host 'BUILD_INPUT_PRUNE=PASS'
+          # Build inputs/intermediates stay in place; copy only the approved runtime payload
+          # into a small stage tree. This avoids recursively deleting or archiving WDK NuGet.
+          $m05Root = (Resolve-Path '.\m05').Path
+          $artifactStage = Join-Path $env:GITHUB_WORKSPACE '_artifact_m05'
+          $stageRoot = Join-Path $artifactStage 'm05'
+          Remove-Item -LiteralPath $artifactStage -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 
-          $manifest = '.\m05\SHA256SUMS.txt'
+          & robocopy $m05Root $stageRoot /E /XD `
+            (Join-Path $m05Root 'packages') `
+            (Join-Path $m05Root 'driver\out') `
+            (Join-Path $m05Root 'driver\obj') *> $null
+          $copyExit = $LASTEXITCODE
+          Write-Host ("ROBOCOPY_EXIT=" + $copyExit)
+          if ($copyExit -gt 7) {
+            throw "Artifact-stage copy failed: robocopy exit code $copyExit"
+          }
+
+          foreach ($excluded in @('packages', 'driver\out', 'driver\obj')) {
+            if (Test-Path -LiteralPath (Join-Path $stageRoot $excluded)) {
+              throw "Excluded build directory leaked into artifact stage: $excluded"
+            }
+          }
+          Write-Host 'ARTIFACT_STAGE_EXCLUSIONS=PASS'
+
+          $manifest = Join-Path $stageRoot 'SHA256SUMS.txt'
           if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest -Force }
 
-          $payload = @(Get-ChildItem '.\m05' -Recurse -File)
+          $payload = @(Get-ChildItem -LiteralPath $stageRoot -Recurse -File)
           if ($payload.Count -eq 0) {
-            throw 'No artifact payload files remained after build-input pruning.'
+            throw 'No artifact payload files were staged.'
           }
           $payloadBytes = [Int64](($payload | Measure-Object -Property Length -Sum).Sum)
           if ($payloadBytes -gt 52428800) {
@@ -454,17 +470,16 @@ jobs:
           }
           Write-Host ("ARTIFACT_PAYLOAD_BYTES=" + $payloadBytes)
 
-          $m05Root = (Resolve-Path '.\m05').Path
           $payload |
             Sort-Object FullName |
             ForEach-Object {
               $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-              $rel = $_.FullName.Substring($m05Root.Length + 1)
+              $rel = $_.FullName.Substring($stageRoot.Length + 1)
               "$h  $rel" | Add-Content -LiteralPath $manifest -Encoding ascii
             }
 
           $artifactZip = Join-Path $env:GITHUB_WORKSPACE 'PHASER360_M05_READONLY_MMIO.zip'
-          Compress-Archive -Path '.\m05\*' `
+          Compress-Archive -Path (Join-Path $stageRoot '*') `
             -DestinationPath $artifactZip -Force
 
           if (-not (Test-Path -LiteralPath $artifactZip)) {
