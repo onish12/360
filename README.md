@@ -9,6 +9,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   owned-package cleanup and recovery. Build artifact: `PHASER360_M051_FRESH_WINDOWS`.
   This is a temporary diagnostic driver, not working audio. CI evidence does not
   replace a snapshot from the reinstalled Lenovo.
+  **Latest target evidence (2026-09-14):** Intel SST 9.22.0.4883 is currently
+  bound as `IntcAudioBus` / `oem32.inf`; DISM reports `Boot Critical: Yes`.
+  M0.5.1 stopped before driver installation. See the
+  [installed-Intel baseline and recovery boundary](docs/M051_INTEL_BASELINE.md)
+  before planning the transition to an unbound controller.
 - **M0.5:** the read-only MMIO probe built and packaged successfully in
   [CI run 34754361785](https://github.com/onish12/360/actions/runs/34754361785).
   This is build/package evidence, not a successful test on the reinstalled Lenovo.

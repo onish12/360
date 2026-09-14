@@ -5,6 +5,15 @@ stack. It accepts only the unique present exact PCI target with problem code 28,
 no function-driver service and no INF binding. The hardware identity and NHLT
 audit are already established; this is not another hardware discovery request.
 
+The current installation has since been confirmed to bind Intel SST 9.22.0.4883
+as `IntcAudioBus` / `oem32.inf`, with DISM reporting `Boot Critical: Yes`.
+The resulting `BASELINE_NOT_CLEAN` stop is expected; no current-installation
+MMIO snapshot has been obtained. Follow the
+[installed-Intel baseline notes](M051_INTEL_BASELINE.md) for package preservation
+and the separate recovery requirement. `CLEAN=True` refers to this probe's own
+changes, not to the absence of other Windows drivers. Its WinRE script disables
+only the experimental service and does not recover an Intel package removal.
+
 The driver has a new service/file name and interface GUID. It maps the two PnP
 translated memory resources read-only/uncached. Resource order and exact lengths
 identify BAR0/HDA and BAR4/DSP; addresses are no longer hard-coded to the previous
