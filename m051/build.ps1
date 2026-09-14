@@ -36,8 +36,12 @@ $infverif = Find-WdkTool 'infverif.exe'
 $signtool = Find-WdkTool 'signtool.exe'
 $inf2cat = Find-WdkTool 'inf2cat.exe'
 $stampinf = Find-WdkTool 'stampinf.exe'
-& $stampinf -f $inf -v 0.5.1.0
+$driverDate = [DateTime]::Now.ToString('MM/dd/yyyy', [Globalization.CultureInfo]::InvariantCulture)
+& $stampinf -f $inf -d $driverDate -v 0.5.1.0
 if ($LASTEXITCODE -ne 0) { throw 'FINAL_INF_VERSION_STAMP_FAILED' }
+if ((Get-Content -LiteralPath $inf -Raw) -notmatch '(?m)^\s*DriverVer\s*=\s*[0-9/]+,\s*0\.5\.1\.0\s*$') {
+    throw 'FINAL_INF_VERSION_NOT_0_5_1_0'
+}
 & $infverif /w $inf
 if ($LASTEXITCODE -ne 0) { throw 'INFVERIF_FAILED' }
 
