@@ -75,6 +75,12 @@ try {
     $report = @("STATUS=$($result.Phase)", "CLEAN=$($result.Clean)", "ERROR=$($result.Error)",
         "CLEANUP_ERRORS=$($result.CleanupErrors -join '; ')", "RECOVERY=$runDir\RECOVER_WINRE.cmd",
         'AUDIO_PLAYBACK=NOT_IMPLEMENTED')
+    if ($null -ne $script:M051.Target) {
+        $target = $script:M051.Target
+        $report += @("TARGET_PROBLEM=$($target.Problem)", "TARGET_SERVICE=$($target.Service)",
+            "TARGET_INF=$($target.Inf)", "TARGET_DRIVER_VERSION=$($target.DriverVersion)",
+            "TARGET_DRIVER_PROVIDER=$($target.DriverProvider)")
+    }
     $report | Set-Content -LiteralPath (Join-Path $runDir 'RESULT.txt') -Encoding UTF8
     $report | ForEach-Object { Write-Host $_ }
     $zip = Join-Path $root "RESULT_M051_$runId.zip"

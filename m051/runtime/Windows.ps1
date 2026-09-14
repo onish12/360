@@ -16,6 +16,8 @@ function Get-M051Target {
         Problem = [int]$data['DEVPKEY_Device_ProblemCode']
         Service = [string]$data['DEVPKEY_Device_Service']
         Inf = [string]$data['DEVPKEY_Device_DriverInfPath']
+        DriverVersion = [string]$data['DEVPKEY_Device_DriverVersion']
+        DriverProvider = [string]$data['DEVPKEY_Device_DriverProvider']
     }
 }
 

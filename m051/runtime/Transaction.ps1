@@ -7,7 +7,9 @@ function Assert-M051CleanTarget($Target) {
     }
     if ($Target.Problem -ne 28 -or -not [string]::IsNullOrWhiteSpace($Target.Service) -or
         -not [string]::IsNullOrWhiteSpace($Target.Inf)) {
-        throw 'BASELINE_NOT_CLEAN: controlerul trebuie sa fie fara driver (Code 28, fara service/INF).'
+        $observed = "BASELINE_NOT_CLEAN: Problem={0}; Service='{1}'; Inf='{2}'. " -f
+            $Target.Problem, $Target.Service, $Target.Inf
+        throw ($observed + 'Proba necesita Code 28, fara service/INF. Driverul existent nu este inlocuit automat.')
     }
 }
 
