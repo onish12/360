@@ -1,0 +1,54 @@
+; PHASER360 M0.5.1 - exact Gemini Lake read-only MMIO probe.
+; Fresh Windows, unbound exact target only. Runtime removes this package after the probe.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=09/14/2026,0.5.1.0
+CatalogFile=phaser360_m051_mmio_ro.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DriverCopy=13
+
+[SourceDisksNames]
+1=%DiskName%,,,
+
+[SourceDisksFiles]
+phaser360_m051_mmio_ro.sys=1
+
+[Manufacturer]
+%ProviderName%=Models,NTamd64.10.0...22000
+
+[Models.NTamd64.10.0...22000]
+%DeviceDesc%=DriverInstall,PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
+
+[DriverInstall.NT]
+CopyFiles=DriverCopy
+
+[DriverCopy]
+phaser360_m051_mmio_ro.sys
+
+[DriverInstall.NT.Services]
+AddService=phaser360_m051_mmio_ro,0x00000002,DriverService
+
+[DriverService]
+DisplayName=%ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\phaser360_m051_mmio_ro.sys
+
+[DriverInstall.NT.Wdf]
+KmdfService=phaser360_m051_mmio_ro,DriverWdf
+
+[DriverWdf]
+KmdfLibraryVersion=1.33
+
+[Strings]
+ProviderName="PHASER360 Open Audio"
+DiskName="PHASER360 M0.5.1 Read-Only MMIO"
+DeviceDesc="PHASER360 Gemini Lake M0.5.1 Read-Only MMIO Probe"
+ServiceDesc="PHASER360 M0.5.1 Read-Only MMIO Probe"

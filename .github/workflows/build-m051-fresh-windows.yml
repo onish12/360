@@ -1,0 +1,65 @@
+name: Build M0.5.1 fresh Windows probe
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'm051/**'
+      - 'tests/m051*'
+      - 'docs/M051_FRESH_WINDOWS.md'
+      - '.github/workflows/build-m051-fresh-windows.yml'
+      - 'CMakeLists.txt'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+      - name: Transaction tests and native helper compilation on Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m051_transaction_tests.ps1
+          Add-Type -Path .\m051\runtime\Native.cs
+          Write-Host ('RUNNER_CI_OPTIONS=0x{0:X8}' -f [PhaserM051.Native]::CodeIntegrityOptions())
+      - name: Host resource validation tests
+        shell: pwsh
+        run: |
+          cmake -S . -B build-m051 -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'CMAKE_CONFIGURE_FAILED' }
+          cmake --build build-m051 --config Release --target phaser360_m051_resource_tests
+          if ($LASTEXITCODE -ne 0) { throw 'HOST_BUILD_FAILED' }
+          ctest --test-dir build-m051 -C Release -R m051_resource_contract --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'HOST_TEST_FAILED' }
+      - name: Kernel source gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content .\m051\driver\phaser360_m051_mmio_ro.cpp -Raw
+          foreach ($token in @('PAGE_READONLY | PAGE_NOCACHE','phaser360::valid_resources','InputBufferLength == 0','0x00050100u')) {
+            if (-not $src.Contains($token)) { throw "Missing constraint: $token" }
+          }
+          foreach ($token in @('WRITE_REGISTER_','WdfInterruptCreate','WdfDma','EvtDeviceD0Entry','EvtDeviceD0Exit',
+            'WdfDeviceStopIdle','WdfDeviceResumeIdle','MmAllocateContiguousMemory','MmAllocatePagesForMdl',
+            'PHASER_EXPECTED_HDA_PHYS','PHASER_EXPECTED_DSP_PHYS','SetDSPPowerState','TriggerDSP')) {
+            if ($src.Contains($token)) { throw "Forbidden kernel token: $token" }
+          }
+          $inf = Get-Content .\m051\driver\phaser360_m051_mmio_ro.inf -Raw
+          $ids = [regex]::Matches($inf,'PCI\\[^\r\n]+')
+          if ($ids.Count -ne 1 -or $ids[0].Value -ne 'PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06') { throw 'INF_TARGET_MISMATCH' }
+          if (-not $inf.Contains('StartType=3')) { throw 'INF_START_TYPE_MISMATCH' }
+      - name: WDK build, embedded SYS signing, new catalog and artifact
+        shell: pwsh
+        run: .\m051\build.ps1
+      - name: Verify final package with Windows PowerShell 5.1
+        shell: powershell
+        run: .\_artifact_m051\runtime\VERIFY_PACKAGE.ps1 -Root .\_artifact_m051
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: PHASER360_M051_FRESH_WINDOWS
+          path: PHASER360_M051_FRESH_WINDOWS.zip
+          if-no-files-found: error

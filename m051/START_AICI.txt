@@ -1,0 +1,40 @@
+PHASER360 M0.5.1 - Windows 11 x64 reinstalat
+
+Aceasta este proba temporara necesara continuarii driverului audio.
+Inca NU reda sunet. Nu contine Intel SST 9.22.0.4883.
+
+1. Dezarhiveaza complet pachetul intr-un folder local.
+2. Click dreapta pe RUN_M051.cmd -> Run as administrator.
+3. Trimite arhiva RESULT_M051_*.zip creata langa acel fisier.
+
+Pachetul accepta doar controlerul exact fara driver: Code 28, fara service/INF.
+Daca gaseste alt driver, se opreste; nu il inlocuieste automat.
+Daca proba poate porni, instaleaza temporar propriul driver, citeste 5 registre,
+apoi sterge propriul pachet si numai certificatele adaugate de aceasta rulare.
+Nu reporneste Windows. Nu schimba BCD, Secure Boot sau Memory Integrity.
+
+Daca apare SIGNING_SESSION_REQUIRED, nu a instalat niciun driver/certificat.
+Acesta este un driver semnat pentru test, nu semnat de Microsoft pentru productie.
+Pentru proba pe acest laptop de dezvoltare, Windows trebuie pornit intr-o sesiune
+care permite testul. Optiunea temporara este Settings -> System -> Recovery ->
+Advanced startup -> Restart now -> Troubleshoot -> Advanced options -> Startup
+Settings -> Restart -> 7 (Disable driver signature enforcement), apoi pasul 2.
+Aceasta optiune reduce verificarea semnaturilor pentru acea pornire. Pastreaza
+cheia BitLocker la indemana daca unitatea este criptata. Daca Windows refuza
+in continuare incarcarea, trimite raportul; nu dezactiva alte protectii.
+In modul Test Signing deja configurat, scriptul verifica starea activa, nu textul BCD.
+
+RECUPERARE, daca Windows nu mai porneste dupa instalarea experimentala:
+Inainte de instalare, scriptul creeaza pe volumul Windows:
+  \PHASER360_M051_RECOVERY\<rulare>\RECOVER_WINRE.cmd
+Deschide Command Prompt din Windows Recovery, identifica litera volumului Windows
+(poate fi D:), intra in acel folder si ruleaza RECOVER_WINRE.cmd.
+Acesta dezactiveaza doar serviciul phaser360_m051_mmio_ro in registrul offline.
+Dupa ce Windows porneste, ruleaza ca administrator copia runtime\CLEANUP_M051.ps1
+din acelasi folder de recuperare pentru stergerea pachetului/certificatelor proprii.
+Nu reinstala Intel 4883. Nu folosi pachetele M0.5 vechi.
+
+STATUS=SNAPSHOT_COMPLETE_CLEAN inseamna citire si curatare reusite.
+STATUS=STOPPED_CLEAN inseamna proba oprita fara modificari proprii ramase.
+STATUS=RECOVERY_REQUIRED inseamna curatare neconfirmata; vezi jurnalul si recuperarea.
+Validarea CI nu dovedeste functionarea pe laptop. Aceasta proba este inca experimentala.
