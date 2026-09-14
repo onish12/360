@@ -35,6 +35,9 @@ $cat = Join-Path $stage 'driver\phaser360_m051_mmio_ro.cat'
 $infverif = Find-WdkTool 'infverif.exe'
 $signtool = Find-WdkTool 'signtool.exe'
 $inf2cat = Find-WdkTool 'inf2cat.exe'
+$stampinf = Find-WdkTool 'stampinf.exe'
+& $stampinf -f $inf -v 0.5.1.0
+if ($LASTEXITCODE -ne 0) { throw 'FINAL_INF_VERSION_STAMP_FAILED' }
 & $infverif /w $inf
 if ($LASTEXITCODE -ne 0) { throw 'INFVERIF_FAILED' }
 

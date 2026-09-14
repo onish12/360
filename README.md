@@ -35,7 +35,7 @@ interpret either milestone's CI success as permission to enable hardware writes.
 
 ## Why this repository exists
 
-The generic Intel SST 9.22.0.4883 stack is not the solution for this Chromebook: it did not create usable internal audio endpoints on the target and caused a boot-loop when its kernel stack was active. The project therefore uses the public `sklhdaudbus` ADSP interface as the boundary and will implement a free/open-source SOF/WaveRT backend.
+The generic Intel SST 9.22.0.4883 stack did not create usable internal audio endpoints on the target and caused a boot-loop when its kernel stack was active. The fresh-Windows continuation uses the PCI controller directly and develops a free/open-source SOF/WaveRT backend. The earlier `sklhdaudbus` interface probes below are historical work, not a dependency to reinstall.
 
 ## Milestone 0.1 — original bootstrap
 

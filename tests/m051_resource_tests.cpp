@@ -1,4 +1,5 @@
 #include "../m051/driver/resource_contract.h"
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 

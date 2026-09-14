@@ -69,7 +69,11 @@ function Invoke-M051Transaction([hashtable]$Ops) {
         $s.Phase = if (-not $s.Clean) { 'RECOVERY_REQUIRED' }
                    elseif ($null -ne $s.Error) { 'STOPPED_CLEAN' }
                    else { 'SNAPSHOT_COMPLETE_CLEAN' }
-        try { & $Ops.Save $s } catch { $s.CleanupErrors += $_.Exception.Message; $s.Clean = $false }
+        try { & $Ops.Save $s } catch {
+            $s.CleanupErrors += $_.Exception.Message
+            $s.Clean = $false
+            $s.Phase = 'RECOVERY_REQUIRED'
+        }
     }
     return [pscustomobject]$s
 }

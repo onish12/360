@@ -59,3 +59,4 @@ offline SOF container parser. DSP boot, IPC, codecs and WaveRT still follow.
 - [Device interfaces restricted by instance ID](https://learn.microsoft.com/en-us/windows/win32/api/cfgmgr32/nf-cfgmgr32-cm_get_device_interface_listw)
 - [Inf2Cat](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/inf2cat)
 - [Test signing](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/the-testsigning-boot-configuration-option)
+- [Temporary startup settings and BitLocker recovery](https://support.microsoft.com/en-us/windows/experience/startup-boot/windows-startup-settings)
