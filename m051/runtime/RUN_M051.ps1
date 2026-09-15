@@ -1,6 +1,6 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
-param()
+param([string]$ResultFile = '')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 $root = Split-Path -Parent $PSScriptRoot
@@ -88,6 +88,10 @@ try {
         Compress-Archive -Path (Join-Path $runDir '*') -DestinationPath $zip
         Write-Host "Trimite fisierul: $zip"
     } catch { Write-Host "Raportul este in $runDir (arhivarea a esuat: $($_.Exception.Message))." }
+    if (-not [string]::IsNullOrWhiteSpace($ResultFile)) {
+        [ordered]@{ Transaction=$result; RecoveryDirectory=$runDir; ResultZip=$zip } |
+            ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ResultFile -Encoding UTF8 -ErrorAction Stop
+    }
     if (-not $result.Clean) { exit 2 }
     if ($result.Error) { exit 1 }
 } finally { $mutex.ReleaseMutex(); $mutex.Dispose() }

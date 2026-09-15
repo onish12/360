@@ -1,4 +1,4 @@
-name: Build M0.5.1 fresh Windows probe
+name: Build PHASER360 adaptive audio package
 on:
   workflow_dispatch:
   push:
@@ -6,6 +6,7 @@ on:
       - 'm051/**'
       - 'tests/m051*'
       - 'docs/M051_FRESH_WINDOWS.md'
+      - 'docs/M051_AUDIO_AUTO.md'
       - '.github/workflows/build-m051-fresh-windows.yml'
       - 'CMakeLists.txt'
 permissions:
@@ -24,6 +25,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & .\tests\m051_transaction_tests.ps1
+          & .\tests\m051_audio_auto_tests.ps1
           Add-Type -Path .\m051\runtime\Native.cs
           Write-Host ('RUNNER_CI_OPTIONS=0x{0:X8}' -f [PhaserM051.Native]::CodeIntegrityOptions())
       - name: Host resource validation tests
@@ -59,7 +61,19 @@ jobs:
         shell: powershell
         run: .\_artifact_m051\runtime\VERIFY_PACKAGE.ps1 -Root .\_artifact_m051
       - uses: actions/upload-artifact@v4.6.2
+        id: package
         with:
-          name: PHASER360_M051_FRESH_WINDOWS
-          path: PHASER360_M051_FRESH_WINDOWS.zip
+          name: PHASER360_AUDIO_AUTO
+          path: _artifact_m051/
           if-no-files-found: error
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: PHASER360_AUDIO_AUTO
+          path: _download_verify_audio
+      - name: Verify downloaded deliverable on Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\_download_verify_audio\runtime\VERIFY_PACKAGE.ps1 -Root .\_download_verify_audio
+          if (-not (Test-Path .\_download_verify_audio\RUN_AUDIO.cmd)) { throw 'ENTRYPOINT_MISSING_FROM_ARTIFACT' }
+          Write-Host 'DOWNLOADED_DELIVERABLE=VERIFIED'
