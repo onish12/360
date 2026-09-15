@@ -1,19 +1,34 @@
-PHASER360 M0.5.1 - Windows 11 x64 reinstalat
+PHASER360 AUDIO AUTO - Windows 11 x64
 
-Aceasta este proba temporara necesara continuarii driverului audio.
-Inca NU reda sunet. Nu contine Intel SST 9.22.0.4883.
+Acest pachet analizeaza starea curenta si alege automat actiunea implementata.
+Include proba M0.5.1 deja compilata. Inca NU reda sunet.
 
 1. Dezarhiveaza complet pachetul intr-un folder local.
-2. Click dreapta pe RUN_M051.cmd -> Run as administrator.
-3. Trimite arhiva RESULT_M051_*.zip creata langa acel fisier.
+2. Click dreapta pe RUN_AUDIO.cmd -> Run as administrator.
+3. Asteapta si trimite arhiva RESULT_AUDIO_*.zip indicata la final.
+Fereastra ramane deschisa. Nu trebuie sa introduci comenzi PowerShell.
 
-Pachetul accepta doar controlerul exact fara driver: Code 28, fara service/INF.
-Daca gaseste alt driver, se opreste; nu il inlocuieste automat.
-Daca proba poate porni, instaleaza temporar propriul driver, citeste 5 registre,
-apoi sterge propriul pachet si numai certificatele adaugate de aceasta rulare.
+CE FACE AUTOMAT:
+- Identifica exact controlerul si INF-ul legat acum de el.
+- Daca exista un driver OEM, exporta pachetul si compara fisierele prin SHA-256.
+- Citeste serviciul, legaturile pachetului, dispozitivele audio si configuratia WinRE.
+- Daca este Code 28, fara service/INF, si sesiunea permite proba, o ruleaza:
+  instaleaza temporar propriul driver, citeste registrele, apoi elimina numai
+  pachetul/certificatele proprii si include rezultatul in raportul unic.
+
+Pentru Intel SST 9.22.0.4883 marcat Boot Critical Yes, daca exportul se verifica,
+rezultatul este PREPARED_INTEL_BOOT_CRITICAL. Pachetul pregateste datele pentru
+tranzitie; dezinstalarea Intel existent NU este implementata automat.
+WinRE /info arata configuratia, nu dovedeste o recuperare testata.
+Exportul pastreaza fisierele driverului, nu reprezinta un backup complet Windows.
+Raport: \PHASER360_AUDIO\<rulare>\Report pe volumul Windows.
+Copia driverului: \PHASER360_AUDIO\<rulare>\DriverBackup.
+Arhiva RESULT_AUDIO contine raportul, nu copia completa a driverului.
+Pachetul nu incarca automat nimic pe internet.
 Nu reporneste Windows. Nu schimba BCD, Secure Boot sau Memory Integrity.
 
-Daca apare SIGNING_SESSION_REQUIRED, nu a instalat niciun driver/certificat.
+Daca apare SIGNING_SESSION_REQUIRED, controlerul liber necesita o sesiune de test.
+Aceasta optiune nu rezolva prezenta Intel SST pe controler.
 Acesta este un driver semnat pentru test, nu semnat de Microsoft pentru productie.
 Pentru proba pe acest laptop de dezvoltare, Windows trebuie pornit intr-o sesiune
 care permite testul. Optiunea temporara este Settings -> System -> Recovery ->
@@ -30,6 +45,7 @@ Inainte de instalare, scriptul creeaza pe volumul Windows:
 Deschide Command Prompt din Windows Recovery, identifica litera volumului Windows
 (poate fi D:), intra in acel folder si ruleaza RECOVER_WINRE.cmd.
 Acesta dezactiveaza doar serviciul phaser360_m051_mmio_ro in registrul offline.
+Aceasta recuperare NU acopera eliminarea Intel SST.
 Dupa ce Windows porneste, ruleaza ca administrator copia runtime\CLEANUP_M051.ps1
 din acelasi folder de recuperare pentru stergerea pachetului/certificatelor proprii.
 Nu reinstala Intel 4883. Nu folosi pachetele M0.5 vechi.

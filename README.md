@@ -4,9 +4,14 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 
 ## Current continuation status
 
+- **Adaptive entry point:** [PHASER360_AUDIO_AUTO](docs/M051_AUDIO_AUTO.md).
+  Run RUN_AUDIO.cmd as administrator. It preserves and verifies the current
+  driver package, records service/recovery evidence, and automatically runs
+  the compiled probe when the controller is unbound and signing permits it.
+  It does not uninstall Intel SST. Output: one RESULT_AUDIO_*.zip.
 - **M0.5.1:** [fresh-Windows probe](docs/M051_FRESH_WINDOWS.md), with a new
   driver/service identity, PnP-assigned addresses, unbound-controller preflight,
-  owned-package cleanup and recovery. Build artifact: `PHASER360_M051_FRESH_WINDOWS`.
+  owned-package cleanup and recovery. Included in `PHASER360_AUDIO_AUTO`.
   This is a temporary diagnostic driver, not working audio. CI evidence does not
   replace a snapshot from the reinstalled Lenovo.
   **Latest target evidence (2026-09-14):** Intel SST 9.22.0.4883 is currently
@@ -40,7 +45,7 @@ interpret either milestone's CI success as permission to enable hardware writes.
 
 ## Why this repository exists
 
-The generic Intel SST 9.22.0.4883 stack did not create usable internal audio endpoints on the target and caused a boot-loop when its kernel stack was active. The fresh-Windows continuation uses the PCI controller directly and develops a free/open-source SOF/WaveRT backend. The earlier `sklhdaudbus` interface probes below are historical work, not a dependency to reinstall.
+The generic Intel SST 9.22.0.4883 stack did not create usable internal audio endpoints on the target. A boot-loop was reported after earlier installations; the supplied evidence does not establish its precise cause. The fresh-Windows continuation uses the PCI controller directly and develops a free/open-source SOF/WaveRT backend. The earlier `sklhdaudbus` interface probes below are historical work, not a dependency to reinstall.
 
 ## Milestone 0.1 — original bootstrap
 

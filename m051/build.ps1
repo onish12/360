@@ -21,7 +21,7 @@ New-Item -ItemType Directory -Path (Join-Path $stage 'driver') -Force | Out-Null
 Copy-Item '.\m051\driver\out\phaser360_m051_mmio_ro.sys' (Join-Path $stage 'driver')
 Copy-Item '.\m051\driver\obj\phaser360_m051_mmio_ro.inf' (Join-Path $stage 'driver')
 Copy-Item '.\m051\runtime' $stage -Recurse
-foreach ($name in @('RUN_M051.cmd','RECOVER_WINRE.cmd','START_AICI.txt')) {
+foreach ($name in @('RUN_AUDIO.cmd','RUN_M051.cmd','RECOVER_WINRE.cmd','START_AICI.txt')) {
     Copy-Item (Join-Path $PSScriptRoot $name) $stage
 }
 New-Item -ItemType Directory -Path (Join-Path $stage 'source') -Force | Out-Null
@@ -29,6 +29,7 @@ foreach ($name in @('phaser360_m051_mmio_ro.cpp','resource_contract.h','phaser36
     Copy-Item (Join-Path $PSScriptRoot "driver\$name") (Join-Path $stage 'source')
 }
 Copy-Item '.\docs\M051_FRESH_WINDOWS.md' $stage
+Copy-Item '.\docs\M051_AUDIO_AUTO.md' $stage
 $sys = Join-Path $stage 'driver\phaser360_m051_mmio_ro.sys'
 $inf = Join-Path $stage 'driver\phaser360_m051_mmio_ro.inf'
 $cat = Join-Path $stage 'driver\phaser360_m051_mmio_ro.cat'
@@ -107,7 +108,9 @@ foreach ($forbidden in @('WRITE_REGISTER_', 'MmAllocateContiguousMemory','MmAllo
     "PUBLIC_CERT_THUMBPRINT=$($cert.Thumbprint)", 'SYS_EMBEDDED_CMS=PASS', 'CAT_CMS=PASS',
     'CAT_GENERATED_AFTER_SYS_SIGN=TRUE','CI_TRUST_STORES_CHANGED=FALSE',
     'HARDWARE_EXECUTION=NOT_TESTED','AUDIO_PLAYBACK=NOT_IMPLEMENTED',
-    'DEVICE_MMIO_WRITES=NONE','DMA_IRQ_FIRMWARE_IPC=NONE','RUNTIME_BASELINE=UNBOUND_CODE28') |
+    'DEVICE_MMIO_WRITES=NONE','DMA_IRQ_FIRMWARE_IPC=NONE','PROBE_BASELINE=UNBOUND_CODE28',
+    'ENTRYPOINT=RUN_AUDIO.cmd','COORDINATOR_VERSION=1.0',
+    'BOUND_DRIVER_ACTION=EXPORT_VERIFY_AND_REPORT','EXISTING_DRIVER_REMOVAL=NOT_IMPLEMENTED') |
     Set-Content (Join-Path $stage 'BUILD_AUDIT.txt') -Encoding ascii
 $manifest = Join-Path $stage 'SHA256SUMS.txt'
 $lines = @(Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
@@ -117,6 +120,7 @@ $lines = @(Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -ne 'SHA
     })
 $lines | Set-Content $manifest -Encoding ascii
 & (Join-Path $stage 'runtime\VERIFY_PACKAGE.ps1') -Root $stage
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath (Join-Path $repo 'PHASER360_M051_FRESH_WINDOWS.zip') -Force
-Write-Host 'M051_PACKAGE=PASS'
+Compress-Archive -Path (Join-Path $stage '*') -DestinationPath (Join-Path $repo 'PHASER360_AUDIO_AUTO.zip') -Force
+Write-Host 'AUDIO_AUTO_PACKAGE=PASS'
+Write-Host ('AUDIO_AUTO_ZIP_SHA256=' + (Get-FileHash (Join-Path $repo 'PHASER360_AUDIO_AUTO.zip') -Algorithm SHA256).Hash)
 exit 0
