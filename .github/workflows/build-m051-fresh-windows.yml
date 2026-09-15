@@ -1,6 +1,13 @@
 name: Build PHASER360 adaptive audio package
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'm051/**'
+      - 'tests/m051*'
+      - 'docs/M051*'
+      - '.github/workflows/build-m051-fresh-windows.yml'
+      - 'CMakeLists.txt'
   push:
     paths:
       - 'm051/**'
@@ -26,6 +33,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & .\tests\m051_transaction_tests.ps1
           & .\tests\m051_audio_auto_tests.ps1
+          . .\m051\runtime\AudioDecision.ps1
+          . .\m051\runtime\AudioWindows.ps1
+          $driver = Get-WindowsDriver -Online -ErrorAction Stop | Where-Object { $_.Driver -match '^oem[0-9]+\.inf$' } | Select-Object -First 1
+          if ($null -ne $driver) {
+            $package = ConvertTo-AudioPackage $driver
+            if ($package.InfHash -notmatch '^[0-9A-Fa-f]{64}$') { throw 'LIVE_DISM_ADAPTER_FAILED' }
+            Write-Host 'LIVE_DISM_PACKAGE_ADAPTER=PASS'
+          } else { Write-Host 'LIVE_DISM_PACKAGE_ADAPTER=SKIPPED_NO_OEM_PACKAGE' }
           Add-Type -Path .\m051\runtime\Native.cs
           Write-Host ('RUNNER_CI_OPTIONS=0x{0:X8}' -f [PhaserM051.Native]::CodeIntegrityOptions())
       - name: Host resource validation tests
