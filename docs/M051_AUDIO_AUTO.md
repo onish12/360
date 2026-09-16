@@ -1,59 +1,42 @@
-# PHASER360 AUDIO AUTO
+# PHASER360 AUDIO AUTO 1.1
 
-Run RUN_AUDIO.cmd as administrator. The package includes the compiled x64
-M0.5.1 probe (kernel contract 0.5.1.0) and coordinator 1.0. No compiler or WDK
-is needed on the laptop. The coordinator chooses reviewed actions; it does
-not generate arbitrary kernel code from a diagnostic report.
+Run RUN_AUDIO.cmd as administrator after the signing prerequisite described in
+START_AICI.txt. The package includes the compiled x64 M0.5.1 read-only kernel
+(0.5.1.0) and the x64 device-binding helper. No compiler or WDK is needed on the
+laptop. Audio playback is not implemented.
 
-| Current state | Automatic action |
+| Observed state | Action |
 | --- | --- |
-| Exact target, code 28, no service/INF, signing permits test | Run compiled probe, verify snapshot and cleanup, combine results |
-| Unbound target, signing blocked or unknown | Report the signing prerequisite |
-| Bound Intel SST 9.22.0.4883 | Export actual OEM package and verify files; capture service, bindings and recovery evidence |
-| Intel package marked Boot Critical | Report PREPARED_INTEL_BOOT_CRITICAL after verified export; no Intel deletion |
-| Missing or untyped BootCritical | Keep it unknown; never coerce a string to a Boolean |
-| Other resolved OEM driver | Preserve actual package and report its identity |
-| Prior experimental driver | Report its presence; recovery needs an ownership journal |
-| Wrong target, changed binding, failed export, absent child result | Report failure without claiming a successful probe |
+| Exact target, reviewed Intel 4883 INF, signing permits test | Verify package/export/service; perform the controlled handoff |
+| Reviewed Intel, signing blocked/unknown | Export and report prerequisite; no device changes |
+| Different Intel bytes, other OEM package or untyped metadata | Preserve package and report; no automatic replacement |
+| Unbound code 28 without retained Intel | Existing M0.5.1 transaction |
+| Unbound code 28 with retained Intel | Stop; do not reuse legacy cleanup that may rebind Intel |
+| Previous probe package or service | Require its recorded recovery cleanup |
+| Changed state, failed backup, failed cleanup | Explicit failure; no false success |
 
-The live DEVPKEY_Device_DriverInfPath selects the OEM package dynamically.
-Get-WindowsDriver supplies its path, version, provider and typed BootCritical.
-Source and exported files are compared by relative path, size and SHA-256.
-Missing, additional and changed files prevent a verified export. Reparse
-entries are rejected. Source files and live binding are checked again.
+The handoff verifies all three Intel file hashes from the supplied 2026-09-16
+report and the loaded SYS. BootCritical and service Start are recorded as
+different properties. Intel package deletion is never inferred from Start=3.
 
-The report includes PnP stack/relations, service registry values, WMI-reported
-package bindings, audio devices and REAgentC output. WMI bindings are not proof
-of exclusive package use. Localized output is retained, never interpreted as
-authorization to remove a driver. BitLocker reads select status fields only;
-recovery keys are not collected.
+See [M051_HANDOFF.md](M051_HANDOFF.md) for the exact API scope, tests, official
+references and recovery boundary. The successful handoff intentionally leaves
+the controller unbound with Intel files preserved. It does not restore the
+initial binding or provide sound. It does not guarantee that Windows cannot
+select Intel again later.
 
-Results are under PHASER360_AUDIO on the Windows volume. Complete DriverBackup
-stays outside RESULT_AUDIO_*.zip; the report contains metadata, file hashes and
-the INF as text. Nothing is uploaded automatically.
+The exact live OEM name selects exports; source/export paths, lengths and
+SHA-256 hashes must match. Reparse entries, missing/extra files, changed source
+files and changed bindings are rejected. The report includes the PnP tree,
+service metadata, WMI-reported bindings, audio/codec/DSP devices and recovery
+configuration. WMI alone is not proof of exclusive package use. Recovery keys
+are not collected.
 
-The coordinator rechecks state before launching the probe. M0.5.1 retains its
-own preflight, resource checks, ownership validation and cleanup. Separate
-mutexes avoid blocking the child. Success requires exit zero, a snapshot and
-confirmed cleanup; missing child output stays unconfirmed.
+Report files are under PHASER360_AUDIO on the Windows volume. DriverBackup is
+outside RESULT_AUDIO_*.zip. Nothing is uploaded automatically. WinRE status
+does not prove boot/access, and export is not a Windows image backup.
 
-Existing Intel/other-driver removal is not implemented. Export is not a full
-Windows backup. REAgentC /info does not prove recovery can boot or access the
-Windows volume. RECOVER_WINRE.cmd disables only the experimental service.
-
-CI runs PowerShell 5.1 failure/filesystem tests, existing transaction and C++
-resource tests, and WDK compilation. SYS is test-signed before CAT generation
-and signing. CI downloads the artifact and verifies its manifest again.
-This does not establish hardware compatibility or working audio.
-DSP loading, IPC, codecs and WaveRT remain unimplemented.
-
-## Primary references checked
-
-- [PnPUtil](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax)
-- [Get-WindowsDriver](https://learn.microsoft.com/en-us/powershell/module/dism/get-windowsdriver)
-- [Typed PnP properties](https://learn.microsoft.com/en-us/powershell/module/pnpdevice/get-pnpdeviceproperty)
-- [REAgentC](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/reagentc-command-line-options)
-- [DISM boot-critical removal warning](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/dism-driver-servicing-command-line-options-s14)
-- [Device and package uninstallation](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/how-devices-and-driver-packages-are-uninstalled)
-- [Win32_PnPSignedDriver](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/whqlprov/win32-pnpsigneddriver)
-- [Win32_SystemDriver](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-systemdriver)
+CI runs Windows PowerShell 5.1 tests, x64 SDK/managed ABI checks, compiled-helper
+loading, C++ resource tests and WDK build/signing. The downloaded artifact's
+manifest is checked again. Hardware handoff and audio remain unvalidated on
+the laptop until actual test results are returned.

@@ -21,7 +21,7 @@ New-Item -ItemType Directory -Path (Join-Path $stage 'driver') -Force | Out-Null
 Copy-Item '.\m051\driver\out\phaser360_m051_mmio_ro.sys' (Join-Path $stage 'driver')
 Copy-Item '.\m051\driver\obj\phaser360_m051_mmio_ro.inf' (Join-Path $stage 'driver')
 Copy-Item '.\m051\runtime' $stage -Recurse
-foreach ($name in @('RUN_AUDIO.cmd','RUN_M051.cmd','RECOVER_WINRE.cmd','START_AICI.txt')) {
+foreach ($name in @('RUN_AUDIO.cmd','RUN_M051.cmd','RECOVER_WINRE.cmd','CLEANUP_AUDIO.cmd','START_AICI.txt')) {
     Copy-Item (Join-Path $PSScriptRoot $name) $stage
 }
 New-Item -ItemType Directory -Path (Join-Path $stage 'source') -Force | Out-Null
@@ -30,6 +30,12 @@ foreach ($name in @('phaser360_m051_mmio_ro.cpp','resource_contract.h','phaser36
 }
 Copy-Item '.\docs\M051_FRESH_WINDOWS.md' $stage
 Copy-Item '.\docs\M051_AUDIO_AUTO.md' $stage
+Copy-Item '.\docs\M051_HANDOFF.md' $stage
+$binding = Join-Path $stage 'runtime\DeviceBinding.dll'
+$csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+if (-not (Test-Path -LiteralPath $csc)) { throw 'NET_FRAMEWORK_X64_COMPILER_MISSING' }
+& $csc /nologo /target:library /platform:x64 /optimize+ "/out:$binding" '.\m051\runtime\DeviceBinding.cs'
+if ($LASTEXITCODE -ne 0) { throw 'DEVICE_BINDING_BUILD_FAILED' }
 $sys = Join-Path $stage 'driver\phaser360_m051_mmio_ro.sys'
 $inf = Join-Path $stage 'driver\phaser360_m051_mmio_ro.inf'
 $cat = Join-Path $stage 'driver\phaser360_m051_mmio_ro.cat'
@@ -50,6 +56,9 @@ $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=PHASER360 M
     -CertStoreLocation 'Cert:\CurrentUser\My' -HashAlgorithm SHA256 -KeyAlgorithm RSA `
     -KeyLength 3072 -KeyExportPolicy NonExportable -NotAfter (Get-Date).AddYears(2)
 Export-Certificate -Cert $cert -FilePath (Join-Path $stage 'PHASER360_M051_TEST_SIGNING.cer') -Type CERT | Out-Null
+& $signtool sign /v /fd SHA256 /sha1 $cert.Thumbprint /s My $binding
+if ($LASTEXITCODE -ne 0) { throw 'DEVICE_BINDING_SIGN_FAILED' }
+$bindingHash = (Get-FileHash $binding -Algorithm SHA256).Hash
 & $signtool sign /v /fd SHA256 /sha1 $cert.Thumbprint /s My $sys
 if ($LASTEXITCODE -ne 0) { throw 'EMBEDDED_SYS_SIGN_FAILED' }
 # Regenerate the catalog AFTER the embedded SYS signature changes the file.
@@ -109,8 +118,9 @@ foreach ($forbidden in @('WRITE_REGISTER_', 'MmAllocateContiguousMemory','MmAllo
     'CAT_GENERATED_AFTER_SYS_SIGN=TRUE','CI_TRUST_STORES_CHANGED=FALSE',
     'HARDWARE_EXECUTION=NOT_TESTED','AUDIO_PLAYBACK=NOT_IMPLEMENTED',
     'DEVICE_MMIO_WRITES=NONE','DMA_IRQ_FIRMWARE_IPC=NONE','PROBE_BASELINE=UNBOUND_CODE28',
-    'ENTRYPOINT=RUN_AUDIO.cmd','COORDINATOR_VERSION=1.0',
-    'BOUND_DRIVER_ACTION=EXPORT_VERIFY_AND_REPORT','EXISTING_DRIVER_REMOVAL=NOT_IMPLEMENTED') |
+    'ENTRYPOINT=RUN_AUDIO.cmd','COORDINATOR_VERSION=1.1',"DEVICE_BINDING_DLL_SHA256=$bindingHash",
+    'BOUND_DRIVER_ACTION=REVIEWED_INTEL_INSTANCE_HANDOFF','INTEL_PACKAGE_DELETION=NONE',
+    'INTEL_REINSTALL=NONE','HANDOFF_FINAL_TARGET=UNBOUND_CODE28','HARDWARE_HANDOFF=NOT_TESTED') |
     Set-Content (Join-Path $stage 'BUILD_AUDIT.txt') -Encoding ascii
 $manifest = Join-Path $stage 'SHA256SUMS.txt'
 $lines = @(Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |

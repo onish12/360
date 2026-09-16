@@ -10,6 +10,13 @@ $dir = Split-Path -Parent $PSScriptRoot
 $record = Get-Content -LiteralPath (Join-Path $dir 'journal.json') -Raw | ConvertFrom-Json
 if ($record.Transaction.Version -ne '0.5.1') { throw 'WRONG_RECOVERY_VERSION' }
 $script:M051 = $record.Context
+$handoff=($null -ne $script:M051.PSObject.Properties['Mode'] -and $script:M051.Mode -eq 'INTEL_HANDOFF_1')
+if ($handoff) {
+    . (Join-Path $PSScriptRoot 'AudioDecision.ps1')
+    . (Join-Path $PSScriptRoot 'AudioWindows.ps1')
+    . (Join-Path $PSScriptRoot 'Transition.ps1')
+    Add-Type -Path (Join-Path $PSScriptRoot 'DeviceBinding.dll')
+}
 if ([IO.Path]::GetFullPath($script:M051.RunDir) -ine [IO.Path]::GetFullPath($dir)) {
     throw 'RECOVERY_DIRECTORY_MISMATCH'
 }
@@ -22,9 +29,11 @@ try {
             $p = Find-M051CurrentOwned
             if ($null -ne $p) {
                 $record.Transaction.OwnedPackage = $p
-                Remove-M051OwnedPackage $record.Transaction
+                if ($handoff) { Remove-HandoffOwnedPackage $record.Transaction }
+                else { Remove-M051OwnedPackage $record.Transaction }
             }
-            Test-M051Clean
+            if ($handoff) { Test-HandoffClean $record.Transaction }
+            else { Test-M051Clean }
         } catch { $errors += $_.Exception.Message }
     }
     if ($record.Transaction.TrustAttempted) {

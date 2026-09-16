@@ -37,7 +37,10 @@ function Read-AudioState {
     [pscustomobject]@{ Target=$target; Package=$package; CodeIntegrityOptions=$ci
         ExperimentalPresent=($experimental.Count -ne 0 -or
             (Test-Path -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\phaser360_m051_mmio_ro'))
-        ExperimentalPackages=@($experimental | Select-Object Driver,OriginalFileName,Version) }
+        ExperimentalPackages=@($experimental | Select-Object Driver,OriginalFileName,Version)
+        IntelPackageRetained=(@($store | Where-Object {
+            [IO.Path]::GetFileName([string]$_.OriginalFileName) -ieq 'intcaudiobus.inf'
+        }).Count -gt 0) }
 }
 function Get-AudioInventory([string]$Root) {
     $rootPath=[IO.Path]::GetFullPath($Root).TrimEnd('\')
@@ -144,7 +147,8 @@ function Read-AudioContext($State) {
         }
         AudioDevices={
             $devices=@(Get-PnpDevice -PresentOnly -ErrorAction Stop | Where-Object {
-                $_.Class -in @('MEDIA','AudioEndpoint') -or $_.InstanceId -like 'ACPI\DLGS7219*' -or $_.InstanceId -like 'ACPI\MX98357A*'
+                $_.Class -in @('MEDIA','AudioEndpoint') -or $_.InstanceId -like 'ACPI\DLGS7219*' -or
+                $_.InstanceId -like 'ACPI\MX98357A*' -or $_.InstanceId -like 'INTELAUDIO\DSP_*'
             } | Select-Object Status,Class,FriendlyName,InstanceId)
             Write-AudioJson 'audio-devices.json' $devices
             [pscustomobject]@{ Count=$devices.Count }
@@ -174,8 +178,12 @@ function Invoke-AudioProbe {
     if (-not (Test-Path -LiteralPath $resultFile -PathType Leaf)) { throw "PROBE_RESULT_MISSING: exit=$code" }
     $r=Get-Content -LiteralPath $resultFile -Raw -ErrorAction Stop | ConvertFrom-Json
     $r | Add-Member -NotePropertyName ExitCode -NotePropertyValue $code
+    Copy-AudioProbeReport $r.RecoveryDirectory
+    return $r
+}
+function Copy-AudioProbeReport([string]$RecoveryDirectory) {
     $expected=Join-Path $env:SystemDrive 'PHASER360_M051_RECOVERY\'
-    $dir=[IO.Path]::GetFullPath($r.RecoveryDirectory)
+    $dir=[IO.Path]::GetFullPath($RecoveryDirectory)
     if (-not $dir.StartsWith($expected,[StringComparison]::OrdinalIgnoreCase) -or
         [IO.Path]::GetFileName($dir) -notmatch '^[0-9]{8}_[0-9]{6}_[0-9a-f]{8}$') { throw 'PROBE_RECOVERY_PATH_INVALID' }
     $copy=Join-Path $script:AudioPaths.Report 'probe'
@@ -184,5 +192,4 @@ function Invoke-AudioProbe {
         $file=Join-Path $dir $name
         if (Test-Path -LiteralPath $file -PathType Leaf) { Copy-Item -LiteralPath $file -Destination $copy -ErrorAction Stop }
     }
-    return $r
 }

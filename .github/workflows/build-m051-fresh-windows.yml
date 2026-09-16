@@ -33,6 +33,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & .\tests\m051_transaction_tests.ps1
           & .\tests\m051_audio_auto_tests.ps1
+          & .\tests\m051_handoff_tests.ps1
           . .\m051\runtime\AudioDecision.ps1
           . .\m051\runtime\AudioWindows.ps1
           $driver = Get-WindowsDriver -Online -ErrorAction Stop | Where-Object { $_.Driver -match '^oem[0-9]+\.inf$' } | Select-Object -First 1
@@ -48,9 +49,9 @@ jobs:
         run: |
           cmake -S . -B build-m051 -A x64
           if ($LASTEXITCODE -ne 0) { throw 'CMAKE_CONFIGURE_FAILED' }
-          cmake --build build-m051 --config Release --target phaser360_m051_resource_tests
+          cmake --build build-m051 --config Release --target phaser360_m051_resource_tests phaser360_m051_setupapi_abi_tests
           if ($LASTEXITCODE -ne 0) { throw 'HOST_BUILD_FAILED' }
-          ctest --test-dir build-m051 -C Release -R m051_resource_contract --output-on-failure
+          ctest --test-dir build-m051 -C Release -R 'm051_(resource_contract|setupapi_abi)' --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'HOST_TEST_FAILED' }
       - name: Kernel source gate
         shell: pwsh
@@ -74,7 +75,15 @@ jobs:
         run: .\m051\build.ps1
       - name: Verify final package with Windows PowerShell 5.1
         shell: powershell
-        run: .\_artifact_m051\runtime\VERIFY_PACKAGE.ps1 -Root .\_artifact_m051
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\_artifact_m051\runtime\VERIFY_PACKAGE.ps1 -Root .\_artifact_m051
+          Add-Type -Path .\_artifact_m051\runtime\DeviceBinding.dll
+          [PhaserM051.DeviceBinding]::CheckAbi()
+          $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new((Resolve-Path .\_artifact_m051\PHASER360_M051_TEST_SIGNING.cer))
+          $sig = Get-AuthenticodeSignature .\_artifact_m051\runtime\DeviceBinding.dll
+          if ($sig.SignerCertificate.Thumbprint -ne $cert.Thumbprint) { throw 'DEVICE_BINDING_SIGNER_MISMATCH' }
+          Write-Host 'COMPILED_BINDING_DLL=LOAD_AND_ABI_PASS'
       - uses: actions/upload-artifact@v4.6.2
         id: package
         with:

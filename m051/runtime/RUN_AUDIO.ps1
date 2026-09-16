@@ -13,6 +13,7 @@ try {
     . (Join-Path $PSScriptRoot 'Windows.ps1')
     . (Join-Path $PSScriptRoot 'AudioDecision.ps1')
     . (Join-Path $PSScriptRoot 'AudioWindows.ps1')
+    . (Join-Path $PSScriptRoot 'Transition.ps1')
     Add-Type -Path (Join-Path $PSScriptRoot 'Native.cs')
     $mutex=[Threading.Mutex]::new($false,'Global\PHASER360_AUDIO_AUTO')
     try { $locked=$mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked=$true }
@@ -29,12 +30,14 @@ try {
         Export={ param($s) Export-AudioPackage $s }
         Capture={ param($s) Read-AudioContext $s }
         Probe={ Invoke-AudioProbe }
+        Transition={ param($s) Invoke-AudioHandoff $s }
     }
     $r=Invoke-AudioAuto $ops
     $lines=@('PHASER360 AUDIO AUTO',"STATUS=$($r.Status)",'AUDIO_PLAYBACK=NOT_IMPLEMENTED')
     if ($null -ne $r.Decision) {
         $lines+=@("ACTIUNE=$($r.Decision.Message)","KERNEL=$($r.Decision.KernelVersion)",
-            "PROBA_SELECTATA=$($r.Decision.Probe)",'DEZINSTALARE_DRIVER_EXISTENT=False')
+            "PROBA_SELECTATA=$($r.Decision.Probe)","TRANZITIE_SELECTATA=$($r.Decision.Transition)",
+            'STERGERE_PACHET_INTEL=False')
         Write-AudioJson 'build-selection.json' $r.Decision
     }
     if ($null -ne $r.State) {
@@ -46,6 +49,11 @@ try {
     if ($r.Warnings.Count) { $lines+="AVERTIZARI=$($r.Warnings -join '; ')" }
     if ($null -ne $r.Context -and $r.Context.Warnings.Count) { $lines+="CITIRI_INCOMPLETE=$($r.Context.Warnings -join '; ')" }
     if ($null -ne $r.Probe) { $lines+="RECOVERY=$($r.Probe.RecoveryDirectory)\RECOVER_WINRE.cmd" }
+    if ($null -ne $r.Probe -and $null -ne (Get-AudioValue $r.Probe 'Handoff')) {
+        $lines+=@("STARE_FINALA=$($r.Probe.Handoff.FinalState)",
+            "PACHET_INTEL_PASTRAT=$($r.Probe.Handoff.IntelPackagePreserved)",
+            'Tranzitia nu reinstaleaza Intel. UNBOUND inseamna controler fara driver, nu sunet reparat.')
+    }
     $lines+=@('Redarea audio nu este implementata. Pachetul contine proba compilata de citire.',
         'Exportul nu este un backup complet Windows. WinRE nu a fost testat prin pornire.',"DOSAR_REZULTAT=$report")
     $lines | Set-Content -LiteralPath (Join-Path $report 'REZULTAT.txt') -Encoding UTF8

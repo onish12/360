@@ -7,10 +7,10 @@ function Get-AudioValue($Object, [string]$Name) {
     if ($null -ne $p) { return $p.Value }
     return $null
 }
-function New-AudioDecision([string]$Code,[string]$Message,[bool]$Export=$false,[bool]$Probe=$false) {
+function New-AudioDecision([string]$Code,[string]$Message,[bool]$Export=$false,[bool]$Probe=$false,[bool]$Transition=$false) {
     [pscustomobject]@{ Code=$Code; Message=$Message; Export=$Export; Probe=$Probe
         Kernel='phaser360_m051_mmio_ro'; KernelVersion='0.5.1.0'
-        AudioPlayback='NOT_IMPLEMENTED'; DeleteExistingDriver=$false }
+        AudioPlayback='NOT_IMPLEMENTED'; DeleteExistingDriver=$false; Transition=$Transition }
 }
 function Get-AudioDecision($State) {
     $t=Get-AudioValue $State 'Target'
@@ -21,6 +21,9 @@ function Get-AudioDecision($State) {
         return New-AudioDecision 'EXPERIMENTAL_RECOVERY_REQUIRED' 'Exista un pachet experimental anterior. Curatarea necesita jurnalul care ii dovedeste apartenenta.'
     }
     if ($t.Problem -eq 28 -and [string]::IsNullOrWhiteSpace($t.Service) -and [string]::IsNullOrWhiteSpace($t.Inf)) {
+        if ((Get-AudioValue $State 'IntelPackageRetained') -eq $true) {
+            return New-AudioDecision 'UNBOUND_INTEL_RETAINED' 'Controlerul este liber, iar pachetul Intel este pastrat. Foloseste raportul tranzitiei precedente; proba veche nu se repeta peste acest DriverStore.'
+        }
         $ci=Get-AudioValue $State 'CodeIntegrityOptions'
         if ($ci -isnot [uint32]) {
             return New-AudioDecision 'SIGNING_STATE_UNKNOWN' 'Starea activa a verificarilor de semnatura nu a putut fi citita.'
@@ -37,6 +40,17 @@ function Get-AudioDecision($State) {
     }
     if ($t.Service -ieq 'IntcAudioBus' -and $p.OriginalName -ieq 'intcaudiobus.inf' -and
         $p.Version -eq '9.22.0.4883' -and $t.DriverVersion -eq $p.Version -and $p.Provider -ieq 'Intel(R) Corporation') {
+        if ($t.Problem -eq 0 -and $t.DriverProvider -ieq $p.Provider -and
+            $p.InfHash -ieq '4B0AC72AF0FE9425BFF3BEEC53F0999A0690C94D50DD7B87057A4B58BD4EEA15') {
+            $ci=Get-AudioValue $State 'CodeIntegrityOptions'
+            if ($ci -isnot [uint32]) {
+                return New-AudioDecision 'SIGNING_STATE_UNKNOWN' 'Intel identificat. Starea semnaturilor este necunoscuta; tranzitia nu incepe.' $true
+            }
+            if (($ci -band 1) -ne 0 -and ($ci -band 2) -eq 0) {
+                return New-AudioDecision 'SIGNING_SESSION_REQUIRED' 'Intel identificat. Porneste sesiunea temporara 7/F7 conform START_AICI.txt, apoi ruleaza acelasi RUN_AUDIO.cmd.' $true
+            }
+            return New-AudioDecision 'RUN_INTEL_HANDOFF' 'Verific exportul si serviciul, selectez proba doar pe controler, citesc registrele si elimin proba. Pachetul Intel ramane pastrat; controlerul va ramane fara driver la final.' $true $true $true
+        }
         $boot=Get-AudioValue $p 'BootCritical'
         if ($boot -isnot [bool]) {
             return New-AudioDecision 'INTEL_BOOT_STATUS_UNKNOWN' 'Intel SST 4883 identificat. Salvez pachetul; marcajul Boot Critical ramane necunoscut.' $true
@@ -57,10 +71,11 @@ function Get-AudioStateStamp($State) {
         PackagePath=(Get-AudioValue $p 'OriginalPath'); PackageVersion=(Get-AudioValue $p 'Version')
         PackageProvider=(Get-AudioValue $p 'Provider'); BootCritical=(Get-AudioValue $p 'BootCritical')
         ExperimentalPresent=$State.ExperimentalPresent; CodeIntegrityOptions=$State.CodeIntegrityOptions
+        IntelPackageRetained=(Get-AudioValue $State 'IntelPackageRetained')
     } | ConvertTo-Json -Depth 5 -Compress
 }
 function Invoke-AudioAuto([hashtable]$Ops) {
-    $s=[ordered]@{ CoordinatorVersion='1.0'; Phase='ANALYZE'; Status='IN_PROGRESS'
+    $s=[ordered]@{ CoordinatorVersion='1.1'; Phase='ANALYZE'; Status='IN_PROGRESS'
         State=$null; Decision=$null; Backup=$null; Context=$null; Probe=$null
         Error=$null; Warnings=@(); AudioPlayback='NOT_IMPLEMENTED' }
     try {
@@ -84,7 +99,8 @@ function Invoke-AudioAuto([hashtable]$Ops) {
                 $s.Status='STATE_CHANGED'; $s.Error='Starea controlerului s-a schimbat. Proba nu a fost pornita.'
             } elseif ($s.Decision.Probe) {
                 $s.Phase='PROBE'; & $Ops.Save $s
-                $s.Probe=& $Ops.Probe
+                if ($s.Decision.Transition) { $s.Probe=& $Ops.Transition $s }
+                else { $s.Probe=& $Ops.Probe }
                 $r=$s.Probe.Transaction
                 if ($r.Phase -eq 'SNAPSHOT_COMPLETE_CLEAN' -and $r.Clean -eq $true -and
                     $null -ne $r.Snapshot -and $s.Probe.ExitCode -eq 0) { $s.Status='SNAPSHOT_COMPLETE_CLEAN' }

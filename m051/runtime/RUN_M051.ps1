@@ -19,6 +19,7 @@ try {
     $runDir = Join-Path $env:SystemDrive "PHASER360_M051_RECOVERY\$runId"
     New-Item -ItemType Directory -Path $runDir -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $root 'RECOVER_WINRE.cmd') -Destination $runDir
+    Copy-Item -LiteralPath (Join-Path $root 'CLEANUP_AUDIO.cmd') -Destination $runDir
     Copy-Item -LiteralPath (Join-Path $root 'runtime') -Destination $runDir -Recurse
     Copy-Item -LiteralPath (Join-Path $root 'PHASER360_M051_TEST_SIGNING.cer') -Destination $runDir
     $script:M051 = [ordered]@{

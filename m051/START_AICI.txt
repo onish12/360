@@ -1,56 +1,61 @@
-PHASER360 AUDIO AUTO - Windows 11 x64
+PHASER360 AUDIO AUTO 1.1 - tranzitie Intel -> proba compilata
 
-Acest pachet analizeaza starea curenta si alege automat actiunea implementata.
-Include proba M0.5.1 deja compilata. Inca NU reda sunet.
+Acesta este pachetul pentru urmatorul test. Inca NU reda sunet.
+Foloseste numai hardware-ul si pachetul Intel verificate in raportul tau.
 
-1. Dezarhiveaza complet pachetul intr-un folder local.
-2. Click dreapta pe RUN_AUDIO.cmd -> Run as administrator.
-3. Asteapta si trimite arhiva RESULT_AUDIO_*.zip indicata la final.
-Fereastra ramane deschisa. Nu trebuie sa introduci comenzi PowerShell.
+1. Dezarhiveaza complet intr-un folder local. Inchide aplicatiile audio.
+2. Pentru sesiunea raportata (CodeIntegrityOptions=5), porneste Windows prin:
+   Settings -> System -> Recovery -> Advanced startup -> Restart now ->
+   Troubleshoot -> Advanced options -> Startup Settings -> Restart ->
+   7 sau F7: Disable driver signature enforcement.
+3. In Windows: click dreapta RUN_AUDIO.cmd -> Run as administrator.
+4. Asteapta finalul si trimite arhiva RESULT_AUDIO_*.zip indicata.
+Fereastra ramane deschisa. Nu ai nevoie de WDK sau comenzi PowerShell.
 
-CE FACE AUTOMAT:
-- Identifica exact controlerul si INF-ul legat acum de el.
-- Daca exista un driver OEM, exporta pachetul si compara fisierele prin SHA-256.
-- Citeste serviciul, legaturile pachetului, dispozitivele audio si configuratia WinRE.
-- Daca este Code 28, fara service/INF, si sesiunea permite proba, o ruleaza:
-  instaleaza temporar propriul driver, citeste registrele, apoi elimina numai
-  pachetul/certificatele proprii si include rezultatul in raportul unic.
+Optiunea 7 permite proba semnata pentru test in acea pornire. Scriptul verifica
+starea activa inainte de orice instalare. Nu schimba BCD, Secure Boot, Memory
+Integrity sau criptarea. Daca Windows refuza proba, trimite rezultatul fara
+dezactivarea altor protectii. Daca volumul este criptat, ai nevoie de cheia
+BitLocker pentru recuperare. Scriptul nu colecteaza chei.
 
-Pentru Intel SST 9.22.0.4883 marcat Boot Critical Yes, daca exportul se verifica,
-rezultatul este PREPARED_INTEL_BOOT_CRITICAL. Pachetul pregateste datele pentru
-tranzitie; dezinstalarea Intel existent NU este implementata automat.
-WinRE /info arata configuratia, nu dovedeste o recuperare testata.
-Exportul pastreaza fisierele driverului, nu reprezinta un backup complet Windows.
-Raport: \PHASER360_AUDIO\<rulare>\Report pe volumul Windows.
-Copia driverului: \PHASER360_AUDIO\<rulare>\DriverBackup.
-Arhiva RESULT_AUDIO contine raportul, nu copia completa a driverului.
-Pachetul nu incarca automat nimic pe internet.
-Nu reporneste Windows. Nu schimba BCD, Secure Boot sau Memory Integrity.
+CE FACE IN ACEASTA VERSIUNE:
+- Identifica INF-ul OEM actual; nu presupune ca ramane oem32.inf.
+- Verifica fisierele Intel, serviciul si un export nou prin SHA-256.
+- Pregateste recuperarea si jurnalul inainte de instalare.
+- Selecteaza proba numai pe instanta exacta a controlerului, pastrand pachetul
+  Intel in DriverStore. Copiii controlerului, inclusiv Display Audio, pot fi
+  opriti de Windows in timpul schimbarii driverului parinte.
+- Citeste registrele cu proba M0.5.1, fara scrieri MMIO, DMA sau firmware.
+- Detaseaza proba, verifica Code 28/fara service/INF si elimina doar pachetul
+  si certificatele proprii. Nu reinstaleaza Intel si nu reporneste automat.
 
-Daca apare SIGNING_SESSION_REQUIRED, controlerul liber necesita o sesiune de test.
-Aceasta optiune nu rezolva prezenta Intel SST pe controler.
-Acesta este un driver semnat pentru test, nu semnat de Microsoft pentru productie.
-Pentru proba pe acest laptop de dezvoltare, Windows trebuie pornit intr-o sesiune
-care permite testul. Optiunea temporara este Settings -> System -> Recovery ->
-Advanced startup -> Restart now -> Troubleshoot -> Advanced options -> Startup
-Settings -> Restart -> 7 (Disable driver signature enforcement), apoi pasul 2.
-Aceasta optiune reduce verificarea semnaturilor pentru acea pornire. Pastreaza
-cheia BitLocker la indemana daca unitatea este criptata. Daca Windows refuza
-in continuare incarcarea, trimite raportul; nu dezactiva alte protectii.
-In modul Test Signing deja configurat, scriptul verifica starea activa, nu textul BCD.
+LA FINAL: UNBOUND inseamna controler fara driver. Pachetul Intel ramane pastrat.
+Acesta este un rezultat de dezvoltare, nu sunet reparat si nu restaurarea
+legaturii initiale. Windows poate selecta din nou Intel la o operatiune viitoare;
+scriptul nu blocheaza Windows Update sau politica de alegere a driverelor.
+Trimite raportul obtinut; repetarea aceleiasi probe nu implementeaza audio.
 
-RECUPERARE, daca Windows nu mai porneste dupa instalarea experimentala:
-Inainte de instalare, scriptul creeaza pe volumul Windows:
-  \PHASER360_M051_RECOVERY\<rulare>\RECOVER_WINRE.cmd
-Deschide Command Prompt din Windows Recovery, identifica litera volumului Windows
-(poate fi D:), intra in acel folder si ruleaza RECOVER_WINRE.cmd.
-Acesta dezactiveaza doar serviciul phaser360_m051_mmio_ro in registrul offline.
-Aceasta recuperare NU acopera eliminarea Intel SST.
-Dupa ce Windows porneste, ruleaza ca administrator copia runtime\CLEANUP_M051.ps1
-din acelasi folder de recuperare pentru stergerea pachetului/certificatelor proprii.
-Nu reinstala Intel 4883. Nu folosi pachetele M0.5 vechi.
+RECUPERARE pregatita inainte de instalare:
+  /PHASER360_M051_RECOVERY/<rulare>/RECOVER_WINRE.cmd pe volumul Windows.
+Din Windows Recovery -> Command Prompt, identifica volumul Windows (litera poate
+fi D:), intra in acel folder si ruleaza RECOVER_WINRE.cmd. Acesta dezactiveaza
+numai serviciul experimental in registrul offline. Dupa pornirea Windows,
+ruleaza CLEANUP_AUDIO.cmd ca administrator din ACELASI folder de recuperare.
+Jurnalul identifica propriul pachet; curatarea refuza alte legaturi de driver.
+Nu rula CLEANUP_AUDIO.cmd din folderul descarcat: acolo nu exista jurnalul.
 
-STATUS=SNAPSHOT_COMPLETE_CLEAN inseamna citire si curatare reusite.
-STATUS=STOPPED_CLEAN inseamna proba oprita fara modificari proprii ramase.
-STATUS=RECOVERY_REQUIRED inseamna curatare neconfirmata; vezi jurnalul si recuperarea.
-Validarea CI nu dovedeste functionarea pe laptop. Aceasta proba este inca experimentala.
+WinRE /info nu dovedeste pornirea recuperarii. Exportul driverului nu este un
+backup complet Windows. Recuperarea de mai sus nu repara orice eroare Windows.
+Foloseste sesiunea de test numai avand acces la mediul de recuperare.
+
+Raport: /PHASER360_AUDIO/<rulare>/Report pe volumul Windows.
+Export Intel: /PHASER360_AUDIO/<rulare>/DriverBackup.
+Arhiva RESULT_AUDIO contine raportul; copia completa a driverului ramane local.
+Nu se incarca nimic automat pe internet.
+
+SNAPSHOT_COMPLETE_CLEAN: citire reusita, proba eliminata, stare finala verificata.
+STOPPED_CLEAN: proba oprita cu eroare, fara pachet/certificate proprii ramase;
+consulta STARE_FINALA pentru a vedea daca Intel a ramas legat sau tinta e libera.
+RECOVERY_REQUIRED: curatare neconfirmata; vezi jurnalul si recuperarea.
+SIGNING_SESSION_REQUIRED: nu s-a inceput instalarea; vezi pasul 2.
+Pachetul compilat si testele CI nu dovedesc inca functionarea pe laptop.

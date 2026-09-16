@@ -4,28 +4,25 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 
 ## Current continuation status
 
-- **Adaptive entry point:** [PHASER360_AUDIO_AUTO](docs/M051_AUDIO_AUTO.md).
-  Run RUN_AUDIO.cmd as administrator. It preserves and verifies the current
-  driver package, records service/recovery evidence, and automatically runs
-  the compiled probe when the controller is unbound and signing permits it.
-  It does not uninstall Intel SST. Output: one RESULT_AUDIO_*.zip.
-- **M0.5.1:** [fresh-Windows probe](docs/M051_FRESH_WINDOWS.md), with a new
-  driver/service identity, PnP-assigned addresses, unbound-controller preflight,
-  owned-package cleanup and recovery. Included in `PHASER360_AUDIO_AUTO`.
-  This is a temporary diagnostic driver, not working audio. CI evidence does not
-  replace a snapshot from the reinstalled Lenovo.
-  **Latest target evidence (2026-09-14):** Intel SST 9.22.0.4883 is currently
-  bound as `IntcAudioBus` / `oem32.inf`; DISM reports `Boot Critical: Yes`.
-  M0.5.1 stopped before driver installation. See the
-  [installed-Intel baseline and recovery boundary](docs/M051_INTEL_BASELINE.md)
-  before planning the transition to an unbound controller.
+- **Adaptive entry point 1.1:** [PHASER360_AUDIO_AUTO](docs/M051_AUDIO_AUTO.md).
+  RUN_AUDIO.cmd verifies the current package and signing state. For the exact
+  reviewed Intel bytes it performs an [instance-scoped handoff](docs/M051_HANDOFF.md)
+  to the compiled read-only probe. Intel files stay in DriverStore; the successful
+  final controller state is deliberately unbound. Output: one RESULT_AUDIO_*.zip.
+- **M0.5.1:** [fresh-Windows probe](docs/M051_FRESH_WINDOWS.md), with its original
+  unbound-controller guard unchanged. The separate handoff uses the same kernel.
+  Neither route implements sound. Hardware handoff has not yet been validated.
+  **Latest evidence (2026-09-16):** Intel SST 9.22.0.4883 / oem32.inf is running;
+  Start=3, DISM BootCritical=true, export hashes match. Both codecs and the DSP
+  child are present. CodeIntegrityOptions=5 blocks the test-signed probe in that
+  session. No MMIO snapshot has been obtained from the reinstalled Lenovo.
 - **M0.5:** the read-only MMIO probe built and packaged successfully in
   [CI run 34754361785](https://github.com/onish12/360/actions/runs/34754361785).
   This is build/package evidence, not a successful test on the reinstalled Lenovo.
   **Do not run the installer from that historical artifact.** Its script assumed
   the retired Intel SST 9.22.0.4883 / oem0.inf baseline and automatically tried to
   restore it. Both runtime entry points in new builds are now explicitly blocked
-  before system operations. Do not reinstall 4883 or disable signature checks.
+  before system operations. Do not reinstall 4883 or change signing settings for those retired packages.
 - **M0.6:** [offline SOF firmware parser](docs/M06_FIRMWARE.md), malformed-input
   tests and a SHA-256-pinned official APL/GLK regression image. This component
   does not load firmware, install a driver or produce sound.
