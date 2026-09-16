@@ -8,6 +8,11 @@ namespace PhaserM051 {
     // Device-instance scoped SetupAPI calls. Never removes a DriverStore package.
     public static class DeviceBinding {
         public const string HardwareId = @"PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06";
+        public sealed class InstallResult {
+            public bool Success;
+            public bool RebootRequired;
+            public int Win32Error;
+        }
         [StructLayout(LayoutKind.Sequential)]
         public struct DeviceInfo {
             public uint Size;
@@ -44,7 +49,7 @@ namespace PhaserM051 {
         [DllImport("setupapi.dll", CharSet=CharSet.Unicode, ExactSpelling=true, SetLastError=true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         static extern bool SetupDiGetDeviceRegistryPropertyW(IntPtr set, ref DeviceInfo dev, uint property,
-            out uint type, byte[] data, uint capacity, out uint needed);
+            out uint type, [Out] byte[] data, uint capacity, out uint needed);
         [DllImport("setupapi.dll", CharSet=CharSet.Unicode, ExactSpelling=true, SetLastError=true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         static extern bool SetupDiGetDeviceInstallParamsW(IntPtr set, ref DeviceInfo dev, ref InstallParams p);
@@ -95,16 +100,17 @@ namespace PhaserM051 {
             } catch { SetupDiDestroyDeviceInfoList(set); throw; }
         }
         // Null binding is a deliberate state change, not restoration of Intel.
-        public static bool InstallNull(string instance) {
+        public static InstallResult InstallNull(string instance) {
             DeviceInfo dev;
             IntPtr set = Open(instance, out dev);
             try {
                 bool reboot;
-                Checked(DiInstallDevice(IntPtr.Zero, set, ref dev, IntPtr.Zero, 4, out reboot));
-                return reboot;
+                bool ok=DiInstallDevice(IntPtr.Zero, set, ref dev, IntPtr.Zero, 4, out reboot);
+                int error=ok ? 0 : Marshal.GetLastWin32Error();
+                return new InstallResult { Success=ok, RebootRequired=reboot, Win32Error=error };
             } finally { SetupDiDestroyDeviceInfoList(set); }
         }
-        public static bool BindProbe(string instance, string storeInf) {
+        public static InstallResult BindProbe(string instance, string storeInf) {
             string path = Path.GetFullPath(storeInf);
             string prefix = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
                 @"System32\DriverStore\FileRepository\");
@@ -134,8 +140,9 @@ namespace PhaserM051 {
                 selected = Marshal.AllocHGlobal(1568);
                 Marshal.StructureToPtr(first, selected, false);
                 bool reboot;
-                Checked(DiInstallDevice(IntPtr.Zero, set, ref dev, selected, 0, out reboot));
-                return reboot;
+                bool ok=DiInstallDevice(IntPtr.Zero, set, ref dev, selected, 0, out reboot);
+                int error=ok ? 0 : Marshal.GetLastWin32Error();
+                return new InstallResult { Success=ok, RebootRequired=reboot, Win32Error=error };
             } finally {
                 if (selected != IntPtr.Zero) Marshal.FreeHGlobal(selected);
                 if (built) SetupDiDestroyDriverInfoList(set, ref dev, 2);

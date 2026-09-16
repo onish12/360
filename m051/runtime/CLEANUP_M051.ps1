@@ -24,6 +24,17 @@ $mutex = [Threading.Mutex]::new($false, 'Global\PHASER360_M051_TRANSACTION')
 if (-not $mutex.WaitOne(0)) { $mutex.Dispose(); throw 'M051_TRANSACTION_IS_RUNNING' }
 try {
     $errors = @()
+    if ($handoff -and ($script:M051.Handoff.BindRebootRequired -or $script:M051.Handoff.NullRebootRequired)) {
+        if ([string]::IsNullOrWhiteSpace($script:M051.Handoff.BootTime) -or
+            (Get-HandoffBootTime) -eq $script:M051.Handoff.BootTime) {
+            throw 'HANDOFF_PENDING_REBOOT: recovery cleanup requires a new Windows boot'
+        }
+        $script:M051.Handoff.BindRebootRequired=$false
+        $script:M051.Handoff.NullRebootRequired=$false
+        # Record the new boot before another native operation can request a reboot.
+        $script:M051.Handoff.BootTime=Get-HandoffBootTime
+        Write-M051Journal $record.Transaction
+    }
     if ($record.Transaction.StageAttempted) {
         try {
             $p = Find-M051CurrentOwned

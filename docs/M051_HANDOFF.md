@@ -52,6 +52,10 @@ is found, cleanup refuses to replace it. Failure/reboot requests remain explicit
 they never become a successful snapshot just because an API returned success.
 No automatic reboot is requested. The Windows installer can leave pending work;
 a reported reboot requirement remains a recovery condition, not success.
+The probe service is disabled and its package is retained when binding requests
+a reboot. The recovery cleanup requires a different Windows boot before trying
+again. The native result preserves both Win32 error and reboot state even when
+DiInstallDevice returns failure. No installer is retried concurrently.
 
 The final successful state is deliberately **UNBOUND**, not restoration of the
 initial Intel binding. CLEAN means probe package/certificate cleanup and a

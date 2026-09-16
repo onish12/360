@@ -63,6 +63,9 @@ function Set-HandoffNullBinding([string]$InstanceId) {
 function Set-HandoffProbeBinding([string]$InstanceId,[string]$Inf) {
     [PhaserM051.DeviceBinding]::BindProbe($InstanceId,$Inf)
 }
+function Get-HandoffBootTime {
+    (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime.ToUniversalTime().ToString('o')
+}
 function Test-HandoffIntelPreserved {
     $p=$script:M051.Handoff.InitialState.Package
     $matches=@(Get-WindowsDriver -Online -ErrorAction Stop | Where-Object { $_.Driver -ieq $p.PublishedName })
@@ -85,13 +88,17 @@ function Remove-HandoffOwnedPackage($State) {
     $target=Get-M051Target
     $action=Get-HandoffCleanupAction $target $script:M051.Target $p
     Disable-M051OwnedService $p
+    if ($script:M051.Handoff.BindRebootRequired -or $script:M051.Handoff.NullRebootRequired) {
+        throw 'HANDOFF_PENDING_REBOOT: owned service disabled; retain package until recovery after a new boot'
+    }
     if ($action -eq 'DETACH_OWNED') {
         $script:M051.Handoff.NullAttempted=$true
         Write-M051Journal $State
-        $reboot=Set-HandoffNullBinding $target.InstanceId
-        $script:M051.Handoff.NullRebootRequired=$reboot
+        $native=Set-HandoffNullBinding $target.InstanceId
+        $script:M051.Handoff.NullRebootRequired=$native.RebootRequired
         Write-M051Journal $State
-        if ($reboot) { throw 'HANDOFF_NULL_REBOOT_REQUIRED: owned service disabled; no automatic reboot' }
+        if ($native.RebootRequired) { throw 'HANDOFF_NULL_REBOOT_REQUIRED: owned service disabled; no automatic reboot' }
+        if (-not $native.Success) { throw "HANDOFF_NULL_FAILED: $($native.Win32Error)" }
         $now=Get-M051Target
         if ($now.InstanceId -ine $target.InstanceId) { throw 'TARGET_INSTANCE_CHANGED' }
         Assert-M051CleanTarget $now
@@ -101,6 +108,9 @@ function Remove-HandoffOwnedPackage($State) {
     Invoke-M051Pnp @('/delete-driver',$p.PublishedName)
 }
 function Test-HandoffClean($State) {
+    if ($script:M051.Handoff.BindRebootRequired -or $script:M051.Handoff.NullRebootRequired) {
+        throw 'HANDOFF_PENDING_REBOOT'
+    }
     if (@(Get-M051Store | Where-Object { $_.OriginalName -ieq 'phaser360_m051_mmio_ro.inf' }).Count) {
         throw 'OWNED_PACKAGE_STILL_PRESENT'
     }
@@ -133,7 +143,7 @@ function Invoke-AudioHandoff($AutoResult) {
             InfHash=(Get-FileHash (Join-Path $root 'driver\phaser360_m051_mmio_ro.inf')).Hash
             CertThumbprint=''; OwnedCertStores=@(); CodeIntegrityOptions=$null
             Handoff=[ordered]@{ InitialState=$AutoResult.State; InitialService=$null; Backup=$AutoResult.Backup
-                NullAttempted=$false; NullRebootRequired=$false; BindRebootRequired=$false
+                NullAttempted=$false; NullRebootRequired=$false; BindRebootRequired=$false; BootTime=''
                 FinalState='NOT_CHECKED'; FinalTarget=$null; IntelPackagePreserved=$false } }
         $ops=@{
             Save={ param($s) Write-M051Journal $s }
@@ -145,6 +155,7 @@ function Invoke-AudioHandoff($AutoResult) {
                 $service=Read-HandoffService
                 Assert-HandoffBaseline $now $service @(Get-AudioInventory (Split-Path -Parent $now.Package.OriginalPath))
                 $script:M051.Handoff.InitialService=$service
+                $script:M051.Handoff.BootTime=Get-HandoffBootTime
                 $backup=$script:M051.Handoff.Backup
                 if ($null -eq $backup -or $backup.Verified -ne $true) { throw 'HANDOFF_BACKUP_REQUIRED' }
                 $tree=@(Get-AudioInventory $backup.Path)
@@ -175,10 +186,11 @@ function Invoke-AudioHandoff($AutoResult) {
                 $p=Find-M051CurrentOwned
                 if ($null -eq $p -or $p.PublishedName -ine $s.OwnedPackage.PublishedName) { throw 'PACKAGE_OWNERSHIP_CHANGED' }
                 try {
-                    $reboot=Set-HandoffProbeBinding $script:M051.Target.InstanceId $p.OriginalPath
-                    $script:M051.Handoff.BindRebootRequired=$reboot
+                    $native=Set-HandoffProbeBinding $script:M051.Target.InstanceId $p.OriginalPath
+                    $script:M051.Handoff.BindRebootRequired=$native.RebootRequired
                     Write-M051Journal $s
-                    if ($reboot) { throw 'HANDOFF_BIND_REBOOT_REQUIRED: no automatic reboot' }
+                    if ($native.RebootRequired) { throw 'HANDOFF_BIND_REBOOT_REQUIRED: no automatic reboot' }
+                    if (-not $native.Success) { throw "HANDOFF_BIND_FAILED: $($native.Win32Error)" }
                 } finally { Disable-M051OwnedService $p }
             }
             Snapshot={ param($s) Read-M051Snapshot }
