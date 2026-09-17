@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - 'src/sof/**'
+      - 'm062/driver/**'
+      - 'tests/fake_wdf/**'
       - 'tools/sof_inspect.cpp'
       - 'tests/sof*'
       - 'tests/fixtures/sof_glk_reference.json'
@@ -16,6 +18,8 @@ on:
   pull_request:
     paths:
       - 'src/sof/**'
+      - 'm062/driver/**'
+      - 'tests/fake_wdf/**'
       - 'tools/sof_inspect.cpp'
       - 'tests/**'
       - 'scripts/verify-sof-reference.py'
@@ -93,7 +97,7 @@ jobs:
             # Linux binary is a sanitizer-instrumented development executable.
             Copy-Item "$build/phaser360_sof_inspect", "$build/libphaser360_sof_parser.a", "$build/libphaser360_sof_boot.a" $stage
           }
-          "COMMIT=$env:GITHUB_SHA`nHARDWARE_ACCESS=NONE`nINSTALLABLE=FALSE`nAUDIO_OUTPUT=NONE`nBOOT_BACKEND=TEST_DOUBLE_ONLY`nWINDOWS_DMA_ADAPTER=NOT_IMPLEMENTED`nIPC_WINDOWS=NOT_IMPLEMENTED" | Set-Content "$stage/BUILD_STATUS.txt"
+          "COMMIT=$env:GITHUB_SHA`nHARDWARE_ACCESS=NONE`nINSTALLABLE=FALSE`nAUDIO_OUTPUT=NONE`nBOOT_BACKEND=TEST_DOUBLE_ONLY`nWINDOWS_DMA_MEMORY=SEPARATE_WDK_COMPONENT_NOT_INTEGRATED`nIPC_WINDOWS=NOT_IMPLEMENTED" | Set-Content "$stage/BUILD_STATUS.txt"
           $files = @(Get-ChildItem $stage -File | Sort-Object Name)
           $manifest = @($files | ForEach-Object {
             "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name

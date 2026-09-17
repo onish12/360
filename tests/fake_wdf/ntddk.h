@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: MIT
+// User-mode test shim ONLY. Never include this directory in a WDK target.
+#pragma once
+#include <cstdint>
+#include <cstddef>
+#include <cstring>
+#include <cassert>
+using UCHAR = unsigned char;
+using ULONG = uint32_t;
+using USHORT = uint16_t;
+using ULONGLONG = uint64_t;
+using SIZE_T = size_t;
+using NTSTATUS = int32_t;
+struct PHYSICAL_ADDRESS { int64_t QuadPart; };
+constexpr NTSTATUS STATUS_SUCCESS = 0;
+constexpr NTSTATUS STATUS_INVALID_DEVICE_STATE = -1;
+constexpr NTSTATUS STATUS_INVALID_PARAMETER = -2;
+constexpr NTSTATUS STATUS_DEVICE_CONFIGURATION_ERROR = -3;
+constexpr NTSTATUS STATUS_DEVICE_BUSY = -4;
+constexpr NTSTATUS STATUS_INSUFFICIENT_RESOURCES = -5;
+constexpr unsigned PASSIVE_LEVEL = 0;
+constexpr ULONG MAXULONG = UINT32_MAX;
+#define _IRQL_requires_(x)
+#define NT_SUCCESS(x) ((x) >= 0)
+#define NT_ASSERT(x) assert(x)
+inline void RtlCopyMemory(void* d,const void* s,size_t n) { std::memcpy(d,s,n); }
+unsigned KeGetCurrentIrql();
+void KeMemoryBarrier();
