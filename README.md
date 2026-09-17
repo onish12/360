@@ -30,8 +30,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   tests and a SHA-256-pinned official APL/GLK regression image. This component
   does not load firmware, install a driver or produce sound.
 - **M0.6.1:** [cold-boot coordination and IPC3 ready-header validation](docs/M061_BOOT_PROTOCOL.md).
-  Compiled core logic tested with injected failures. Windows DMA/MMIO/IRQ and
+  Compiled core logic tested with injected failures. Hardware MMIO/IRQ and
   extended IPC windows are still missing; this is not an installable loader.
+- **M0.6.2:** [Windows DMA memory component](docs/M062_WINDOWS_DMA.md).
+  KMDF common-buffer allocation, HDA descriptors and guarded buffer ownership.
+  Built as a separate WDK static library; not wired to the controller or M0.5.1.
+  Fault-injection tests use a WDF shim, not real hardware.
 - **Working Windows audio:** not yet implemented. DSP boot/authentication, IPC,
   machine/codec integration and WaveRT remain separate milestones.
 

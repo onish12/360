@@ -69,3 +69,22 @@ real WDF runtime, IOMMU, driver removal or device behavior.
 - [HDA descriptor count](https://github.com/torvalds/linux/blob/v6.12/include/sound/hda_register.h)
 
 Independent MIT implementation; no Linux source copied.
+
+## Recorded build evidence (2026-09-17)
+
+Source revision: bf97a16ee7235807954ac9511730cf711faded2d.
+[WDK PR build 35264568235](https://github.com/onish12/360/actions/runs/35264568235)
+compiled the static library and passed the two DMA test executables.
+[Linux/Windows push build 35264562685](https://github.com/onish12/360/actions/runs/35264562685)
+passed all existing and new offline tests, including the pinned reference image.
+The new tests report 49664 descriptor assertions and 68 ownership/API assertions;
+these counts are assertions, not independent hardware scenarios.
+
+The first WDK attempt exposed a user-mode CRT/header collision. The corrected
+kernel build uses WDK integer types; warnings remain errors. The WDF shim is
+only on user-mode test include paths, never on the real WDK library target.
+
+PR artifact: PHASER360_M062_WDK_DMA_LIBRARY, ID 10515699306.
+GitHub-reported archive SHA-256:
+31258efb6924dc72c83389c51d3072561f86dc4a670cbabb5e374016a6c7f204.
+This is CI-reported evidence, not an independently downloaded archive check.
