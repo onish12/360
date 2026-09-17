@@ -16,8 +16,9 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   GCAP `0x6701`, ADSPCS `0x001D003C`. Cleanup then failed because version 1.1
   required Code 28, while Windows reported Problem 0 with empty Service/INF.
   [Repair 1.1.1](docs/M051_HARDWARE_20260916.md) finishes the reviewed transaction
-  through REPAIR_AUDIO.cmd without repeating the probe. Physical repair still
-  awaits the user's result. Intel preservation was not verified in the failed run.
+  through REPAIR_AUDIO.cmd without repeating the probe. The September 17 report
+  confirms physical cleanup, retained Intel package/service checks and the
+  unchanged snapshot. Final controller binding is UNBOUND.
 - **M0.5:** the read-only MMIO probe built and packaged successfully in
   [CI run 34754361785](https://github.com/onish12/360/actions/runs/34754361785).
   This is build/package evidence, not a successful test on the reinstalled Lenovo.
@@ -28,6 +29,9 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 - **M0.6:** [offline SOF firmware parser](docs/M06_FIRMWARE.md), malformed-input
   tests and a SHA-256-pinned official APL/GLK regression image. This component
   does not load firmware, install a driver or produce sound.
+- **M0.6.1:** [cold-boot coordination and IPC3 ready-header validation](docs/M061_BOOT_PROTOCOL.md).
+  Compiled core logic tested with injected failures. Windows DMA/MMIO/IRQ and
+  extended IPC windows are still missing; this is not an installable loader.
 - **Working Windows audio:** not yet implemented. DSP boot/authentication, IPC,
   machine/codec integration and WaveRT remain separate milestones.
 
