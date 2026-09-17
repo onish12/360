@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: MIT
 #pragma once
+#if defined(PHASER_KERNEL_BUILD)
+#include <ntddk.h>
+#else
 #include <stddef.h>
 #include <stdint.h>
+#endif
 
 namespace phaser360 { namespace sof {
+#if defined(PHASER_KERNEL_BUILD)
+using uint8_t = UCHAR;
+using uint16_t = USHORT;
+using uint32_t = ULONG;
+using uint64_t = ULONGLONG;
+#endif
 constexpr size_t kBdlBytes = 4096;
 constexpr size_t kDmaPageBytes = 4096;
 constexpr size_t kMaxDmaBytes = 256 * kDmaPageBytes;

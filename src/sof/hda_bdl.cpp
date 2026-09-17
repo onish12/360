@@ -13,8 +13,8 @@ bool BuildBootBdl(uint64_t logical, size_t bytes, bool address64,
     if (!output || capacity < kBdlBytes || bytes == 0 || bytes > kMaxDmaBytes ||
         (logical & (kDmaPageBytes - 1)) != 0) return false;
     const uint64_t lastDelta = static_cast<uint64_t>(bytes - 1);
-    if (logical > UINT64_MAX - lastDelta) return false;
-    if (!address64 && logical + lastDelta > UINT32_MAX) return false;
+    if (logical > ~uint64_t{0} - lastDelta) return false;
+    if (!address64 && logical + lastDelta > static_cast<uint64_t>(~uint32_t{0})) return false;
     const size_t count = (bytes + kDmaPageBytes - 1) / kDmaPageBytes;
     for (size_t i = 0; i < kBdlBytes; ++i) output[i] = 0;
     size_t remaining = bytes;

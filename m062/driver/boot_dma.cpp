@@ -34,10 +34,10 @@ NTSTATUS BootDma::Prepare(WDFDEVICE device, const UCHAR* approvedPayload,
     auto* payloadVirtual = WdfCommonBufferGetAlignedVirtualAddress(payload_);
     auto* bdlVirtual = static_cast<UCHAR*>(WdfCommonBufferGetAlignedVirtualAddress(bdl_));
     const auto bdlAddress = static_cast<ULONGLONG>(bdlLogical.QuadPart);
-    uint16_t count = 0;
+    USHORT count = 0;
     if (!payloadVirtual || !bdlVirtual || (bdlAddress & 4095) != 0 ||
         bdlAddress > MAXULONG - (sof::kBdlBytes - 1) ||
-        !sof::BuildBootBdl(static_cast<uint64_t>(payloadLogical.QuadPart), bytes,
+        !sof::BuildBootBdl(static_cast<ULONGLONG>(payloadLogical.QuadPart), bytes,
                            false, bdlVirtual, sof::kBdlBytes, &count)) {
         FreeUnpublished(); return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
