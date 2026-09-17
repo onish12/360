@@ -16,6 +16,7 @@ foreach ($line in Get-Content -LiteralPath (Join-Path $rootPath 'SHA256SUMS.txt'
     $seen[$relative.Replace('\','/')] = $true
 }
 foreach ($required in @('RUN_AUDIO.cmd','runtime/RUN_AUDIO.ps1','runtime/AudioDecision.ps1','runtime/AudioWindows.ps1',
+    'REPAIR_AUDIO.cmd','runtime/REPAIR_AUDIO.ps1','runtime/Repair.ps1','M051_HARDWARE_20260916.md',
     'runtime/Transition.ps1','runtime/DeviceBinding.cs','runtime/DeviceBinding.dll','CLEANUP_AUDIO.cmd',
     'BUILD_AUDIT.txt','START_AICI.txt','runtime/RUN_M051.ps1','runtime/CLEANUP_M051.ps1','runtime/VERIFY_PACKAGE.ps1',
     'runtime/Transaction.ps1','runtime/Windows.ps1','runtime/Native.cs','RUN_M051.cmd','RECOVER_WINRE.cmd',

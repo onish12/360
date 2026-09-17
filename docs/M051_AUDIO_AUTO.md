@@ -1,7 +1,11 @@
-# PHASER360 AUDIO AUTO 1.1
+# PHASER360 AUDIO AUTO 1.1.1
 
-Run RUN_AUDIO.cmd as administrator after the signing prerequisite described in
-START_AICI.txt. The package includes the compiled x64 M0.5.1 read-only kernel
+For the completed 2026-09-16 21:12:27 snapshot with failed cleanup, run
+**REPAIR_AUDIO.cmd** as administrator following START_AICI.txt. This reuses the
+existing journal and does not load a driver or require F7. See the
+[hardware report and repair](M051_HARDWARE_20260916.md).
+
+RUN_AUDIO.cmd is the separate probe entry point. The package includes the compiled x64 M0.5.1 read-only kernel
 (0.5.1.0) and the x64 device-binding helper. No compiler or WDK is needed on the
 laptop. Audio playback is not implemented.
 
@@ -11,7 +15,7 @@ laptop. Audio playback is not implemented.
 | Reviewed Intel, signing blocked/unknown | Export and report prerequisite; no device changes |
 | Different Intel bytes, other OEM package or untyped metadata | Preserve package and report; no automatic replacement |
 | Unbound code 28 without retained Intel | Existing M0.5.1 transaction |
-| Unbound code 28 with retained Intel | Stop; do not reuse legacy cleanup that may rebind Intel |
+| Unbound Problem 0 or 28 with retained Intel | Stop; use the existing snapshot rather than repeating the probe |
 | Previous probe package or service | Require its recorded recovery cleanup |
 | Changed state, failed backup, failed cleanup | Explicit failure; no false success |
 
@@ -38,5 +42,6 @@ does not prove boot/access, and export is not a Windows image backup.
 
 CI runs Windows PowerShell 5.1 tests, x64 SDK/managed ABI checks, compiled-helper
 loading, C++ resource tests and WDK build/signing. The downloaded artifact's
-manifest is checked again. Hardware handoff and audio remain unvalidated on
-the laptop until actual test results are returned.
+manifest is checked again. The first real snapshot succeeded in version 1.1;
+cleanup failed and prompted this correction. Physical repair and audio playback
+are not established by CI success.

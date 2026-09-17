@@ -49,6 +49,15 @@ $s=New-HandoffFixture; $s.Target.Inf='oem32.inf'
 Reject-Handoff { Assert-HandoffBaseline $s $service $files } 'dynamic published name consistency'
 $s=New-HandoffFixture; $s.Target.Problem=28; $s.Target.Service=''; $s.Target.Inf=''; $s.Package=$null
 Check-Handoff ((Get-AudioDecision $s).Code -eq 'UNBOUND_INTEL_RETAINED') 'legacy cleanup cannot silently rebind retained Intel'
+$s.Target.Problem=0
+Check-Handoff ((Get-AudioDecision $s).Code -eq 'UNBOUND_INTEL_RETAINED') 'observed Problem 0 also prevents repeat probe'
+Assert-HandoffDetachedTarget $s.Target
+Reject-Handoff { Assert-M051CleanTarget $s.Target } 'legacy fresh-install guard still requires 28'
+foreach ($change in @(@{Problem=32},@{Service='IntcAudioBus'},@{Inf='oem32.inf'},@{HardwareIds=@('PCI\OTHER')})) {
+    $bad=$s.Target.PSObject.Copy()
+    foreach ($key in $change.Keys) { $bad.$key=$change[$key] }
+    Reject-Handoff { Assert-HandoffDetachedTarget $bad } 'nonempty binding or different device not detached'
+}
 
 $script:selectedHandoff=$false
 $autoOps=@{
@@ -68,6 +77,13 @@ $auto=Invoke-AudioAuto $autoOps
 Check-Handoff ($script:selectedHandoff -and $auto.Status -eq 'SNAPSHOT_COMPLETE_CLEAN') 'coordinator selects new transaction'
 $autoOps.Transition={ param($r) throw 'no confirmed result' }
 Check-Handoff ((Invoke-AudioAuto $autoOps).Status -eq 'PROBE_RESULT_UNCONFIRMED') 'transition failure never claims success'
+$autoOps.Transition={ param($r)
+    [pscustomobject]@{ ExitCode=2; Transaction=[pscustomobject]@{
+        Phase='RECOVERY_REQUIRED'; Clean=$false; Snapshot=@{Valid=$true}; Error=$null
+        CleanupErrors=@('fixture cleanup error') } }
+}
+$auto=Invoke-AudioAuto $autoOps
+Check-Handoff ($auto.Status -eq 'RECOVERY_REQUIRED' -and $auto.Error -eq 'fixture cleanup error') 'cleanup error reaches coordinator summary'
 
 # Use the real cleanup function with injected native/Windows boundaries. This
 # exercises ordering and refusal of foreign bindings without touching hardware.
@@ -91,6 +107,7 @@ function Set-HandoffNullBinding([string]$InstanceId) {
     if ($script:hc.Fail -eq 'null-api-false') { return [pscustomobject]@{ Success=$false; RebootRequired=$false; Win32Error=5 } }
     $script:hc.Target=$script:M051.Target.PSObject.Copy()
     $script:hc.Target.Problem=28; $script:hc.Target.Service=''; $script:hc.Target.Inf=''
+    if ($script:hc.Fail -eq 'null-problem0') { $script:hc.Target.Problem=0 }
     return [pscustomobject]@{ Success=$true; RebootRequired=$false; Win32Error=0 }
 }
 function Invoke-M051Pnp([string[]]$Arguments) {
@@ -152,11 +169,11 @@ function Test-HandoffScenario([string]$Name) {
         Check-Handoff ($r.Clean -and $script:M051.Handoff.FinalState -eq 'UNBOUND') 'final target deliberately unbound'
         Check-Handoff ($script:hc.Events.IndexOf('null') -lt $script:hc.Events.IndexOf('delete')) 'detach before own package deletion'
         Check-Handoff ($script:hc.Events.IndexOf('disable-owned') -lt $script:hc.Events.IndexOf('null')) 'disable own service before detach'
-        if ($Name -eq '') { Check-Handoff ($r.Phase -eq 'SNAPSHOT_COMPLETE_CLEAN' -and $null -ne $r.Snapshot) 'success includes snapshot' }
+        if ($Name -in @('','null-problem0')) { Check-Handoff ($r.Phase -eq 'SNAPSHOT_COMPLETE_CLEAN' -and $null -ne $r.Snapshot) 'success includes snapshot' }
         else { Check-Handoff ($r.Phase -eq 'STOPPED_CLEAN') 'read or bind error retained despite successful cleanup' }
     }
 }
-foreach ($name in @('','preflight','stage-partial','bind-refused','bind-partial','bind-reboot','race','snapshot',
+foreach ($name in @('','null-problem0','preflight','stage-partial','bind-refused','bind-partial','bind-reboot','race','snapshot',
     'null-fails','null-reboot','null-api-false','delete-fails','journal','intel-changed')) { Test-HandoffScenario $name }
 
 # Managed x64 structures must agree with the SDK static_assert build as well.
@@ -164,4 +181,4 @@ Add-Type -Path (Join-Path $PSScriptRoot '..\m051\runtime\DeviceBinding.cs')
 [PhaserM051.DeviceBinding]::CheckAbi()
 Reject-Handoff { [PhaserM051.DeviceBinding]::InstallNull('PCI\OTHER') } 'native boundary refuses other hardware before opening SetupAPI'
 Reject-Handoff { [PhaserM051.DeviceBinding]::BindProbe('PCI\OTHER','C:\foreign.inf') } 'native boundary refuses non-owned INF'
-Write-Host "HANDOFF_TESTS=PASS; checks=$script:handoffChecks; transaction_scenarios=14; coordinator_scenarios=2; native_abi=x64"
+Write-Host "HANDOFF_TESTS=PASS; checks=$script:handoffChecks; transaction_scenarios=15; coordinator_scenarios=3; native_abi=x64"

@@ -4,18 +4,20 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 
 ## Current continuation status
 
-- **Adaptive entry point 1.1:** [PHASER360_AUDIO_AUTO](docs/M051_AUDIO_AUTO.md).
+- **Adaptive entry point 1.1.1:** [PHASER360_AUDIO_AUTO](docs/M051_AUDIO_AUTO.md).
   RUN_AUDIO.cmd verifies the current package and signing state. For the exact
   reviewed Intel bytes it performs an [instance-scoped handoff](docs/M051_HANDOFF.md)
   to the compiled read-only probe. Intel files stay in DriverStore; the successful
   final controller state is deliberately unbound. Output: one RESULT_AUDIO_*.zip.
 - **M0.5.1:** [fresh-Windows probe](docs/M051_FRESH_WINDOWS.md), with its original
   unbound-controller guard unchanged. The separate handoff uses the same kernel.
-  Neither route implements sound. Hardware handoff has not yet been validated.
-  **Latest evidence (2026-09-16):** Intel SST 9.22.0.4883 / oem32.inf is running;
-  Start=3, DISM BootCritical=true, export hashes match. Both codecs and the DSP
-  child are present. CodeIntegrityOptions=5 blocks the test-signed probe in that
-  session. No MMIO snapshot has been obtained from the reinstalled Lenovo.
+  Neither route implements sound.
+  **Latest evidence (2026-09-16 21:12:27):** the first real MMIO snapshot succeeded:
+  GCAP `0x6701`, ADSPCS `0x001D003C`. Cleanup then failed because version 1.1
+  required Code 28, while Windows reported Problem 0 with empty Service/INF.
+  [Repair 1.1.1](docs/M051_HARDWARE_20260916.md) finishes the reviewed transaction
+  through REPAIR_AUDIO.cmd without repeating the probe. Physical repair still
+  awaits the user's result. Intel preservation was not verified in the failed run.
 - **M0.5:** the read-only MMIO probe built and packaged successfully in
   [CI run 34754361785](https://github.com/onish12/360/actions/runs/34754361785).
   This is build/package evidence, not a successful test on the reinstalled Lenovo.

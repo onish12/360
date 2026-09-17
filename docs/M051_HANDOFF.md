@@ -1,9 +1,9 @@
-# Controlled Intel-to-probe handoff, coordinator 1.1
+# Controlled Intel-to-probe handoff, coordinator 1.1.1
 
 This implements the next operation for the 2026-09-16 report, not audio playback.
 The M0.5.1 kernel stays read-only. DSP boot, firmware transport, IPC, codec
-integration and WaveRT are still absent. There is no claim of laptop validation
-until a successful hardware report is returned.
+integration and WaveRT are still absent. The first physical snapshot succeeded
+in coordinator 1.1, but cleanup failed. See the [hardware evidence and repair](M051_HARDWARE_20260916.md).
 
 ## Evidence and scope
 
@@ -42,7 +42,7 @@ before the test.
 6. Disable only the probe service for subsequent boots after checking its
    ImagePath. Read the existing M0.5.1 snapshot contract.
 7. If the probe owns the device, use DiInstallDevice with
-   DIIDFLAG_INSTALLNULLDRIVER. Require code 28 and no service/INF afterward.
+   DIIDFLAG_INSTALLNULLDRIVER. Require Problem 0 or 28 and no service/INF afterward.
    Delete only the now-unused probe package, without /uninstall or /force.
 8. Verify Intel's package files and service policy remain intact; remove only
    certificates introduced by this run and report the final binding.
@@ -67,9 +67,10 @@ unbound target with retained Intel stops instead of invoking legacy cleanup.
 
 ## Signing and recovery
 
-The reported CodeIntegrityOptions=5 does not allow the test-signed probe. The
-coordinator stops before trust/staging/binding in that session. START_AICI.txt
-describes Windows Startup Settings option 7/F7. No BCD, Secure Boot, Memory
+The earlier reported CodeIntegrityOptions=5 does not allow the test-signed probe. The
+coordinator stops before trust/staging/binding in that session. The subsequent
+21:12:27 run had CodeIntegrityOptions=0 and obtained the snapshot. Its repair
+requires no F7 session because no driver is loaded. No BCD, Secure Boot, Memory
 Integrity or encryption settings are changed by the script.
 
 Recovery files are written before mutation under
@@ -79,6 +80,8 @@ disables only the probe service in the offline SYSTEM hive. After Windows
 boots, run that folder's CLEANUP_AUDIO.cmd as administrator. The journal's
 Mode chooses this handoff cleanup, so it never falls back to package-wide
 uninstall that could select Intel again. Recovery refuses changed ownership.
+For the existing 21:12:27 recovery directory made by version 1.1, use the new
+package's REPAIR_AUDIO.cmd: its old copied cleanup still requires Code 28.
 
 WinRE /info reports configuration only. Recovery access is not automatically
 boot-tested, and the package export is not a Windows image backup. The offline

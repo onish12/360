@@ -20,10 +20,11 @@ function Get-AudioDecision($State) {
     if ((Get-AudioValue $State 'ExperimentalPresent') -ne $false) {
         return New-AudioDecision 'EXPERIMENTAL_RECOVERY_REQUIRED' 'Exista un pachet experimental anterior. Curatarea necesita jurnalul care ii dovedeste apartenenta.'
     }
+    if ($t.Problem -in @(0,28) -and [string]::IsNullOrWhiteSpace($t.Service) -and
+        [string]::IsNullOrWhiteSpace($t.Inf) -and (Get-AudioValue $State 'IntelPackageRetained') -eq $true) {
+        return New-AudioDecision 'UNBOUND_INTEL_RETAINED' 'Controler fara service/INF, pachet Intel pastrat. Captura existenta se foloseste pentru continuarea dezvoltarii; proba nu se repeta.'
+    }
     if ($t.Problem -eq 28 -and [string]::IsNullOrWhiteSpace($t.Service) -and [string]::IsNullOrWhiteSpace($t.Inf)) {
-        if ((Get-AudioValue $State 'IntelPackageRetained') -eq $true) {
-            return New-AudioDecision 'UNBOUND_INTEL_RETAINED' 'Controlerul este liber, iar pachetul Intel este pastrat. Foloseste raportul tranzitiei precedente; proba veche nu se repeta peste acest DriverStore.'
-        }
         $ci=Get-AudioValue $State 'CodeIntegrityOptions'
         if ($ci -isnot [uint32]) {
             return New-AudioDecision 'SIGNING_STATE_UNKNOWN' 'Starea activa a verificarilor de semnatura nu a putut fi citita.'
@@ -75,7 +76,7 @@ function Get-AudioStateStamp($State) {
     } | ConvertTo-Json -Depth 5 -Compress
 }
 function Invoke-AudioAuto([hashtable]$Ops) {
-    $s=[ordered]@{ CoordinatorVersion='1.1'; Phase='ANALYZE'; Status='IN_PROGRESS'
+    $s=[ordered]@{ CoordinatorVersion='1.1.1'; Phase='ANALYZE'; Status='IN_PROGRESS'
         State=$null; Decision=$null; Backup=$null; Context=$null; Probe=$null
         Error=$null; Warnings=@(); AudioPlayback='NOT_IMPLEMENTED' }
     try {
@@ -104,7 +105,11 @@ function Invoke-AudioAuto([hashtable]$Ops) {
                 $r=$s.Probe.Transaction
                 if ($r.Phase -eq 'SNAPSHOT_COMPLETE_CLEAN' -and $r.Clean -eq $true -and
                     $null -ne $r.Snapshot -and $s.Probe.ExitCode -eq 0) { $s.Status='SNAPSHOT_COMPLETE_CLEAN' }
-                elseif ($r.Clean -ne $true) { $s.Status='RECOVERY_REQUIRED'; $s.Error=$r.Error }
+                elseif ($r.Clean -ne $true) {
+                    $s.Status='RECOVERY_REQUIRED'
+                    $s.Error=(@(@(Get-AudioValue $r 'Error') + @(Get-AudioValue $r 'CleanupErrors')) |
+                        Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -join '; '
+                }
                 else { $s.Status='PROBE_STOPPED'; $s.Error=$r.Error }
             } else {
                 $s.Status=$s.Decision.Code

@@ -50,8 +50,10 @@ try {
     if ($null -ne $r.Context -and $r.Context.Warnings.Count) { $lines+="CITIRI_INCOMPLETE=$($r.Context.Warnings -join '; ')" }
     if ($null -ne $r.Probe) { $lines+="RECOVERY=$($r.Probe.RecoveryDirectory)\RECOVER_WINRE.cmd" }
     if ($null -ne $r.Probe -and $null -ne (Get-AudioValue $r.Probe 'Handoff')) {
+        $preserved=Get-AudioValue $r.Probe.Handoff 'IntelPackagePreserved'
+        if ($null -eq $preserved) { $preserved='NOT_CHECKED' }
         $lines+=@("STARE_FINALA=$($r.Probe.Handoff.FinalState)",
-            "PACHET_INTEL_PASTRAT=$($r.Probe.Handoff.IntelPackagePreserved)",
+            "PACHET_INTEL_PASTRAT=$preserved",
             'Tranzitia nu reinstaleaza Intel. UNBOUND inseamna controler fara driver, nu sunet reparat.')
     }
     $lines+=@('Redarea audio nu este implementata. Pachetul contine proba compilata de citire.',

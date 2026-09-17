@@ -1,61 +1,36 @@
-PHASER360 AUDIO AUTO 1.1 - tranzitie Intel -> proba compilata
+PHASER360 AUDIO 1.1.1 - repararea curatarii dupa captura reusita
 
-Acesta este pachetul pentru urmatorul test. Inca NU reda sunet.
-Foloseste numai hardware-ul si pachetul Intel verificate in raportul tau.
+PENTRU RAPORTUL TAU DIN 16.09.2026, ORA 21:12:27:
 
-1. Dezarhiveaza complet intr-un folder local. Inchide aplicatiile audio.
-2. Pentru sesiunea raportata (CodeIntegrityOptions=5), porneste Windows prin:
-   Settings -> System -> Recovery -> Advanced startup -> Restart now ->
-   Troubleshoot -> Advanced options -> Startup Settings -> Restart ->
-   7 sau F7: Disable driver signature enforcement.
-3. In Windows: click dreapta RUN_AUDIO.cmd -> Run as administrator.
-4. Asteapta finalul si trimite arhiva RESULT_AUDIO_*.zip indicata.
-Fereastra ramane deschisa. Nu ai nevoie de WDK sau comenzi PowerShell.
+1. Dezarhiveaza complet acest pachet intr-un folder local nou.
+2. Click dreapta REPAIR_AUDIO.cmd -> Run as administrator.
+3. Asteapta finalul si trimite arhiva RESULT_REPAIR_*.zip indicata in fereastra.
 
-Optiunea 7 permite proba semnata pentru test in acea pornire. Scriptul verifica
-starea activa inainte de orice instalare. Nu schimba BCD, Secure Boot, Memory
-Integrity sau criptarea. Daca Windows refuza proba, trimite rezultatul fara
-dezactivarea altor protectii. Daca volumul este criptat, ai nevoie de cheia
-BitLocker pentru recuperare. Scriptul nu colecteaza chei.
+Nu este necesara pornirea cu F7 pentru aceasta reparare. Scriptul nu incarca
+driverul de proba. Foloseste jurnalul existent din:
+  C:/PHASER360_M051_RECOVERY/20260916_211227_13c9e569
+Litera volumului Windows este identificata automat.
 
-CE FACE IN ACEASTA VERSIUNE:
-- Identifica INF-ul OEM actual; nu presupune ca ramane oem32.inf.
-- Verifica fisierele Intel, serviciul si un export nou prin SHA-256.
-- Pregateste recuperarea si jurnalul inainte de instalare.
-- Selecteaza proba numai pe instanta exacta a controlerului, pastrand pachetul
-  Intel in DriverStore. Copiii controlerului, inclusiv Display Audio, pot fi
-  opriti de Windows in timpul schimbarii driverului parinte.
-- Citeste registrele cu proba M0.5.1, fara scrieri MMIO, DMA sau firmware.
-- Detaseaza proba, verifica Code 28/fara service/INF si elimina doar pachetul
-  si certificatele proprii. Nu reinstaleaza Intel si nu reporneste automat.
+Citirea registrelor a reusit deja. Problema a aparut la curatare: versiunea 1.1
+cerea Code 28 dupa detasarea probei, dar Windows a raportat Problem=0,
+Service gol si INF gol. Versiunea 1.1.1 recunoaste ambele stari detasate.
 
-LA FINAL: UNBOUND inseamna controler fara driver. Pachetul Intel ramane pastrat.
-Acesta este un rezultat de dezvoltare, nu sunet reparat si nu restaurarea
-legaturii initiale. Windows poate selecta din nou Intel la o operatiune viitoare;
-scriptul nu blocheaza Windows Update sau politica de alegere a driverelor.
-Trimite raportul obtinut; repetarea aceleiasi probe nu implementeaza audio.
+REPAIR_AUDIO.cmd verifica jurnalul, identitatea controlerului si SHA-256 al
+vechiului pachet de proba. Elimina numai acel pachet daca este deja detasat,
+verifica pastrarea fisierelor/politicii Intel si curata certificatul propriu.
+Nu reinstaleaza Intel, nu repeta citirea, nu schimba protectiile de semnatura
+si nu reporneste Windows. Daca Windows a legat intre timp un driver de
+controler, se opreste si raporteaza starea gasita.
 
-RECUPERARE pregatita inainte de instalare:
-  /PHASER360_M051_RECOVERY/<rulare>/RECOVER_WINRE.cmd pe volumul Windows.
-Din Windows Recovery -> Command Prompt, identifica volumul Windows (litera poate
-fi D:), intra in acel folder si ruleaza RECOVER_WINRE.cmd. Acesta dezactiveaza
-numai serviciul experimental in registrul offline. Dupa pornirea Windows,
-ruleaza CLEANUP_AUDIO.cmd ca administrator din ACELASI folder de recuperare.
-Jurnalul identifica propriul pachet; curatarea refuza alte legaturi de driver.
-Nu rula CLEANUP_AUDIO.cmd din folderul descarcat: acolo nu exista jurnalul.
+RECOVERY_CLEANUP_COMPLETE inseamna ca aceasta curatare a fost verificata.
+RECOVERY_REQUIRED inseamna ca exista o eroare; trimite arhiva indicata.
+NOT_CHECKED inseamna verificare nefinalizata, nu dovada ca Intel a fost sters.
 
-WinRE /info nu dovedeste pornirea recuperarii. Exportul driverului nu este un
-backup complet Windows. Recuperarea de mai sus nu repara orice eroare Windows.
-Foloseste sesiunea de test numai avand acces la mediul de recuperare.
+Audio nu este inca implementat. Aceasta reparare finalizeaza proba existenta;
+nu creeaza iesiri de sunet. Captura obtinuta se foloseste pentru dezvoltarea DSP.
 
-Raport: /PHASER360_AUDIO/<rulare>/Report pe volumul Windows.
-Export Intel: /PHASER360_AUDIO/<rulare>/DriverBackup.
-Arhiva RESULT_AUDIO contine raportul; copia completa a driverului ramane local.
-Nu se incarca nimic automat pe internet.
-
-SNAPSHOT_COMPLETE_CLEAN: citire reusita, proba eliminata, stare finala verificata.
-STOPPED_CLEAN: proba oprita cu eroare, fara pachet/certificate proprii ramase;
-consulta STARE_FINALA pentru a vedea daca Intel a ramas legat sau tinta e libera.
-RECOVERY_REQUIRED: curatare neconfirmata; vezi jurnalul si recuperarea.
-SIGNING_SESSION_REQUIRED: nu s-a inceput instalarea; vezi pasul 2.
-Pachetul compilat si testele CI nu dovedesc inca functionarea pe laptop.
+Pachetul include si RUN_AUDIO.cmd pentru fluxul de proba documentat in
+M051_HANDOFF.md. Pentru raportul de mai sus, foloseste REPAIR_AUDIO.cmd.
+Driverul compilat inclus ramane M0.5.1, fara scrieri MMIO, DMA sau firmware.
+Testele CI verifica logica si compilarea; rezultatul pe laptop se confirma
+prin noua arhiva RESULT_REPAIR. Nu se incarca nimic automat pe internet.

@@ -34,12 +34,22 @@ function Get-HandoffTargetStamp($Target) {
         Problem=$Target.Problem; Service=$Target.Service; Inf=$Target.Inf
         Version=$Target.DriverVersion; Provider=$Target.DriverProvider } | ConvertTo-Json -Compress
 }
+function Assert-HandoffDetachedTarget($Target) {
+    # DiInstallDevice(NULL) need not produce Code 28: a raw-capable device can
+    # have Problem=0 with no function service or INF. This is cleanup only;
+    # the legacy M0.5.1 fresh-install preflight still requires Code 28.
+    if (@($Target.HardwareIds) -notcontains 'PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06' -or
+        $Target.Problem -notin @(0,28) -or -not [string]::IsNullOrWhiteSpace($Target.Service) -or
+        -not [string]::IsNullOrWhiteSpace($Target.Inf)) {
+        throw 'HANDOFF_TARGET_NOT_DETACHED'
+    }
+}
 function Get-HandoffCleanupAction($Target,$InitialTarget,$Package) {
     if ($Target.InstanceId -ine $InitialTarget.InstanceId) { throw 'HANDOFF_TARGET_INSTANCE_CHANGED' }
     if ($null -ne $Package -and $Target.Service -ieq 'phaser360_m051_mmio_ro' -and
         $Target.Inf -ieq $Package.PublishedName) { return 'DETACH_OWNED' }
     if ((Get-HandoffTargetStamp $Target) -ceq (Get-HandoffTargetStamp $InitialTarget)) { return 'BASELINE_PRESERVED' }
-    try { Assert-M051CleanTarget $Target; return 'UNBOUND' } catch { }
+    try { Assert-HandoffDetachedTarget $Target; return 'UNBOUND' } catch { }
     throw 'HANDOFF_UNEXPECTED_BINDING: cleanup will not replace this driver'
 }
 function Read-HandoffService {
@@ -101,7 +111,7 @@ function Remove-HandoffOwnedPackage($State) {
         if (-not $native.Success) { throw "HANDOFF_NULL_FAILED: $($native.Win32Error)" }
         $now=Get-M051Target
         if ($now.InstanceId -ine $target.InstanceId) { throw 'TARGET_INSTANCE_CHANGED' }
-        Assert-M051CleanTarget $now
+        Assert-HandoffDetachedTarget $now
     }
     # No /uninstall: the probe has already been detached. No /force, no rescan.
     # This also removes a staged-but-never-bound package after a pre-bind failure.
@@ -144,7 +154,7 @@ function Invoke-AudioHandoff($AutoResult) {
             CertThumbprint=''; OwnedCertStores=@(); CodeIntegrityOptions=$null
             Handoff=[ordered]@{ InitialState=$AutoResult.State; InitialService=$null; Backup=$AutoResult.Backup
                 NullAttempted=$false; NullRebootRequired=$false; BindRebootRequired=$false; BootTime=''
-                FinalState='NOT_CHECKED'; FinalTarget=$null; IntelPackagePreserved=$false } }
+                FinalState='NOT_CHECKED'; FinalTarget=$null; IntelPackagePreserved=$null } }
         $ops=@{
             Save={ param($s) Write-M051Journal $s }
             Preflight={ param($s)

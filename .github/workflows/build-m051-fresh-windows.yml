@@ -34,6 +34,7 @@ jobs:
           & .\tests\m051_transaction_tests.ps1
           & .\tests\m051_audio_auto_tests.ps1
           & .\tests\m051_handoff_tests.ps1
+          & .\tests\m051_repair_tests.ps1
           . .\m051\runtime\AudioDecision.ps1
           . .\m051\runtime\AudioWindows.ps1
           $driver = Get-WindowsDriver -Online -ErrorAction Stop | Where-Object { $_.Driver -match '^oem[0-9]+\.inf$' } | Select-Object -First 1
@@ -100,4 +101,5 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & .\_download_verify_audio\runtime\VERIFY_PACKAGE.ps1 -Root .\_download_verify_audio
           if (-not (Test-Path .\_download_verify_audio\RUN_AUDIO.cmd)) { throw 'ENTRYPOINT_MISSING_FROM_ARTIFACT' }
+          if (-not (Test-Path .\_download_verify_audio\REPAIR_AUDIO.cmd)) { throw 'REPAIR_ENTRYPOINT_MISSING_FROM_ARTIFACT' }
           Write-Host 'DOWNLOADED_DELIVERABLE=VERIFIED'
