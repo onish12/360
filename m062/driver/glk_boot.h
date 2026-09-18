@@ -3,9 +3,10 @@
 #include "hda_transport.h"
 #include "../../src/sof/glk_rom.h"
 #include "../../src/sof/ipc3_receive.h"
+#include "../../src/sof/ipc3_command.h"
 namespace phaser360 { namespace windows {
 struct TransferResult {
-    bool started=false, firmwareEntered=false, dmaReleased=false, ipcReady=false;
+    bool started=false, firmwareEntered=false, dmaReleased=false, ipcReady=false, commandReady=false;
     sof::ReceiveError ipcError=sof::ReceiveError::None;
     sof::RomError romError=sof::RomError::None;
 };
@@ -20,6 +21,7 @@ public:
                      const UCHAR* approvedXman,SIZE_T xmanBytes,USHORT maxAbiMinor) noexcept;
     TransferResult Transfer() noexcept;
     const sof::IpcWindows* Windows() const noexcept { return ipcLive_?ipc_.Windows():nullptr; }
+    sof::CommandResult Command(const UCHAR*,SIZE_T,ULONG expectedReplyCommand,UCHAR*,SIZE_T) noexcept;
     bool Shutdown() noexcept; // preserves DMA if stop fails; no DSP writes then
     sof::ReceiveError IpcError() const noexcept { return ipc_.Error(); }
     sof::RomError RomError() const noexcept { return primaryError_; }
@@ -27,6 +29,7 @@ private:
     HdaTransport hda_;
     sof::GlkRom rom_;
     sof::Ipc3Receive ipc_;
+    sof::Ipc3Command commands_;
     UCHAR* dsp_=nullptr;
     ULONG length_=0;
     bool ipcLive_=false;

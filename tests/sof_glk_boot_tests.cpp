@@ -10,7 +10,7 @@ using phaser360::sof::RomError;
 static unsigned checks=0,live=0,dspWrites=0,irql=0,sequence=0;
 static uint64_t ticks=100000;
 static std::vector<UCHAR> hda(0x4000),dsp(0x100000);
-static bool stuckRun=false,noRun=false,power=true,halt=false,missingReady=false,badReady=false;
+static bool stuckRun=false,noRun=false,power=true,halt=false,missingReady=false,badReady=false,commandTimeout=false;
 #define CHECK(x) do { ++checks; if(!(x)) { std::fprintf(stderr,"line %d: %s\n",__LINE__,#x); std::exit(1); } } while(0)
 static ULONG Get(const std::vector<UCHAR>& b,size_t o,unsigned w) {
     CHECK(o+w<=b.size()); ULONG v=0;
@@ -35,6 +35,11 @@ static void Write(void* p,unsigned w,ULONG v) {
     if(&b==&dsp) {
         ++dspWrites;
         if(o==0x40) v=Get(b,o,w)&~(v&0x80000000u);
+        if(o==0x48 && v==0x80000000 && !commandTimeout) {
+            CHECK(Get(b,0xa0000,4)==8 && Get(b,0xa0004,4)==0x30020000);
+            Put(b,0xa0000,4,12); Put(b,0xa0004,4,0x10000000); Put(b,0xa0008,4,0);
+            Put(b,0x4c,4,0x40000000); v=0;
+        }
         if(o==0x4c) v=Get(b,o,w)&~v;
         if(o==4) {
             v=(v&~0x03000000u)|(power?((v&0x30000)<<8):(Get(b,o,w)&0x03000000));
@@ -84,7 +89,7 @@ void WdfObjectDelete(FakeObject* b) { CHECK(live>0); --live; delete b; }
 static void Reset() {
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
     dspWrites=0; irql=0; sequence=0; ticks=100000;
-    stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false;
+    stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
     Put(hda,0,2,0x6701); Put(hda,8,4,1); Put(hda,0x14,4,0x500);
     Put(hda,0x500,4,0x10030700); Put(hda,0x700,4,0x10040000); Put(hda,0x504,4,0x40000000);
 }
@@ -95,7 +100,14 @@ static NTSTATUS Prepare(GlkBoot& boot) {
 }
 int main() {
     Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); CHECK(live==3);
-        auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && r.ipcReady && live==0);
+        auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && r.ipcReady && r.commandReady && live==0);
+        std::vector<uint8_t> request(8,0),reply(12,0);
+        IpcPut(request,0,8); IpcPut(request,4,0x30020000);
+        auto command=boot.Command(request.data(),request.size(),0x10000000,reply.data(),reply.size());
+        CHECK(command.status==phaser360::sof::CommandStatus::Ok && command.acknowledged && reply[0]==12);
+        irql=2; auto before=dspWrites;
+        CHECK(boot.Command(request.data(),8,0x10000000,reply.data(),12).status==phaser360::sof::CommandStatus::State);
+        CHECK(dspWrites==before); irql=0;
         CHECK(boot.Windows() && boot.Windows()->region[0].offset==0xa0000);
         CHECK(boot.Shutdown()); CHECK(!boot.Windows()); CHECK((Get(dsp,4,4)&0x03030303)==0x303);
     }
@@ -137,6 +149,17 @@ int main() {
     Reset(); { GlkBoot boot; IpcReadyBytes(dsp,0x81000); Put(dsp,0x40,4,0xf0000000);
         CHECK(NT_SUCCESS(Prepare(boot))); CHECK(!(Get(dsp,0x40,4)&0x80000000));
         missingReady=true; auto result=boot.Transfer(); CHECK(!result.ipcReady); CHECK(boot.Shutdown());
+    }
+    Reset(); { GlkBoot boot; std::vector<uint8_t> q(8,0),reply(12,0xa5);
+        IpcPut(q,0,8); IpcPut(q,4,0x30020000);
+        CHECK(boot.Command(q.data(),8,0x10000000,reply.data(),12).status==phaser360::sof::CommandStatus::State);
+        CHECK(NT_SUCCESS(Prepare(boot))); CHECK(boot.Transfer().commandReady); commandTimeout=true;
+        CHECK(boot.Command(q.data(),8,0x10000000,reply.data(),12).status==phaser360::sof::CommandStatus::Timeout);
+        auto before=dspWrites;
+        CHECK(boot.Command(q.data(),8,0x10000000,reply.data(),12).status==phaser360::sof::CommandStatus::State);
+        CHECK(dspWrites==before && reply[0]==0xa5); CHECK(boot.Shutdown()); before=dspWrites;
+        CHECK(boot.Command(q.data(),8,0x10000000,reply.data(),12).status==phaser360::sof::CommandStatus::State);
+        CHECK(dspWrites==before);
     }
     std::printf("SOF_GLK_BOOT_TESTS=%u PASS; windows_api=SIMULATED; hardware=NONE\n",checks);
 }

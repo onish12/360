@@ -51,12 +51,21 @@ TransferResult GlkBoot::Transfer() noexcept {
     result.dmaReleased=hda_.StopAndRelease();
     if(result.firmwareEntered && result.dmaReleased) {
         result.ipcReady=ipc_.Receive(); ipcLive_=result.ipcReady; result.ipcError=ipc_.Error();
+        if(result.ipcReady) {
+            const sof::RomIo io={this,Read,Write,Delay,Now,length_};
+            result.commandReady=commands_.Bind(io,ipc_);
+        }
     }
     return result;
 }
+sof::CommandResult GlkBoot::Command(const UCHAR* request,SIZE_T bytes,ULONG expected,
+                                    UCHAR* reply,SIZE_T capacity) noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !ipcLive_) return {};
+    return commands_.Exchange(request,bytes,expected,reply,capacity);
+}
 bool GlkBoot::Shutdown() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
-    prepared_=false; ipcLive_=false;
+    prepared_=false; ipcLive_=false; commands_.Close();
     if(!hda_.StopAndRelease()) return false;
     // Do not overwrite the primary ROM failure with a cleanup result.
     return !dspTouched_ || rom_.PowerDown();
