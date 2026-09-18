@@ -85,3 +85,15 @@ or execution is requested by this milestone.
 - [Microsoft KeQueryInterruptTime](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-kequeryinterrupttime)
 
 Independent MIT implementation; Linux code was consulted, not copied.
+
+## Recorded verification — 2026-09-18
+
+Source revision: `8a63c6303f5454a4451a126d8bd765183b251b4f`.
+
+- [WDK push run 35310059338](https://github.com/onish12/360/actions/runs/35310059338): real WDK/KMDF library compiled, warnings as errors; all five selected test executables passed.
+- [Windows/Linux push run 35310059319](https://github.com/onish12/360/actions/runs/35310059319): nine Windows / eight Linux tests passed, including the pinned firmware reference. Linux used ASan/UBSan.
+- New ROM model: 38814 assertions and 60 injected I/O failure points. New Windows-wrapper integration model: 8475 assertions. These are assertions in simulations, not hardware measurements.
+- CI artifact `PHASER360_M064_WDK_GLK_ROM`, ID `10532863215`, 91238 bytes. GitHub-reported archive digest: `sha256:be27e5b331a684a8c56400c6928f77df2ca2a67525e345b62ab9bdfa77ae6d3d`. No independent archive download/hash verification is claimed.
+
+Local standalone model tests passed ASan/UBSan with LeakSanitizer disabled for
+the ptrace-based local environment. CI did not need that local exception.
