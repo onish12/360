@@ -36,6 +36,10 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   KMDF common-buffer allocation, HDA descriptors and guarded buffer ownership.
   Built as a separate WDK static library; not wired to the controller or M0.5.1.
   Fault-injection tests use a WDF shim, not real hardware.
+- **M0.6.3:** [HDA stream transport](docs/M063_HDA_TRANSPORT.md).
+  Capability discovery, GLK format sequencing, bounded RUN/reset polling, SPIB,
+  register readback and DMA-owner integration. Separate WDK library with real
+  register APIs; not connected to a PnP driver or tested on the Lenovo.
 - **Working Windows audio:** not yet implemented. DSP boot/authentication, IPC,
   machine/codec integration and WaveRT remain separate milestones.
 

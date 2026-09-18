@@ -46,6 +46,8 @@
 
   <ItemGroup>
     <ClCompile Include="boot_dma.cpp" />
+    <ClCompile Include="hda_transport.cpp" />
+    <ClCompile Include="..\..\src\sof\hda_stream.cpp" />
     <ClCompile Include="..\..\src\sof\hda_bdl.cpp" />
   </ItemGroup>
 
