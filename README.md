@@ -40,6 +40,10 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Capability discovery, GLK format sequencing, bounded RUN/reset polling, SPIB,
   register readback and DMA-owner integration. Separate WDK library with real
   register APIs; not connected to a PnP driver or tested on the Lenovo.
+- **M0.6.4:** [GLK DSP power and ROM handshake](docs/M064_GLK_ROM.md).
+  Core power/reset/stall, fresh ROM acknowledgement, firmware-entry polling and
+  Windows HDA/DSP sequencing. Static library with simulated failure tests; no
+  hardware execution or installable driver yet.
 - **Working Windows audio:** not yet implemented. DSP boot/authentication, IPC,
   machine/codec integration and WaveRT remain separate milestones.
 

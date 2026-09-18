@@ -26,3 +26,17 @@ constexpr ULONG MAXULONG = UINT32_MAX;
 inline void RtlCopyMemory(void* d,const void* s,size_t n) { std::memcpy(d,s,n); }
 unsigned KeGetCurrentIrql();
 void KeMemoryBarrier();
+using ULONG_PTR=uintptr_t;
+using LONGLONG=int64_t;
+struct LARGE_INTEGER { LONGLONG QuadPart; };
+constexpr unsigned KernelMode=0;
+constexpr bool FALSE=false;
+UCHAR READ_REGISTER_UCHAR(UCHAR*);
+USHORT READ_REGISTER_USHORT(USHORT*);
+ULONG READ_REGISTER_ULONG(ULONG*);
+void WRITE_REGISTER_UCHAR(UCHAR*,UCHAR);
+void WRITE_REGISTER_USHORT(USHORT*,USHORT);
+void WRITE_REGISTER_ULONG(ULONG*,ULONG);
+void KeStallExecutionProcessor(unsigned);
+NTSTATUS KeDelayExecutionThread(unsigned,bool,LARGE_INTEGER*);
+ULONGLONG KeQueryInterruptTime();
