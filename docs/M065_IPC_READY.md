@@ -83,3 +83,20 @@ Remaining: authenticated image ownership and manifest/payload binding, PnP/D0
 resource/power integration, operational IPC and notification handling, SOF
 components/topology, codecs/amplifier/SSP configuration, and WaveRT endpoints.
 No installation or new user-side audit is required for this development step.
+
+## Verified build evidence — 2026-09-18
+
+Implementation commit: `394dfbe8b9a61ffbedaaffb7274e3e22f9fd11ce`.
+Implementation tree: `a861ce2270a34b7c5b381f291a6ffb94a037bb2e`.
+
+- [Real WDK/KMDF build and six host test executables](https://github.com/onish12/360/actions/runs/35369290472): PASS; job 105679170658.
+- [Linux ASan/UBSan and Windows MSVC](https://github.com/onish12/360/actions/runs/35369290661): PASS; Linux nine tests (job 105679171465), Windows ten (job 105679171643).
+- IPC model: 122,815 assertions, 35 injected I/O failure points. With the actual hash-pinned firmware manifest: 122,820 assertions and OFFICIAL_XMAN_WINDOWS=PASS.
+- Integrated Windows API/MMIO model: 70,023 assertions. These are assertion counts, not independent hardware trials.
+- [Development artifact](https://github.com/onish12/360/actions/runs/35369290472/artifacts/10557680653): PHASER360_M065_WDK_IPC_READY, 108,074 bytes.
+- GitHub-reported artifact SHA-256: `99b3aea80c72240d5c61ae0dcca7521959764bb9b06d0ac117cc74688fdce3bb`. Archive not independently downloaded and hashed in this session.
+
+WDK compiled the production kernel APIs. Runtime tests used models; neither
+this library nor its FW_READY path has run on the Lenovo. The artifact contains
+a static library and sources, not an installer. A later documentation-only
+commit records these results without changing the verified implementation.

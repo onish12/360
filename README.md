@@ -44,8 +44,13 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Core power/reset/stall, fresh ROM acknowledgement, firmware-entry polling and
   Windows HDA/DSP sequencing. Static library with simulated failure tests; no
   hardware execution or installable driver yet.
-- **Working Windows audio:** not yet implemented. DSP boot/authentication, IPC,
-  machine/codec integration and WaveRT remain separate milestones.
+- **M0.6.5:** [FW_READY reception and manifest IPC windows](docs/M065_IPC_READY.md).
+  Validated XMan windows, stale-message clearing before boot, bounded fresh
+  FW_READY reception and host acknowledgment after confirmed DMA release.
+  WDK compilation and Windows/Linux tests pass; no hardware execution yet.
+- **Working Windows audio:** not yet implemented. Authenticated image ownership,
+  PnP/power integration, operational IPC, machine/codec integration and WaveRT
+  remain separate milestones.
 
 The older bootstrap description below is retained for source history. Do not
 interpret either milestone's CI success as permission to enable hardware writes.
