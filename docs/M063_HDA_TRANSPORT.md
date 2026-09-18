@@ -73,3 +73,16 @@ at this stage; running an old package would not execute this component.
 - [Microsoft WRITE_REGISTER_ULONG](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-write_register_ulong)
 
 Independent MIT implementation; Linux source was consulted, not copied.
+
+## Recorded verification — 2026-09-18
+
+Source: `83c711cc341d935ca13995b04d04167f7f43e042`.
+
+- [WDK push build 35309164233](https://github.com/onish12/360/actions/runs/35309164233): real KMDF/WDK compilation passed with warnings as errors; all three transport/DMA test executables passed.
+- [Windows and Linux push build 35309164157](https://github.com/onish12/360/actions/runs/35309164157): seven Windows / six Linux test executables passed; Linux used ASan/UBSan; pinned firmware reference passed.
+- Stream model: 38597 assertions, including 128 injected I/O failure points. These are assertions and simulated fault points, not hardware runs.
+- Artifact: `PHASER360_M063_WDK_HDA_TRANSPORT`, ID `10533040478`, 61347 bytes. GitHub-reported archive SHA-256: `509a41381452effa42a17ff03613bc6a917810d1e6447fb953f1724f70350e30`. This digest has not been independently checked after download.
+
+The local standalone stream test also passed ASan/UBSan. Local LeakSanitizer was
+disabled because the execution environment uses ptrace; the Linux CI sanitizer
+run did not use that local exception. No physical HDA/DSP execution is claimed.
