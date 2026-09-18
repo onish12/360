@@ -2,6 +2,7 @@
 // Executes production Windows wrappers against fake WDF/MMIO, not a kernel.
 #include "../m062/driver/glk_boot.h"
 #include <vector>
+#include "sof_ipc_fixture.h"
 #include <cstdio>
 #include <cstdlib>
 using namespace phaser360::windows;
@@ -9,7 +10,7 @@ using phaser360::sof::RomError;
 static unsigned checks=0,live=0,dspWrites=0,irql=0,sequence=0;
 static uint64_t ticks=100000;
 static std::vector<UCHAR> hda(0x4000),dsp(0x100000);
-static bool stuckRun=false,noRun=false,power=true,halt=false;
+static bool stuckRun=false,noRun=false,power=true,halt=false,missingReady=false,badReady=false;
 #define CHECK(x) do { ++checks; if(!(x)) { std::fprintf(stderr,"line %d: %s\n",__LINE__,#x); std::exit(1); } } while(0)
 static ULONG Get(const std::vector<UCHAR>& b,size_t o,unsigned w) {
     CHECK(o+w<=b.size()); ULONG v=0;
@@ -33,6 +34,7 @@ static void Write(void* p,unsigned w,ULONG v) {
     const auto o=reinterpret_cast<uintptr_t>(p)-reinterpret_cast<uintptr_t>(b.data());
     if(&b==&dsp) {
         ++dspWrites;
+        if(o==0x40) v=Get(b,o,w)&~(v&0x80000000u);
         if(o==0x4c) v=Get(b,o,w)&~v;
         if(o==4) {
             v=(v&~0x03000000u)|(power?((v&0x30000)<<8):(Get(b,o,w)&0x03000000));
@@ -46,7 +48,11 @@ static void Write(void* p,unsigned w,ULONG v) {
         if(o==0x160) {
             if(stuckRun) v|=2;
             if(noRun) v&=~2u;
-            if(v&2) Put(dsp,0x80000,4,halt?0x80000005u:5u);
+            if(v&2) {
+                Put(dsp,0x80000,4,halt?0x80000005u:5u);
+                if(!missingReady) { IpcReadyBytes(dsp,0x81000); Put(dsp,0x40,4,0xf0000000); }
+                if(badReady) Put(dsp,0x81000,4,0);
+            }
         }
     }
     Put(b,o,w,v);
@@ -78,18 +84,20 @@ void WdfObjectDelete(FakeObject* b) { CHECK(live>0); --live; delete b; }
 static void Reset() {
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
     dspWrites=0; irql=0; sequence=0; ticks=100000;
-    stuckRun=false; noRun=false; power=true; halt=false;
+    stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false;
     Put(hda,0,2,0x6701); Put(hda,8,4,1); Put(hda,0x14,4,0x500);
     Put(hda,0x500,4,0x10030700); Put(hda,0x700,4,0x10040000); Put(hda,0x504,4,0x40000000);
 }
 static NTSTATUS Prepare(GlkBoot& boot) {
     static std::vector<UCHAR> image(286720,0xaa);
-    return boot.Prepare(&checks,hda.data(),0x4000,dsp.data(),0x100000,image.data(),image.size());
+    auto x=IpcXman();
+    return boot.Prepare(&checks,hda.data(),0x4000,dsp.data(),0x100000,image.data(),image.size(),x.data(),x.size(),20);
 }
 int main() {
     Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); CHECK(live==3);
-        auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && live==0);
-        CHECK(boot.Shutdown()); CHECK((Get(dsp,4,4)&0x03030303)==0x303);
+        auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && r.ipcReady && live==0);
+        CHECK(boot.Windows() && boot.Windows()->region[0].offset==0xa0000);
+        CHECK(boot.Shutdown()); CHECK(!boot.Windows()); CHECK((Get(dsp,4,4)&0x03030303)==0x303);
     }
     Reset(); { GlkBoot boot; Put(hda,8,4,0); CHECK(!NT_SUCCESS(Prepare(boot)));
         CHECK(dspWrites==0 && live==0); CHECK(boot.Shutdown()); CHECK(dspWrites==0);
@@ -100,6 +108,7 @@ int main() {
     }
     Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); stuckRun=true;
         auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && !r.dmaReleased && live==3);
+        CHECK(!r.ipcReady);
         auto before=dspWrites; CHECK(!boot.Shutdown()); CHECK(dspWrites==before && live==3);
         stuckRun=false; CHECK(boot.Shutdown()); CHECK(live==0);
     }
@@ -112,6 +121,22 @@ int main() {
     }
     Reset(); { GlkBoot boot; irql=2; CHECK(!NT_SUCCESS(Prepare(boot))); CHECK(dspWrites==0 && live==0);
         CHECK(!boot.Shutdown()); irql=0; CHECK(boot.Shutdown());
+    }
+    for(unsigned mode=0;mode<2;++mode) {
+        Reset(); GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot)));
+        missingReady=(mode==0); badReady=(mode==1);
+        auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && !r.ipcReady);
+        CHECK(!boot.Windows() && live==0); CHECK(boot.Shutdown());
+    }
+    Reset(); { GlkBoot boot; auto x=IpcXman(); x[0]=0;
+        const UCHAR image[4]={};
+        CHECK(!NT_SUCCESS(boot.Prepare(&checks,hda.data(),0x4000,dsp.data(),0x100000,image,4,x.data(),x.size(),20)));
+        CHECK(dspWrites==0 && live==0); CHECK(boot.IpcError()==phaser360::sof::ReceiveError::Windows);
+        CHECK(boot.Shutdown() && dspWrites==0);
+    }
+    Reset(); { GlkBoot boot; IpcReadyBytes(dsp,0x81000); Put(dsp,0x40,4,0xf0000000);
+        CHECK(NT_SUCCESS(Prepare(boot))); CHECK(!(Get(dsp,0x40,4)&0x80000000));
+        missingReady=true; auto result=boot.Transfer(); CHECK(!result.ipcReady); CHECK(boot.Shutdown());
     }
     std::printf("SOF_GLK_BOOT_TESTS=%u PASS; windows_api=SIMULATED; hardware=NONE\n",checks);
 }

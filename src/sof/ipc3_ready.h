@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 #ifndef PHASER360_IPC3_READY_H
 #define PHASER360_IPC3_READY_H
-#include <stddef.h>
-#include <stdint.h>
+#include "hda_bdl.h"
 namespace phaser360 { namespace sof {
 constexpr size_t kIpc3ReadyBytes = 108;
 constexpr uint32_t kIpc3ReadyCommand = 0x70000000u;

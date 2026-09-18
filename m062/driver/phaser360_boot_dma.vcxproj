@@ -48,6 +48,8 @@
     <ClCompile Include="boot_dma.cpp" />
     <ClCompile Include="hda_transport.cpp" />
     <ClCompile Include="glk_boot.cpp" />
+    <ClCompile Include="..\..\src\sof\ipc3_ready.cpp" />
+    <ClCompile Include="..\..\src\sof\ipc3_receive.cpp" />
     <ClCompile Include="..\..\src\sof\glk_rom.cpp" />
     <ClCompile Include="..\..\src\sof\hda_stream.cpp" />
     <ClCompile Include="..\..\src\sof\hda_bdl.cpp" />

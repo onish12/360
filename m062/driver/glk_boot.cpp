@@ -21,17 +21,19 @@ bool GlkBoot::Delay(void*,unsigned us) noexcept {
 }
 ULONGLONG GlkBoot::Now(void*) noexcept { return KeQueryInterruptTime()/10; }
 NTSTATUS GlkBoot::Prepare(WDFDEVICE device,UCHAR* hda,ULONG hdaLength,UCHAR* dsp,ULONG dspLength,
-                          const UCHAR* payload,SIZE_T bytes) noexcept {
+                          const UCHAR* payload,SIZE_T bytes,
+                          const UCHAR* xman,SIZE_T xmanBytes,USHORT maxAbiMinor) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_) return STATUS_INVALID_DEVICE_STATE;
     if(!dsp || (reinterpret_cast<ULONG_PTR>(dsp)&3)) return STATUS_INVALID_PARAMETER;
     attempted_=true; dsp_=dsp; length_=dspLength;
     const sof::RomIo io={this,Read,Write,Delay,Now,length_};
     if(!rom_.Bind(io)) { primaryError_=rom_.Error(); return STATUS_INVALID_PARAMETER; }
+    if(!ipc_.Configure(io,xman,xmanBytes,maxAbiMinor)) return STATUS_INVALID_PARAMETER;
     const NTSTATUS status=hda_.Prepare(device,hda,hdaLength,payload,bytes);
     if(!NT_SUCCESS(status)) return status; // no DSP mutation on failed HDA prepare
     dspTouched_=true;
     // HDA prepare has verified cold streams and programmed RUN=0.
-    if(!rom_.PowerDown() || !rom_.Initialize(hda_.Tag())) {
+    if(!rom_.PowerDown() || !ipc_.Arm() || !rom_.Initialize(hda_.Tag())) {
         primaryError_=rom_.Error(); return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
     prepared_=true; return STATUS_SUCCESS;
@@ -47,11 +49,14 @@ TransferResult GlkBoot::Transfer() noexcept {
     }
     // Even failed start/ROM wait needs stop. Preserve primary result separately.
     result.dmaReleased=hda_.StopAndRelease();
+    if(result.firmwareEntered && result.dmaReleased) {
+        result.ipcReady=ipc_.Receive(); ipcLive_=result.ipcReady; result.ipcError=ipc_.Error();
+    }
     return result;
 }
 bool GlkBoot::Shutdown() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
-    prepared_=false;
+    prepared_=false; ipcLive_=false;
     if(!hda_.StopAndRelease()) return false;
     // Do not overwrite the primary ROM failure with a cleanup result.
     return !dspTouched_ || rom_.PowerDown();
