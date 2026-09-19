@@ -72,3 +72,23 @@ multicore atomic stress. Real intrinsics are compiled by WDK.
 Full callback registration, failed interrupt-enable teardown, surprise removal,
 resource rebalance, hibernation policy and system-level cleanup failure recovery
 remain outstanding. There is no installer, hardware test or audio output.
+
+## Verified CI evidence (2026-09-19)
+
+Implementation: `5b317ad036b3c4d3e3a2bc5f1d617b7a3a915e3b`.
+Tree: `77996b871ad34e3db823cdddc1a33eb558c77cc8`.
+
+- [WDK run 35466211095](https://github.com/onish12/360/actions/runs/35466211095),
+  job `105958893067`: real WDK compilation and seven host tests pass.
+- [Offline run 35466211121](https://github.com/onish12/360/actions/runs/35466211121):
+  Windows job `105958893100` passes 11 tests; Linux job `105958893036`
+  passes 10 tests with ASan/UBSan enabled by the workflow.
+- All three logs report `SOF_GLK_BOOT_TESTS=197110 PASS; windows_api=SIMULATED;
+  hardware=NONE`. Assertion counts are not independent device tests.
+- [PHASER360_M0610_WDK_D0_REBIND](https://github.com/onish12/360/actions/runs/35466211095/artifacts/10591466773):
+  artifact ID `10591466773`, 191,478 bytes. GitHub reports SHA-256
+  `9f44ce467f24e5ae7dbff10a95248ac87a4bb20c63dfb6ba8808447bb4a79c60`.
+  This digest is service metadata, not an independently downloaded archive hash.
+
+The subsequent documentation-only commit adds this evidence and README status.
+No hardware execution or working audio is claimed.

@@ -66,6 +66,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Failed early startup cleans up before returning; unconfirmed cleanup blocks
   the mapping-release gate. PnP callback registration and full power/removal
   recovery remain outstanding. WDK compilation and Windows/Linux tests pass.
+- **M0.6.10:** [Guarded next-D0 rebinding](docs/M0610_D0_REBIND.md).
+  Reuses the interrupt with a fresh boot owner only after confirmed shutdown,
+  framework Disable and completion of old queued work. Two-session simulation
+  includes successful notifications and failed second boot cleanup. Full
+  Windows sleep/resume and PnP integration are still outstanding. WDK build
+  and Windows/Linux tests pass.
 - **Working Windows audio:** not yet implemented. Authenticated image ownership,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
