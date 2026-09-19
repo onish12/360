@@ -86,3 +86,23 @@ unconnected interrupt and that confirmed cleanup permits no later MMIO.
 Local strict GCC ASan/UBSan run: 154,185 modeled assertions passed. LeakSanitizer
 is disabled locally because the execution environment uses ptrace; CI provides
 separate sanitizer verification. This is simulated WDF/MMIO, not a Lenovo test.
+
+## Verified CI evidence (2026-09-19)
+
+Implementation commit: `9a89b71148d9abd75d60538d6678f97f968a9b94`.
+Tree: `df52db05a89afc90f873d1abb992f0299907f5b6`.
+
+- [WDK run 35465782981](https://github.com/onish12/360/actions/runs/35465782981),
+  job `105957731713`: real WDK library compilation and all seven host tests pass.
+- [Offline run 35465782950](https://github.com/onish12/360/actions/runs/35465782950):
+  Windows job `105957731601` passes all 11 tests; Linux job `105957731494`
+  passes all 10 tests with the workflow's ASan/UBSan instrumentation.
+- All three logs report `SOF_GLK_BOOT_TESTS=154185 PASS; windows_api=SIMULATED;
+  hardware=NONE`. These are modeled assertions, not independent hardware trials.
+- [PHASER360_M069_WDK_COLD_POWER](https://github.com/onish12/360/actions/runs/35465782981/artifacts/10591490982):
+  artifact `10591490982`, 186,851 bytes. GitHub reports SHA-256
+  `20b7b4737d17e73a0869f94d616b1d426c0d9082eb84a5e1f38fb351dd6be565`.
+  This is service-reported metadata, not an independently downloaded archive hash.
+
+This evidence/README update follows the tested implementation as a documentation
+change. No Lenovo execution, installable driver or audio playback is claimed.

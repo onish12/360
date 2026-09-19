@@ -61,6 +61,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Commands, deferred work and terminal shutdown share explicit synchronization.
   Real WDK compilation and Windows/Linux modeled tests pass; no Lenovo IRQ
   execution yet. This remains a static library requiring a PnP/power owner.
+- **M0.6.9:** [Cold-start power coordination](docs/M069_COLD_POWER.md).
+  Connects boot, post-enable arming and pre-disable shutdown for one D0 session.
+  Failed early startup cleans up before returning; unconfirmed cleanup blocks
+  the mapping-release gate. PnP callback registration and full power/removal
+  recovery remain outstanding. WDK compilation and Windows/Linux tests pass.
 - **Working Windows audio:** not yet implemented. Authenticated image ownership,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
