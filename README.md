@@ -52,8 +52,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Bounded mailbox requests, DONE-based reply capture, signed firmware errors,
   deadline handling and no reuse after uncertain completion. Integrated with
   the Windows boot owner; notification dispatch and hardware validation remain.
+- **M0.6.7:** [IPC3 notification capture](docs/M067_IPC_NOTIFICATIONS.md).
+  Bounded FIFO for stream position, XRUN and trace position; captures notifications
+  during command transactions and idle polling, preserving uncertain ACK results.
+  IRQ/DPC ownership and endpoint delivery remain unimplemented.
 - **Working Windows audio:** not yet implemented. Authenticated image ownership,
-  PnP/power and notification handling, machine/codec integration, stream DMA
+  PnP/power and IRQ handling, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
 
 The older bootstrap description below is retained for source history. Do not

@@ -89,3 +89,19 @@ capture, Close, and every successful notification-path I/O failure point with
 both pre-write and posted-write behavior. Existing command/timeout/DMA tests
 remain in place. Production Windows wrapper code also runs a polling/pop cycle
 against fake WDF/MMIO. These tests establish model behavior, not Lenovo operation.
+
+## Verified build evidence — 2026-09-19
+
+Implementation commit: `aa9050b3f7a7268bb2f317fc287961977153ea46`.
+Implementation tree: `8364e01d60045d3cb213878d2662e97ac3a417d2`.
+
+- [Real WDK/KMDF build and seven host tests](https://github.com/onish12/360/actions/runs/35424336960): PASS, job 105847579507.
+- [Windows/Linux tests](https://github.com/onish12/360/actions/runs/35424336962): PASS. Windows: 11 tests, job 105847579520. Linux ASan/UBSan: 10 tests, job 105847579607. Official hash-pinned firmware/XMan checks passed on both.
+- Command/notification model: 73,387 assertions; 30 command-path and 15 notification-path I/O failure points, each tested with pre-write and posted-write behavior.
+- Integrated Windows wrapper model: 77,667 assertions. These counts are model assertions, not independent hardware trials.
+- [Development artifact](https://github.com/onish12/360/actions/runs/35424336960/artifacts/10578426851): `PHASER360_M067_WDK_IPC_NOTIFICATIONS`, 132,622 bytes.
+- GitHub-reported archive SHA-256: `b3443221944b4658f96fd5fb52000adfc4361bfbf096bf63edeba5cdd0d3dd59`. Archive not independently downloaded/hashed in this session.
+
+Runtime verification used simulated WDF/MMIO. Real WDK compiled the Windows
+APIs. No Lenovo execution, installable driver or sound is claimed. A subsequent
+documentation-only commit records these results without changing the tested code.
