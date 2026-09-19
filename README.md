@@ -55,9 +55,14 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 - **M0.6.7:** [IPC3 notification capture](docs/M067_IPC_NOTIFICATIONS.md).
   Bounded FIFO for stream position, XRUN and trace position; captures notifications
   during command transactions and idle polling, preserving uncertain ACK results.
-  IRQ/DPC ownership and endpoint delivery remain unimplemented.
+  Endpoint delivery remains unimplemented; the interrupt bridge is added below.
+- **M0.6.8:** [KMDF IPC interrupt bridge](docs/M068_KMDF_INTERRUPTS.md).
+  DIRQL ISR masks the source and queues PASSIVE_LEVEL notification processing.
+  Commands, deferred work and terminal shutdown share explicit synchronization.
+  Real WDK compilation and Windows/Linux modeled tests pass; no Lenovo IRQ
+  execution yet. This remains a static library requiring a PnP/power owner.
 - **Working Windows audio:** not yet implemented. Authenticated image ownership,
-  PnP/power and IRQ handling, remaining notification types, machine/codec integration, stream DMA
+  PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
 
 The older bootstrap description below is retained for source history. Do not

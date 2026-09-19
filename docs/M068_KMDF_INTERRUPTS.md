@@ -102,3 +102,28 @@ These are deterministic modeled interleavings, not a real multiprocessor race
 stress test, Driver Verifier run, ISR latency measurement or device test.
 Remaining work includes the actual PnP/power driver, firmware trust/binding,
 complete notification handling, topology/codec setup, stream DMA and WaveRT.
+
+## Verified build evidence (2026-09-19)
+
+Tested implementation commit: `bf84e56b4d01e22af627339648b570599825debd`.
+Source tree: `97503bc68c4405af52cbf32507cfd69eb66836ce`.
+This evidence and README update are documentation-only changes after that build.
+
+- [WDK/KMDF build 35424925326](https://github.com/onish12/360/actions/runs/35424925326),
+  job `105849098763`: success, including seven host tests.
+- [Offline run 35424925314](https://github.com/onish12/360/actions/runs/35424925314):
+  Windows job `105849098902` passed all 11 tests; Linux job `105849098829`
+  passed all 10 tests with ASan/UBSan enabled by the workflow.
+- All three jobs report `SOF_GLK_BOOT_TESTS=105028 PASS;
+  windows_api=SIMULATED; hardware=NONE`. This is an assertion count from
+  deterministic modeled execution, not 105,028 independent hardware tests.
+- [Development artifact PHASER360_M068_WDK_IPC_INTERRUPTS](https://github.com/onish12/360/actions/runs/35424925326/artifacts/10578558819),
+  ID `10578558819`, size 164,501 bytes. GitHub reports SHA-256
+  `e15290e72413c99ca293e5a7b1730b3e148befbc2e38eef5137e976884fd3412`.
+  This digest is artifact-service metadata, not an independently downloaded
+  and recomputed archive hash.
+
+The artifact contains a development static library and supporting sources, not
+an installable audio driver. These results establish compilation and modeled
+behavior only; hardware IRQ routing, firmware execution, audio output and
+Windows power transitions remain unvalidated on the Lenovo.
