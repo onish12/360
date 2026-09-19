@@ -77,3 +77,23 @@ selected interleavings; this is not real multicore stress or Driver Verifier.
 Full PnP registration, failed Enable teardown, surprise removal, firmware trust,
 platform routing, codec/topology integration and WaveRT remain outstanding.
 No installable audio driver or Lenovo execution is claimed.
+
+## Verified CI evidence (2026-09-19)
+
+Implementation commit: `526c44ed860465f419886cf2d9f923e44f64bb96`.
+Tree: `9820f70a12689f5c2fded61e61c27d13afbcc54b`.
+
+- [WDK run 35466674958](https://github.com/onish12/360/actions/runs/35466674958),
+  job `105960163634`: real WDK library build and all seven host tests pass.
+- [Offline run 35466674946](https://github.com/onish12/360/actions/runs/35466674946):
+  Windows job `105960163560` passes 11 tests; Linux job `105960163617`
+  passes 10 tests with the workflow's ASan/UBSan instrumentation.
+- All three logs report `SOF_GLK_BOOT_TESTS=199647 PASS; windows_api=SIMULATED;
+  hardware=NONE`. These are modeled assertions, not device trials.
+- [PHASER360_M0611_WDK_DEFERRED_DRAIN](https://github.com/onish12/360/actions/runs/35466674958/artifacts/10591706969):
+  artifact `10591706969`, 197,045 bytes. GitHub reports SHA-256
+  `84103b1a3cf526bb2b190d62eed11f9e9f4665c6745d4db9247eb9a8eab98a28`.
+  This digest is artifact-service metadata, not an independently downloaded hash.
+
+The next documentation-only commit records this evidence and README status.
+No hardware execution, installable driver or audio playback is claimed.

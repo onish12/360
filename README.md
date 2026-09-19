@@ -72,6 +72,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   includes successful notifications and failed second boot cleanup. Full
   Windows sleep/resume and PnP integration are still outstanding. WDK build
   and Windows/Linux tests pass.
+- **M0.6.11:** [Explicit deferred-work drain](docs/M0611_DEFERRED_DRAIN.md).
+  Owns a DPC and work item; confirmed stop is followed by DPC cancellation/wait
+  and work-item flush before DSP shutdown. This supplies the orderly drain
+  required before next-D0 rebinding. WDK and Windows/Linux tests pass.
+  Full PnP/removal policy remains unfinished.
 - **Working Windows audio:** not yet implemented. Authenticated image ownership,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
