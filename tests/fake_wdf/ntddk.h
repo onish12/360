@@ -40,3 +40,9 @@ void WRITE_REGISTER_ULONG(ULONG*,ULONG);
 void KeStallExecutionProcessor(unsigned);
 NTSTATUS KeDelayExecutionThread(unsigned,bool,LARGE_INTEGER*);
 ULONGLONG KeQueryInterruptTime();
+
+using BOOLEAN=unsigned char;
+constexpr BOOLEAN TRUE=1;
+constexpr UCHAR CmResourceTypeInterrupt=2;
+struct CM_PARTIAL_RESOURCE_DESCRIPTOR { UCHAR Type; };
+using PCM_PARTIAL_RESOURCE_DESCRIPTOR=CM_PARTIAL_RESOURCE_DESCRIPTOR*;

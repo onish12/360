@@ -1,4 +1,4 @@
-name: M0.6.7 GLK IPC notification capture - NOT INSTALLABLE
+name: M0.6.8 KMDF IPC interrupt bridge - NOT INSTALLABLE
 on:
   workflow_dispatch:
   push:
@@ -60,11 +60,11 @@ jobs:
         run: |
           New-Item -ItemType Directory _artifact_m062 | Out-Null
           Copy-Item m062/driver/out/phaser360_boot_dma.lib _artifact_m062/
-          Copy-Item m062/driver/boot_dma.h,m062/driver/boot_dma.cpp,src/sof/hda_bdl.h,src/sof/hda_bdl.cpp,src/sof/hda_stream.h,src/sof/hda_stream.cpp,m062/driver/hda_transport.h,m062/driver/hda_transport.cpp,docs/M062_WINDOWS_DMA.md,docs/M063_HDA_TRANSPORT.md,src/sof/glk_rom.h,src/sof/glk_rom.cpp,m062/driver/glk_boot.h,m062/driver/glk_boot.cpp,docs/M064_GLK_ROM.md,src/sof/ipc3_ready.h,src/sof/ipc3_ready.cpp,src/sof/ipc3_receive.h,src/sof/ipc3_receive.cpp,docs/M065_IPC_READY.md,src/sof/ipc3_command.h,src/sof/ipc3_command.cpp,docs/M066_IPC_COMMAND.md,docs/M067_IPC_NOTIFICATIONS.md _artifact_m062/
-          @("COMMIT=$env:GITHUB_SHA",'WDK_COMPILE=PASS','INSTALLABLE=FALSE','HARDWARE_EXECUTION=NOT_TESTED','DMA_MEMORY_COMPONENT=IMPLEMENTED','HDA_STREAM_MMIO=IMPLEMENTED_UNTESTED_ON_HARDWARE','ROM_POWER_SEQUENCE=IMPLEMENTED_UNTESTED_ON_HARDWARE','IPC_READY=IMPLEMENTED_UNTESTED_ON_HARDWARE','IPC_COMMAND=IMPLEMENTED_UNTESTED_ON_HARDWARE','IPC_NOTIFICATIONS=BOUNDED_POLLING_FIFO','AUDIO_PLAYBACK=NOT_IMPLEMENTED','TEST_BACKEND=WDF_SHIM') | Set-Content _artifact_m062/BUILD_STATUS.txt
+          Copy-Item m062/driver/boot_dma.h,m062/driver/boot_dma.cpp,src/sof/hda_bdl.h,src/sof/hda_bdl.cpp,src/sof/hda_stream.h,src/sof/hda_stream.cpp,m062/driver/hda_transport.h,m062/driver/hda_transport.cpp,docs/M062_WINDOWS_DMA.md,docs/M063_HDA_TRANSPORT.md,src/sof/glk_rom.h,src/sof/glk_rom.cpp,m062/driver/glk_boot.h,m062/driver/glk_boot.cpp,docs/M064_GLK_ROM.md,src/sof/ipc3_ready.h,src/sof/ipc3_ready.cpp,src/sof/ipc3_receive.h,src/sof/ipc3_receive.cpp,docs/M065_IPC_READY.md,src/sof/ipc3_command.h,src/sof/ipc3_command.cpp,docs/M066_IPC_COMMAND.md,docs/M067_IPC_NOTIFICATIONS.md,m062/driver/ipc_interrupt.h,m062/driver/ipc_interrupt.cpp,docs/M068_KMDF_INTERRUPTS.md _artifact_m062/
+          @("COMMIT=$env:GITHUB_SHA",'WDK_COMPILE=PASS','INSTALLABLE=FALSE','HARDWARE_EXECUTION=NOT_TESTED','DMA_MEMORY_COMPONENT=IMPLEMENTED','HDA_STREAM_MMIO=IMPLEMENTED_UNTESTED_ON_HARDWARE','ROM_POWER_SEQUENCE=IMPLEMENTED_UNTESTED_ON_HARDWARE','IPC_READY=IMPLEMENTED_UNTESTED_ON_HARDWARE','IPC_COMMAND=IMPLEMENTED_UNTESTED_ON_HARDWARE','IPC_NOTIFICATIONS=BOUNDED_POLLING_FIFO','IPC_INTERRUPT=DIRQL_ISR_PASSIVE_WORKITEM_UNTESTED_ON_HARDWARE','AUDIO_PLAYBACK=NOT_IMPLEMENTED','TEST_BACKEND=WDF_SHIM') | Set-Content _artifact_m062/BUILD_STATUS.txt
           Get-ChildItem _artifact_m062 -File | Sort-Object Name | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash + '  ' + $_.Name } | Set-Content _artifact_m062/SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: PHASER360_M067_WDK_IPC_NOTIFICATIONS
+          name: PHASER360_M068_WDK_IPC_INTERRUPTS
           path: _artifact_m062/
           if-no-files-found: error
