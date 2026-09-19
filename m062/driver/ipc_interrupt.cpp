@@ -39,15 +39,30 @@ NTSTATUS IpcInterrupt::Create(WDFDEVICE device,PCM_PARTIAL_RESOURCE_DESCRIPTOR r
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes); attributes.ParentObject=device;
     NTSTATUS status=WdfWaitLockCreate(&attributes,&serial_);
     if(!NT_SUCCESS(status)) return status;
+    WDF_WORKITEM_CONFIG workConfig;
+    WDF_WORKITEM_CONFIG_INIT(&workConfig,Work); workConfig.AutomaticSerialization=FALSE;
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes,IpcIrqContext); attributes.ParentObject=device;
+    status=WdfWorkItemCreate(&workConfig,&attributes,&work_);
+    if(!NT_SUCCESS(status)) { WdfObjectDelete(serial_); serial_=nullptr; return status; }
+    GetIpcIrqContext(work_)->owner=this;
+    WDF_DPC_CONFIG dpcConfig;
+    WDF_DPC_CONFIG_INIT(&dpcConfig,Deferred); dpcConfig.AutomaticSerialization=FALSE;
+    status=WdfDpcCreate(&dpcConfig,&attributes,&dpc_);
+    if(!NT_SUCCESS(status)) {
+        WdfObjectDelete(work_); work_=nullptr; WdfObjectDelete(serial_); serial_=nullptr; return status;
+    }
+    GetIpcIrqContext(dpc_)->owner=this;
     WDF_INTERRUPT_CONFIG config;
     WDF_INTERRUPT_CONFIG_INIT(&config,Isr,nullptr);
     config.PassiveHandling=FALSE; config.AutomaticSerialization=FALSE;
     config.InterruptRaw=raw; config.InterruptTranslated=translated;
     config.EvtInterruptEnable=Enable; config.EvtInterruptDisable=Disable;
-    config.EvtInterruptWorkItem=Work;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes,IpcIrqContext);
     status=WdfInterruptCreate(device,&config,&attributes,&interrupt_);
-    if(!NT_SUCCESS(status)) { WdfObjectDelete(serial_); serial_=nullptr; return status; }
+    if(!NT_SUCCESS(status)) {
+        WdfObjectDelete(dpc_); dpc_=nullptr; WdfObjectDelete(work_); work_=nullptr;
+        WdfObjectDelete(serial_); serial_=nullptr; return status;
+    }
     GetIpcIrqContext(interrupt_)->owner=this;
     return STATUS_SUCCESS;
 }
@@ -88,7 +103,7 @@ bool IpcInterrupt::CancelBeforeEnable() noexcept {
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
     // Caller serializes against framework Enable; no ISR has ever been enabled.
     const bool result=!enableSeen_;
-    if(result) { stopped_=true; ready_=false; armed_=false; dsp_=nullptr; closed_=true; }
+    if(result) { stopped_=true; ready_=false; armed_=false; dsp_=nullptr; closed_=true; drained_=true; }
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept {
@@ -97,10 +112,10 @@ bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
     // PnP caller serializes against Enable/Disable. No IRQ lock/synchronization
     // while disconnected. The wait lock excludes an executing old work item.
-    const bool result=closed_ && disableSeen_ &&
+    const bool result=closed_ && drained_ && disableSeen_ &&
         InterlockedCompareExchange(&pendingWork_,0,0)==0;
     if(result) {
-        boot_=boot; dsp_=dsp; closed_=false; stopped_=false; ready_=false;
+        boot_=boot; dsp_=dsp; closed_=false; drained_=false; stopped_=false; ready_=false;
         armed_=false; enabled_=false; fault_=false; enableSeen_=false; disableSeen_=false;
     }
     WdfWaitLockRelease(serial_); return result;
@@ -124,6 +139,21 @@ bool IpcInterrupt::Stop() noexcept {
     if(result) closed_=true;
     WdfWaitLockRelease(serial_); return result;
 }
+bool IpcInterrupt::DrainStopped() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    const bool closed=closed_,done=drained_;
+    WdfWaitLockRelease(serial_);
+    if(!closed) return false;
+    if(done) return true;
+    // Stop already synchronized with ISR and prevents all new DPC enqueue.
+    // Never hold the wait lock: a running/queued worker needs it to return.
+    (void)WdfDpcCancel(dpc_,TRUE);
+    WdfWorkItemFlush(work_);
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    InterlockedExchange(&pendingWork_,0); drained_=true;
+    WdfWaitLockRelease(serial_); return true;
+}
 BOOLEAN IpcInterrupt::Isr(WDFINTERRUPT interrupt,ULONG) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
     if(!self.enabled_ || !self.armed_ || !self.ready_ || self.stopped_ || self.fault_) return FALSE;
@@ -135,7 +165,7 @@ BOOLEAN IpcInterrupt::Isr(WDFINTERRUPT interrupt,ULONG) {
     if(!self.Mask()) { self.fault_=true; return TRUE; }
     // No mailbox read, wait, allocation or ACK at DIRQL. Framework coalesces work.
     InterlockedExchange(&self.pendingWork_,1);
-    (void)WdfInterruptQueueWorkItemForIsr(interrupt);
+    (void)WdfDpcEnqueue(self.dpc_);
     return TRUE;
 }
 NTSTATUS IpcInterrupt::Enable(WDFINTERRUPT interrupt,WDFDEVICE) {
@@ -153,8 +183,13 @@ NTSTATUS IpcInterrupt::Disable(WDFINTERRUPT interrupt,WDFDEVICE) {
     if(!self.Mask()) { self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
     return STATUS_SUCCESS;
 }
-void IpcInterrupt::Work(WDFINTERRUPT interrupt,WDFOBJECT) {
-    auto& self=*GetIpcIrqContext(interrupt)->owner;
+void IpcInterrupt::Deferred(WDFDPC dpc) {
+    auto& self=*GetIpcIrqContext(dpc)->owner;
+    // DISPATCH_LEVEL: only queue work, no mailbox or blocking operations.
+    WdfWorkItemEnqueue(self.work_);
+}
+void IpcInterrupt::Work(WDFWORKITEM work) {
+    auto& self=*GetIpcIrqContext(work)->owner;
     if(WdfWaitLockAcquire(self.serial_,nullptr)!=STATUS_SUCCESS) return;
     InterlockedExchange(&self.pendingWork_,0);
     if(!self.closed_ && self.Sync(Operation::Begin)) {

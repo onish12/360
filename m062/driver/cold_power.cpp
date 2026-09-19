@@ -42,7 +42,7 @@ bool ColdPower::BeforeInterruptsDisabled() noexcept {
     if(state_!=State::Booted && state_!=State::Active && state_!=State::StopFailure) return false;
     state_=State::StopFailure;
     // Do not shut down DSP or release DMA after an unconfirmed interrupt stop.
-    if(!irq_.Stop() || !boot_->Shutdown()) return false;
+    if(!irq_.Stop() || !irq_.DrainStopped() || !boot_->Shutdown()) return false;
     state_=State::Closed; return true;
 }
 }}

@@ -20,12 +20,16 @@ public:
     bool RebindStopped(GlkBoot*,UCHAR* dsp,ULONG length) noexcept;
     bool Running() noexcept; // software gate health, not proof of hardware delivery
     bool Arm() noexcept;
+    bool DrainStopped() noexcept; // PASSIVE PnP thread, never from this worker
     bool Stop() noexcept; // terminal; false means retain mapping and recover
     sof::CommandResult Command(const UCHAR*,SIZE_T,ULONG,UCHAR*,SIZE_T) noexcept;
     bool Pop(sof::IpcNotification*) noexcept;
 private:
     WDFINTERRUPT interrupt_=nullptr;
     WDFWAITLOCK serial_=nullptr;
+    WDFDPC dpc_=nullptr;
+    WDFWORKITEM work_=nullptr;
+    bool drained_=false;
     GlkBoot* boot_=nullptr;
     UCHAR* dsp_=nullptr;
     bool closed_=false; // PASSIVE serial lock only
@@ -44,6 +48,7 @@ private:
     static BOOLEAN Isr(WDFINTERRUPT,ULONG);
     static NTSTATUS Enable(WDFINTERRUPT,WDFDEVICE);
     static NTSTATUS Disable(WDFINTERRUPT,WDFDEVICE);
-    static void Work(WDFINTERRUPT,WDFOBJECT);
+    static void Deferred(WDFDPC);
+    static void Work(WDFWORKITEM);
 };
 }}

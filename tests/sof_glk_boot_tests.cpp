@@ -12,6 +12,12 @@ using phaser360::sof::RomError;
 static unsigned checks=0,live=0,dspWrites=0,irql=0,sequence=0;
 static uint64_t ticks=100000;
 static bool unmapped=false,dropIrqUnmask=false,dropIrqMask=false,irqHeld=false,mutexHeld=false,queued=false;
+static bool dpcQueued=false,workQueued=false,finishDpcDuringCancel=false;
+static unsigned cancelCalls=0,flushCalls=0;
+static WDFDPC dpcHandle=nullptr;
+static WDFWORKITEM workHandle=nullptr;
+static WDF_DPC_CONFIG dpcConfig={};
+static WDF_WORKITEM_CONFIG workConfig={};
 static unsigned createFailure=0;
 static bool connected=false;
 static WDF_INTERRUPT_CONFIG irqConfig={};
@@ -113,7 +119,7 @@ NTSTATUS WdfWaitLockAcquire(WDFWAITLOCK h,LONGLONG* timeout) {
 void WdfWaitLockRelease(WDFWAITLOCK h) { CHECK(h==serialHandle && irql==0 && mutexHeld); mutexHeld=false; }
 NTSTATUS WdfInterruptCreate(WDFDEVICE,WDF_INTERRUPT_CONFIG* c,WDF_OBJECT_ATTRIBUTES* a,WDFINTERRUPT* out) {
     CHECK(irql==0 && !c->PassiveHandling && !c->AutomaticSerialization && !c->EvtInterruptDpc);
-    CHECK(c->InterruptRaw && c->InterruptTranslated && c->EvtInterruptWorkItem && a->contextSize);
+    CHECK(c->InterruptRaw && c->InterruptTranslated && !c->EvtInterruptWorkItem && a->contextSize);
     if(createFailure==2) return STATUS_INSUFFICIENT_RESOURCES;
     *out=new FakeObject{++sequence,std::vector<UCHAR>(a->contextSize)};
     irqHandle=*out; irqConfig=*c; ++live; return STATUS_SUCCESS;
@@ -122,8 +128,35 @@ BOOLEAN WdfInterruptSynchronize(WDFINTERRUPT h,PFN_WDF_INTERRUPT_SYNCHRONIZE cb,
     CHECK(connected && h==irqHandle && !irqHeld && irql==0 && mutexHeld);
     irql=5; irqHeld=true; const auto result=cb(h,p); irqHeld=false; irql=0; return result;
 }
-BOOLEAN WdfInterruptQueueWorkItemForIsr(WDFINTERRUPT h) {
-    CHECK(h==irqHandle && irql==5 && irqHeld); const bool fresh=!queued; queued=true; return fresh?TRUE:FALSE;
+NTSTATUS WdfWorkItemCreate(WDF_WORKITEM_CONFIG* c,WDF_OBJECT_ATTRIBUTES* a,WDFWORKITEM* out) {
+    CHECK(irql==0 && !c->AutomaticSerialization && a->ParentObject && a->contextSize);
+    if(createFailure==3) return STATUS_INSUFFICIENT_RESOURCES;
+    *out=new FakeObject{++sequence,std::vector<UCHAR>(a->contextSize)};
+    workHandle=*out; workConfig=*c; ++live; return STATUS_SUCCESS;
+}
+NTSTATUS WdfDpcCreate(WDF_DPC_CONFIG* c,WDF_OBJECT_ATTRIBUTES* a,WDFDPC* out) {
+    CHECK(irql==0 && !c->AutomaticSerialization && a->ParentObject && a->contextSize);
+    if(createFailure==4) return STATUS_INSUFFICIENT_RESOURCES;
+    *out=new FakeObject{++sequence,std::vector<UCHAR>(a->contextSize)};
+    dpcHandle=*out; dpcConfig=*c; ++live; return STATUS_SUCCESS;
+}
+BOOLEAN WdfDpcEnqueue(WDFDPC h) {
+    CHECK(h==dpcHandle && irql==5 && irqHeld);
+    const bool fresh=!dpcQueued; dpcQueued=true; queued=true; return fresh?TRUE:FALSE;
+}
+void WdfWorkItemEnqueue(WDFWORKITEM h) {
+    CHECK(h==workHandle && irql==2 && !irqHeld && !mutexHeld);
+    workQueued=true; queued=true;
+}
+static void RunDpc() {
+    CHECK(dpcQueued && irql==0 && !mutexHeld); dpcQueued=false; queued=workQueued;
+    irql=2; dpcConfig.EvtDpcFunc(dpcHandle); irql=0;
+}
+BOOLEAN WdfDpcCancel(WDFDPC h,BOOLEAN wait) {
+    CHECK(h==dpcHandle && wait && irql==0 && !mutexHeld && !irqHeld); ++cancelCalls;
+    if(finishDpcDuringCancel && dpcQueued) { RunDpc(); return FALSE; }
+    const bool wasQueued=dpcQueued; dpcQueued=false; queued=workQueued;
+    return wasQueued?TRUE:FALSE;
 }
 static NTSTATUS FrameworkEnable(bool enable) {
     CHECK(irql==0 && !irqHeld); irql=5; irqHeld=true;
@@ -135,9 +168,16 @@ static bool Interrupt() {
     CHECK(irql==0 && !irqHeld); irql=5; irqHeld=true;
     const auto result=irqConfig.EvtInterruptIsr(irqHandle,0); irqHeld=false; irql=0; return result!=FALSE;
 }
-static void RunWork() { CHECK(queued && irql==0); queued=false; irqConfig.EvtInterruptWorkItem(irqHandle,&checks); }
+static void RunWork() {
+    CHECK(queued && irql==0); if(dpcQueued) RunDpc();
+    CHECK(workQueued); workQueued=false; queued=dpcQueued; workConfig.EvtWorkItem(workHandle);
+}
+void WdfWorkItemFlush(WDFWORKITEM h) {
+    CHECK(h==workHandle && irql==0 && !mutexHeld && !irqHeld && !dpcQueued);
+    ++flushCalls; if(workQueued) RunWork();
+}
 static void FrameworkDeleteChildren() {
-    CHECK(!queued && !mutexHeld && !irqHeld); WdfObjectDelete(irqHandle); WdfObjectDelete(serialHandle);
+    CHECK(!queued && !mutexHeld && !irqHeld); WdfObjectDelete(irqHandle); WdfObjectDelete(dpcHandle); WdfObjectDelete(workHandle); WdfObjectDelete(serialHandle);
     irqHandle=nullptr; serialHandle=nullptr;
 }
 static void Notify() {
@@ -145,6 +185,7 @@ static void Notify() {
     IpcPut(dsp,0x40,0x90020000); IpcPut(dsp,0xc,1);
 }
 static void Reset() {
+    dpcQueued=false; workQueued=false; finishDpcDuringCancel=false; cancelCalls=0; flushCalls=0;
     connected=false; unmapped=false; dropIrqUnmask=false; dropIrqMask=false; createFailure=0; queued=false;
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
     dspWrites=0; irql=0; sequence=0; ticks=100000;
@@ -241,7 +282,7 @@ int main() {
         CHECK(bridge.Command(q.data(),8,0x10000000,reply.data(),12).status==phaser360::sof::CommandStatus::State);
         CHECK(!Interrupt()); CHECK(NT_SUCCESS(FrameworkEnable(false))); FrameworkDeleteChildren();
     }
-    for(unsigned failure=1;failure<=2;++failure) {
+    for(unsigned failure=1;failure<=4;++failure) {
         Reset(); GlkBoot boot; IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         createFailure=failure;
         CHECK(!NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
@@ -286,17 +327,17 @@ int main() {
             CHECK(!NT_SUCCESS(result) && !connected);
             CHECK(session.CanReleaseMappings()==(mode!=3));
             if(mode==3) {
-                CHECK(live==5); auto before=dspWrites;
-                CHECK(!session.RetryEarlyCleanup() && dspWrites==before && live==5);
+                CHECK(live==7); auto before=dspWrites;
+                CHECK(!session.RetryEarlyCleanup() && dspWrites==before && live==7);
                 stuckRun=false; CHECK(session.RetryEarlyCleanup());
             }
-            CHECK(live==2 && session.CanReleaseMappings());
+            CHECK(live==4 && session.CanReleaseMappings());
             unmapped=true; CHECK(!bridge.Arm() && bridge.Stop());
             CHECK(NT_SUCCESS(FrameworkEnable(true))); // canceled callback does no MMIO
             CHECK(NT_SUCCESS(FrameworkEnable(false))); FrameworkDeleteChildren();
             continue;
         }
-        CHECK(NT_SUCCESS(result) && session.TransferEvidence().commandReady && live==2);
+        CHECK(NT_SUCCESS(result) && session.TransferEvidence().commandReady && live==4);
         CHECK(NT_SUCCESS(FrameworkEnable(true)));
         CHECK(!bridge.CanStartBeforeEnable() && !bridge.CancelBeforeEnable());
         if(mode==4) dropIrqUnmask=true;
@@ -334,8 +375,8 @@ int main() {
         Notify(); CHECK(Interrupt() && queued); CHECK(session.BeforeInterruptsDisabled());
         CHECK(!session.NextD0(second,dsp.data(),0x100000)); // not disabled
         CHECK(NT_SUCCESS(FrameworkEnable(false))); unmapped=true;
-        CHECK(!session.NextD0(second,dsp.data(),0x100000)); // old queued work
-        RunWork(); CHECK(!session.NextD0(first,dsp.data(),0x100000)); // single-attempt owner
+        CHECK(!queued && cancelCalls==1 && flushCalls==1);
+        CHECK(!session.NextD0(first,dsp.data(),0x100000)); // single-attempt owner
         CHECK(!session.NextD0(second,dsp.data()+1,0x100000));
         irql=2; CHECK(!session.NextD0(second,dsp.data(),0x100000)); irql=0;
         CHECK(session.NextD0(second,dsp.data(),0x100000)); // no MMIO while powered off
@@ -352,9 +393,28 @@ int main() {
             CHECK(bridge.Pop(&event) && event.acknowledged);
             CHECK(session.BeforeInterruptsDisabled()); CHECK(NT_SUCCESS(FrameworkEnable(false)));
         } else {
-            CHECK(session.CanReleaseMappings() && !connected && live==2);
+            CHECK(session.CanReleaseMappings() && !connected && live==4);
         }
         unmapped=true; CHECK(bridge.Stop()); FrameworkDeleteChildren();
+    }
+    for(unsigned mode=0;mode<3;++mode) {
+        Reset(); GlkBoot boot,next; IpcInterrupt bridge;
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+        CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
+        CHECK(!bridge.DrainStopped() && cancelCalls==0 && flushCalls==0);
+        CHECK(NT_SUCCESS(FrameworkEnable(true))); CHECK(NT_SUCCESS(Prepare(boot)));
+        CHECK(boot.Transfer().commandReady && bridge.Arm()); Notify(); CHECK(Interrupt());
+        if(mode==1) RunDpc(); // DPC finished, worker still queued
+        if(mode==2) finishDpcDuringCancel=true; // model DPC finishing during Cancel(TRUE)
+        dropIrqMask=true; Put(dsp,8,4,1); CHECK(!bridge.Stop());
+        CHECK(!bridge.DrainStopped() && cancelCalls==0); dropIrqMask=false;
+        CHECK(bridge.Stop()); CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(!bridge.RebindStopped(&next,dsp.data(),0x100000));
+        unmapped=true; CHECK(bridge.DrainStopped()); // drain never accesses MMIO
+        CHECK(!queued && !dpcQueued && !workQueued && cancelCalls==1 && flushCalls==1);
+        CHECK(bridge.DrainStopped() && cancelCalls==1 && flushCalls==1);
+        unmapped=false; CHECK(boot.Shutdown()); unmapped=true;
+        FrameworkDeleteChildren();
     }
     std::printf("SOF_GLK_BOOT_TESTS=%u PASS; windows_api=SIMULATED; hardware=NONE\n",checks);
 }
