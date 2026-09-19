@@ -63,6 +63,14 @@ sof::CommandResult GlkBoot::Command(const UCHAR* request,SIZE_T bytes,ULONG expe
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !ipcLive_) return {};
     return commands_.Exchange(request,bytes,expected,reply,capacity);
 }
+sof::CommandStatus GlkBoot::PollNotifications() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !ipcLive_) return sof::CommandStatus::State;
+    return commands_.PollNotifications();
+}
+bool GlkBoot::PopNotification(sof::IpcNotification* event) noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !ipcLive_) return false;
+    return commands_.PopNotification(event);
+}
 bool GlkBoot::Shutdown() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
     prepared_=false; ipcLive_=false; commands_.Close();

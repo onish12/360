@@ -21,9 +21,13 @@ bool Ipc3Command::Bind(const RomIo& io,const Ipc3Receive& gate) noexcept {
     const auto box=windows->region[0];
     if((box.offset&3) || box.offset<0x80000 || box.offset>io.length || box.size<12 ||
        (box.size&3) || box.size>io.length-box.offset) return false;
-    io_=io; box_=box; state_=State::Ready; return true;
+    const auto up=windows->region[1];
+    if((up.offset&3) || up.offset<0x80000 || up.offset>io.length || up.size<76 ||
+       up.size>io.length-up.offset || (up.size&3) ||
+       (up.offset<box.offset+box.size && box.offset<up.offset+up.size)) return false;
+    io_=io; box_=box; uplink_=up; state_=State::Ready; return true;
 }
-void Ipc3Command::Close() noexcept { state_=State::Closed; io_={}; box_={}; }
+void Ipc3Command::Close() noexcept { state_=State::Closed; io_={}; box_={}; uplink_={}; head_=0; count_=0; }
 bool Ipc3Command::Fail(CommandStatus status) noexcept {
     result_.status=status; state_=State::Fault; return false;
 }
@@ -47,7 +51,56 @@ bool Ipc3Command::Write(uint32_t off,uint32_t v) noexcept {
     return Time();
 }
 bool Ipc3Command::Registers(uint32_t& notification,uint32_t& done,uint32_t& request) noexcept {
-    return Read(0x40,notification) && Read(0x4c,done) && Read(0x48,request);
+    return Read(0x40,notification) && Drain(notification) && Read(0x4c,done) && Read(0x48,request);
+}
+bool Ipc3Command::Drain(uint32_t& doorbell) noexcept {
+    while(doorbell&0x80000000u) {
+        if(count_==4) return Fail(CommandStatus::QueueFull);
+        uint32_t size=0,cmd=0;
+        if(!Read(uplink_.offset,size,false) || !Read(uplink_.offset+4,cmd,false)) return false;
+        const uint32_t type=cmd&0xffff0000u;
+        NotificationKind kind;
+        if(type==0x600a0000u && size==76) kind=NotificationKind::Position;
+        else if(type==0x60090000u && size==76) kind=NotificationKind::Xrun;
+        else if(cmd==0x90020000u && size==24) kind=NotificationKind::TracePosition;
+        else return Fail(CommandStatus::Notification);
+        if(size>uplink_.size || (cmd&0x7fffffffu)!=(doorbell&0x7fffffffu)) return Fail(CommandStatus::Notification);
+        auto& event=queue_[(head_+count_)%4]; event={};
+        event.kind=kind; event.command=cmd; event.bytes=size;
+        Put(event.data,size); Put(event.data+4,cmd);
+        for(uint32_t off=8;off<size;off+=4) {
+            uint32_t v=0; if(!Read(uplink_.offset+off,v,false)) return false; Put(event.data+off,v);
+        }
+        if(U32(event.data+8)!=0 || (kind!=NotificationKind::TracePosition &&
+           U32(event.data+12)!=(cmd&0xffff))) return Fail(CommandStatus::Notification);
+        uint32_t current=0,checkSize=0,checkCmd=0;
+        if(!Read(0x40,current) || !Read(uplink_.offset,checkSize,false) ||
+           !Read(uplink_.offset+4,checkCmd,false)) return false;
+        if(current!=doorbell || size!=checkSize || cmd!=checkCmd) return Fail(CommandStatus::Notification);
+        if(!Time()) return false;
+        // Retain the capture even if the ACK write or its completion is uncertain.
+        ++count_; event.ackAttempted=true;
+        if(!Write(0x40,doorbell)) return false;
+        event.acknowledged=true;
+        // A next notification may already be BUSY, including an identical event.
+        if(!Read(0x40,doorbell)) return false;
+    }
+    return true;
+}
+CommandStatus Ipc3Command::PollNotifications() noexcept {
+    if(state_!=State::Ready) return CommandStatus::State;
+    result_={}; state_=State::Active; start_=io_.now_us(io_.context); previous_=start_;
+    uint32_t cs=0,ctl=0,interrupts=0,doorbell=0;
+    if(!Read(4,cs) || !Read(0x50,ctl) || !Read(8,interrupts)) return result_.status;
+    if((cs&0x01010101)!=0x01010000 || (ctl&3) || (interrupts&1)) {
+        Fail(CommandStatus::State); return result_.status;
+    }
+    if(!Read(0x40,doorbell) || !Drain(doorbell)) return result_.status;
+    state_=State::Ready; return CommandStatus::Ok;
+}
+bool Ipc3Command::PopNotification(IpcNotification* out) noexcept {
+    if(!out || !count_ || state_==State::Active || state_==State::Closed) return false;
+    *out=queue_[head_]; queue_[head_]={}; head_=(head_+1)%4; --count_; return true;
 }
 CommandResult Ipc3Command::Exchange(const uint8_t* request,size_t n,uint32_t expected,
                                     uint8_t* reply,size_t capacity) noexcept {
@@ -68,20 +121,17 @@ CommandResult Ipc3Command::Exchange(const uint8_t* request,size_t n,uint32_t exp
     }
     if(!Registers(notification,done,busy)) return result_;
     if((busy&0x80000000u) || (done&0x40000000)) { Fail(CommandStatus::Busy); return result_; }
-    if(notification&0x80000000u) { Fail(CommandStatus::PendingNotification); return result_; }
     for(uint32_t off=0;off<n;off+=4)
         if(!Write(box_.offset+off,U32(tx_+off))) return result_;
     // Recheck before publishing; never overwrite or clear another transaction.
     if(!Registers(notification,done,busy)) return result_;
     if((busy&0x80000000u) || (done&0x40000000)) { Fail(CommandStatus::Busy); return result_; }
-    if(notification&0x80000000u) { Fail(CommandStatus::PendingNotification); return result_; }
     // Set before attempting the posted doorbell write: failure is ambiguous.
     result_.submitted=true;
     if(!Write(0x48,0x80000000)) return result_;
     bool arrived=false;
     for(unsigned attempt=0;attempt<1000;++attempt) {
         if(!Registers(notification,done,busy)) return result_;
-        if(notification&0x80000000u) { Fail(CommandStatus::PendingNotification); return result_; }
         if(done&0x40000000) {
             if(busy&0x80000000u) { Fail(CommandStatus::Reply); return result_; }
             arrived=true; break;
@@ -104,7 +154,6 @@ CommandResult Ipc3Command::Exchange(const uint8_t* request,size_t n,uint32_t exp
     }
     // Revalidate ownership and header before acknowledging the captured reply.
     if(!Registers(notification,done,busy)) return result_;
-    if(notification&0x80000000u) { Fail(CommandStatus::PendingNotification); return result_; }
     if(!(done&0x40000000) || (busy&0x80000000u)) { Fail(CommandStatus::Reply); return result_; }
     for(uint32_t off=0;off<12;off+=4) {
         uint32_t v=0; if(!Read(box_.offset+off,v,false)) return result_;

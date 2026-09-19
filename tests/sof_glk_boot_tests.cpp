@@ -109,6 +109,11 @@ int main() {
         CHECK(boot.Command(request.data(),8,0x10000000,reply.data(),12).status==phaser360::sof::CommandStatus::State);
         CHECK(dspWrites==before); irql=0;
         CHECK(boot.Windows() && boot.Windows()->region[0].offset==0xa0000);
+        IpcPut(dsp,0x81000,24); IpcPut(dsp,0x81004,0x90020000); IpcPut(dsp,0x81008,0);
+        IpcPut(dsp,0x40,0x90020000);
+        CHECK(boot.PollNotifications()==phaser360::sof::CommandStatus::Ok);
+        phaser360::sof::IpcNotification event;
+        CHECK(boot.PopNotification(&event) && event.acknowledged && event.bytes==24);
         CHECK(boot.Shutdown()); CHECK(!boot.Windows()); CHECK((Get(dsp,4,4)&0x03030303)==0x303);
     }
     Reset(); { GlkBoot boot; Put(hda,8,4,0); CHECK(!NT_SUCCESS(Prepare(boot)));

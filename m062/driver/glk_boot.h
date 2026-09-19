@@ -22,6 +22,8 @@ public:
     TransferResult Transfer() noexcept;
     const sof::IpcWindows* Windows() const noexcept { return ipcLive_?ipc_.Windows():nullptr; }
     sof::CommandResult Command(const UCHAR*,SIZE_T,ULONG expectedReplyCommand,UCHAR*,SIZE_T) noexcept;
+    sof::CommandStatus PollNotifications() noexcept;
+    bool PopNotification(sof::IpcNotification*) noexcept;
     bool Shutdown() noexcept; // preserves DMA if stop fails; no DSP writes then
     sof::ReceiveError IpcError() const noexcept { return ipc_.Error(); }
     sof::RomError RomError() const noexcept { return primaryError_; }
