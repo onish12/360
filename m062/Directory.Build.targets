@@ -1,0 +1,4 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildThisFileDirectory)packages\Microsoft.Windows.WDK.x64.10.0.28000.2526\build\native\Microsoft.Windows.WDK.x64.targets" Condition="Exists('$(MSBuildThisFileDirectory)packages\Microsoft.Windows.WDK.x64.10.0.28000.2526\build\native\Microsoft.Windows.WDK.x64.targets') and '$(Platform)' == 'x64'" />
+  <Import Project="$(MSBuildThisFileDirectory)packages\Microsoft.Windows.SDK.CPP.x64.10.0.28000.2526\build\native\Microsoft.Windows.SDK.cpp.x64.targets" Condition="Exists('$(MSBuildThisFileDirectory)packages\Microsoft.Windows.SDK.CPP.x64.10.0.28000.2526\build\native\Microsoft.Windows.SDK.cpp.x64.targets') and '$(Platform)' == 'x64'" />
+</Project>

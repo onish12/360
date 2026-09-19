@@ -1,5 +1,9 @@
 # M0.5.1 stopped with Intel SST already bound
 
+Historical 2026-09-14 preparation notes. The 2026-09-16 report completed the
+export/service checks below. Do not repeat the manual commands for the current
+continuation; use the [coordinator 1.1 handoff](M051_HANDOFF.md).
+
 ## Confirmed target state
 
 The target journal and the subsequent DISM output supplied on 2026-09-14 establish:

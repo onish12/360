@@ -98,8 +98,8 @@ Linux additionally runs ASan/UBSan. Local ptrace-based environments may require
 
 Known target remains PHASER360 / PCI `8086:3198`, DA7219 on SSP2, MAX98357A on
 SSP1 and PDM microphones. Reinstalling Windows does not turn a CI result into a
-hardware result. No M0.5 runtime snapshot from the reinstalled system has been
-supplied in this continuation. The old M0.5 installer must NOT be used to obtain
+hardware result. M0.5.1 obtained a real snapshot on September 16 and its cleanup
+was confirmed by the September 17 repair report. See [M0.6.1](M061_BOOT_PROTOCOL.md). The old M0.5 installer must NOT be used to obtain
 one: it requires Intel 9.22.0.4883 / oem0.inf and its rollback restores that stack.
 New M0.5 builds stop at both runtime entry points before any system operation.
 A separately reviewed fresh-Windows runtime/recovery path is required before

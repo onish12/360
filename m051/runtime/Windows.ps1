@@ -51,8 +51,10 @@ function Write-M051Journal($State) {
 
 function Invoke-M051Pnp([string[]]$Arguments) {
     # Synchronous: do not start rollback concurrently with an unfinished installer.
+    $ErrorActionPreference = 'Continue'
     $text = (& "$env:SystemRoot\System32\pnputil.exe" @Arguments 2>&1 | Out-String)
     $code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
     Add-Content -LiteralPath (Join-Path $script:M051.RunDir 'pnputil.log') -Value (
         "ARGS=" + ($Arguments -join ' ') + "`r`nEXIT=$code`r`n$text")
     if ($code -eq 3010 -or $code -eq 1641) { throw "REBOOT_REQUIRED_$code; no automatic reboot requested" }

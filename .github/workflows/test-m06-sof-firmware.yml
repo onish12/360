@@ -5,21 +5,27 @@ on:
   push:
     paths:
       - 'src/sof/**'
+      - 'm062/driver/**'
+      - 'tests/fake_wdf/**'
       - 'tools/sof_inspect.cpp'
-      - 'tests/sof_firmware_tests.cpp'
+      - 'tests/sof*'
       - 'tests/fixtures/sof_glk_reference.json'
       - 'scripts/verify-sof-reference.py'
       - 'CMakeLists.txt'
       - 'docs/M06_FIRMWARE.md'
+      - 'docs/M061_BOOT_PROTOCOL.md'
       - '.github/workflows/test-m06-sof-firmware.yml'
   pull_request:
     paths:
       - 'src/sof/**'
+      - 'm062/driver/**'
+      - 'tests/fake_wdf/**'
       - 'tools/sof_inspect.cpp'
       - 'tests/**'
       - 'scripts/verify-sof-reference.py'
       - 'CMakeLists.txt'
       - 'docs/M06_FIRMWARE.md'
+      - 'docs/M061_BOOT_PROTOCOL.md'
       - '.github/workflows/test-m06-sof-firmware.yml'
 
 permissions:
@@ -74,6 +80,10 @@ jobs:
           if ($env:RUNNER_OS -eq 'Windows') { $binary = Join-Path $build 'Debug/phaser360_sof_inspect.exe' }
           python scripts/verify-sof-reference.py --inspector $binary --fixture "$build/fixtures/sof-apl.ri" --download --report "$build/REFERENCE_CHECK.json"
           if ($LASTEXITCODE -ne 0) { throw 'Pinned SOF reference validation failed.' }
+          $ipc = Join-Path $build 'phaser360_ipc_tests'
+          if ($env:RUNNER_OS -eq 'Windows') { $ipc = Join-Path $build 'Debug/phaser360_ipc_tests.exe' }
+          & $ipc "$build/fixtures/sof-apl.ri"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned XMan window validation failed.' }
 
       - name: Stage development artifact (no firmware and no driver installer)
         shell: pwsh
@@ -82,15 +92,16 @@ jobs:
           $build = Join-Path $env:RUNNER_TEMP 'phaser360-m06-build'
           $stage = Join-Path $env:RUNNER_TEMP 'phaser360-m06-artifact'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          Copy-Item "$build/REFERENCE_CHECK.json", 'docs/M06_FIRMWARE.md', 'LICENSE' $stage
+          Copy-Item "$build/REFERENCE_CHECK.json", 'docs/M06_FIRMWARE.md', 'docs/M061_BOOT_PROTOCOL.md', 'LICENSE' $stage
+          Copy-Item 'src/sof/boot_sequence.h', 'src/sof/ipc3_ready.h', 'src/sof/firmware_image.h', 'src/sof/hda_bdl.h' $stage
           Copy-Item 'tests/fixtures/sof_glk_reference.json' $stage
           if ($env:RUNNER_OS -eq 'Windows') {
-            Copy-Item "$build/Debug/phaser360_sof_inspect.exe", "$build/Debug/phaser360_sof_parser.lib" $stage
+            Copy-Item "$build/Debug/phaser360_sof_inspect.exe", "$build/Debug/phaser360_sof_parser.lib", "$build/Debug/phaser360_sof_boot.lib" $stage
           } else {
             # Linux binary is a sanitizer-instrumented development executable.
-            Copy-Item "$build/phaser360_sof_inspect", "$build/libphaser360_sof_parser.a" $stage
+            Copy-Item "$build/phaser360_sof_inspect", "$build/libphaser360_sof_parser.a", "$build/libphaser360_sof_boot.a" $stage
           }
-          "COMMIT=$env:GITHUB_SHA`nHARDWARE_ACCESS=NONE`nINSTALLABLE=FALSE`nAUDIO_OUTPUT=NONE" | Set-Content "$stage/BUILD_STATUS.txt"
+          "COMMIT=$env:GITHUB_SHA`nHARDWARE_ACCESS=NONE`nINSTALLABLE=FALSE`nAUDIO_OUTPUT=NONE`nBOOT_BACKEND=TEST_DOUBLE_ONLY`nWINDOWS_DMA_MEMORY=SEPARATE_WDK_COMPONENT_NOT_INTEGRATED`nIPC_WINDOWS=SEPARATE_WDK_COMPONENT" | Set-Content "$stage/BUILD_STATUS.txt"
           $files = @(Get-ChildItem $stage -File | Sort-Object Name)
           $manifest = @($files | ForEach-Object {
             "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name

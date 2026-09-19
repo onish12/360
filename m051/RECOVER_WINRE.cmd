@@ -24,5 +24,5 @@ reg unload HKLM\PHASER360_M051_RECOVERY
 if errorlevel 1 exit /b 1
 if "%PHASER_FAILED%"=="1" exit /b 1
 echo Experimental M0.5.1 service disabled where present. No Intel driver restored.
-echo Start Windows, then use runtime\CLEANUP_M051.ps1 from the same recovery folder.
+echo Start Windows, then run CLEANUP_AUDIO.cmd as administrator from this folder.
 exit /b 0
