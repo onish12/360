@@ -12,6 +12,9 @@ public:
     IpcInterrupt& operator=(const IpcInterrupt&)=delete;
     NTSTATUS Create(WDFDEVICE,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
                     PCM_PARTIAL_RESOURCE_DESCRIPTOR translated,GlkBoot*,UCHAR* dsp,ULONG length) noexcept;
+    // Only in serialized PnP startup before the first framework Enable callback.
+    bool CanStartBeforeEnable() noexcept;
+    bool CancelBeforeEnable() noexcept; // no MMIO and no interrupt synchronization
     bool Running() noexcept; // software gate health, not proof of hardware delivery
     bool Arm() noexcept;
     bool Stop() noexcept; // terminal; false means retain mapping and recover
@@ -23,6 +26,7 @@ private:
     GlkBoot* boot_=nullptr;
     UCHAR* dsp_=nullptr;
     bool closed_=false; // PASSIVE serial lock only
+    bool enableSeen_=false;
     bool created_=false,armed_=false,enabled_=false,ready_=false,fault_=false,stopped_=false;
     bool Read(ULONG,ULONG&) noexcept;
     bool Bits(ULONG,ULONG,ULONG) noexcept;

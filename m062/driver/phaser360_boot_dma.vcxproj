@@ -49,6 +49,7 @@
     <ClCompile Include="hda_transport.cpp" />
     <ClCompile Include="glk_boot.cpp" />
     <ClCompile Include="ipc_interrupt.cpp" />
+    <ClCompile Include="cold_power.cpp" />
     <ClCompile Include="..\..\src\sof\ipc3_command.cpp" />
     <ClCompile Include="..\..\src\sof\ipc3_ready.cpp" />
     <ClCompile Include="..\..\src\sof\ipc3_receive.cpp" />

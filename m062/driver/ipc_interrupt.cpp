@@ -77,6 +77,20 @@ bool IpcInterrupt::Sync(Operation operation) noexcept {
     SyncRequest request={this,operation};
     return WdfInterruptSynchronize(interrupt_,Synchronized,&request)!=FALSE;
 }
+bool IpcInterrupt::CanStartBeforeEnable() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    const bool result=!enableSeen_ && !closed_;
+    WdfWaitLockRelease(serial_); return result;
+}
+bool IpcInterrupt::CancelBeforeEnable() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    // Caller serializes against framework Enable; no ISR has ever been enabled.
+    const bool result=!enableSeen_;
+    if(result) { stopped_=true; ready_=false; armed_=false; dsp_=nullptr; closed_=true; }
+    WdfWaitLockRelease(serial_); return result;
+}
 bool IpcInterrupt::Running() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
@@ -92,7 +106,7 @@ bool IpcInterrupt::Arm() noexcept {
 bool IpcInterrupt::Stop() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=Sync(Operation::Stop);
+    const bool result=closed_ || Sync(Operation::Stop);
     if(result) closed_=true;
     WdfWaitLockRelease(serial_); return result;
 }
@@ -111,7 +125,7 @@ BOOLEAN IpcInterrupt::Isr(WDFINTERRUPT interrupt,ULONG) {
 }
 NTSTATUS IpcInterrupt::Enable(WDFINTERRUPT interrupt,WDFDEVICE) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
-    self.enabled_=false; self.ready_=false;
+    self.enableSeen_=true; self.enabled_=false; self.ready_=false;
     if(self.stopped_) return STATUS_SUCCESS;
     if(!self.Mask()) { self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
     self.enabled_=true; return STATUS_SUCCESS;

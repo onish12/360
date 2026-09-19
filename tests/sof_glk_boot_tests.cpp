@@ -2,6 +2,7 @@
 // Executes production Windows wrappers against fake WDF/MMIO, not a kernel.
 #include "../m062/driver/glk_boot.h"
 #include "../m062/driver/ipc_interrupt.h"
+#include "../m062/driver/cold_power.h"
 #include <vector>
 #include "sof_ipc_fixture.h"
 #include <cstdio>
@@ -12,6 +13,7 @@ static unsigned checks=0,live=0,dspWrites=0,irql=0,sequence=0;
 static uint64_t ticks=100000;
 static bool unmapped=false,dropIrqUnmask=false,dropIrqMask=false,irqHeld=false,mutexHeld=false,queued=false;
 static unsigned createFailure=0;
+static bool connected=false;
 static WDF_INTERRUPT_CONFIG irqConfig={};
 static WDFINTERRUPT irqHandle=nullptr;
 static WDFWAITLOCK serialHandle=nullptr;
@@ -117,7 +119,7 @@ NTSTATUS WdfInterruptCreate(WDFDEVICE,WDF_INTERRUPT_CONFIG* c,WDF_OBJECT_ATTRIBU
     irqHandle=*out; irqConfig=*c; ++live; return STATUS_SUCCESS;
 }
 BOOLEAN WdfInterruptSynchronize(WDFINTERRUPT h,PFN_WDF_INTERRUPT_SYNCHRONIZE cb,WDFCONTEXT p) {
-    CHECK(h==irqHandle && !irqHeld && irql==0 && mutexHeld);
+    CHECK(connected && h==irqHandle && !irqHeld && irql==0 && mutexHeld);
     irql=5; irqHeld=true; const auto result=cb(h,p); irqHeld=false; irql=0; return result;
 }
 BOOLEAN WdfInterruptQueueWorkItemForIsr(WDFINTERRUPT h) {
@@ -125,8 +127,9 @@ BOOLEAN WdfInterruptQueueWorkItemForIsr(WDFINTERRUPT h) {
 }
 static NTSTATUS FrameworkEnable(bool enable) {
     CHECK(irql==0 && !irqHeld); irql=5; irqHeld=true;
+    if(enable) connected=true;
     const auto result=enable?irqConfig.EvtInterruptEnable(irqHandle,&checks):irqConfig.EvtInterruptDisable(irqHandle,&checks);
-    irqHeld=false; irql=0; return result;
+    irqHeld=false; irql=0; if(!enable) connected=false; return result;
 }
 static bool Interrupt() {
     CHECK(irql==0 && !irqHeld); irql=5; irqHeld=true;
@@ -142,7 +145,7 @@ static void Notify() {
     IpcPut(dsp,0x40,0x90020000); IpcPut(dsp,0xc,1);
 }
 static void Reset() {
-    unmapped=false; dropIrqUnmask=false; dropIrqMask=false; createFailure=0; queued=false;
+    connected=false; unmapped=false; dropIrqUnmask=false; dropIrqMask=false; createFailure=0; queued=false;
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
     dspWrites=0; irql=0; sequence=0; ticks=100000;
     stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
@@ -266,6 +269,56 @@ int main() {
         CHECK(bridge.Arm()); dropIrqMask=true; CHECK(!bridge.Stop());
         CHECK(Get(dsp,8,4)&1); dropIrqMask=false; CHECK(bridge.Stop());
         CHECK(boot.Shutdown()); CHECK(NT_SUCCESS(FrameworkEnable(false))); FrameworkDeleteChildren();
+    }
+    // D0Entry runs BEFORE the framework connects/enables the interrupt.
+    for(unsigned mode=0;mode<6;++mode) {
+        Reset(); GlkBoot boot; IpcInterrupt bridge; ColdPower session(boot,bridge);
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+        CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
+        std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
+        if(mode==1) Put(hda,8,4,0); // HDA failure before DSP mutation
+        if(mode==2) missingReady=true;
+        if(mode==3) stuckRun=true; // failed DMA stop must retain all buffers
+        CHECK(!session.CanReleaseMappings());
+        const auto result=session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
+                                        image.data(),image.size(),x.data(),x.size(),20);
+        if(mode>=1 && mode<=3) {
+            CHECK(!NT_SUCCESS(result) && !connected);
+            CHECK(session.CanReleaseMappings()==(mode!=3));
+            if(mode==3) {
+                CHECK(live==5); auto before=dspWrites;
+                CHECK(!session.RetryEarlyCleanup() && dspWrites==before && live==5);
+                stuckRun=false; CHECK(session.RetryEarlyCleanup());
+            }
+            CHECK(live==2 && session.CanReleaseMappings());
+            unmapped=true; CHECK(!bridge.Arm() && bridge.Stop());
+            CHECK(NT_SUCCESS(FrameworkEnable(true))); // canceled callback does no MMIO
+            CHECK(NT_SUCCESS(FrameworkEnable(false))); FrameworkDeleteChildren();
+            continue;
+        }
+        CHECK(NT_SUCCESS(result) && session.TransferEvidence().commandReady && live==2);
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(!bridge.CanStartBeforeEnable() && !bridge.CancelBeforeEnable());
+        if(mode==4) dropIrqUnmask=true;
+        const auto armed=session.AfterInterruptsEnabled();
+        CHECK(NT_SUCCESS(armed)==(mode!=4));
+        if(mode!=4) {
+            Notify(); CHECK(Interrupt() && queued);
+            if(mode==5) {
+                Put(dsp,8,4,1); dropIrqMask=true;
+                CHECK(!session.BeforeInterruptsDisabled() && !session.CanReleaseMappings());
+                CHECK((Get(dsp,4,4)&0x10000)!=0); // DSP still running
+                dropIrqMask=false;
+            }
+            CHECK(session.BeforeInterruptsDisabled());
+        }
+        CHECK(session.CanReleaseMappings());
+        CHECK(NT_SUCCESS(FrameworkEnable(false))); unmapped=true;
+        if(queued) RunWork();
+        CHECK(session.BeforeInterruptsDisabled() && bridge.Stop()); // no disconnected synchronization
+        CHECK(!NT_SUCCESS(session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
+                                        image.data(),image.size(),x.data(),x.size(),20)));
+        FrameworkDeleteChildren();
     }
     std::printf("SOF_GLK_BOOT_TESTS=%u PASS; windows_api=SIMULATED; hardware=NONE\n",checks);
 }

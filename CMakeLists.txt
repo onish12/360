@@ -17,7 +17,7 @@ target_link_libraries(phaser360_sof_tests PRIVATE phaser360_sof_parser)
 target_link_libraries(phaser360_sof_inspect PRIVATE phaser360_sof_parser)
 
 add_library(phaser360_hda_bdl STATIC src/sof/hda_bdl.cpp src/sof/hda_stream.cpp src/sof/glk_rom.cpp src/sof/ipc3_ready.cpp src/sof/ipc3_receive.cpp src/sof/ipc3_command.cpp)
-add_executable(phaser360_glk_boot_tests tests/sof_glk_boot_tests.cpp m062/driver/ipc_interrupt.cpp m062/driver/glk_boot.cpp m062/driver/hda_transport.cpp m062/driver/boot_dma.cpp)
+add_executable(phaser360_glk_boot_tests tests/sof_glk_boot_tests.cpp m062/driver/cold_power.cpp m062/driver/ipc_interrupt.cpp m062/driver/glk_boot.cpp m062/driver/hda_transport.cpp m062/driver/boot_dma.cpp)
 target_include_directories(phaser360_glk_boot_tests PRIVATE tests/fake_wdf)
 target_link_libraries(phaser360_glk_boot_tests PRIVATE phaser360_hda_bdl)
 add_executable(phaser360_command_tests tests/sof_command_tests.cpp)
