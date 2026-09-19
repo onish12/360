@@ -21,6 +21,7 @@ public:
                      const UCHAR* approvedXman,SIZE_T xmanBytes,USHORT maxAbiMinor) noexcept;
     TransferResult Transfer() noexcept;
     const sof::IpcWindows* Windows() const noexcept { return ipcLive_?ipc_.Windows():nullptr; }
+    bool Fresh() const noexcept { return !attempted_; }
     bool CommandUsable() const noexcept { return ipcLive_ && commands_.Usable(); }
     sof::CommandResult Command(const UCHAR*,SIZE_T,ULONG expectedReplyCommand,UCHAR*,SIZE_T) noexcept;
     sof::CommandStatus PollNotifications() noexcept;

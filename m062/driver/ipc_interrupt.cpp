@@ -91,6 +91,20 @@ bool IpcInterrupt::CancelBeforeEnable() noexcept {
     if(result) { stopped_=true; ready_=false; armed_=false; dsp_=nullptr; closed_=true; }
     WdfWaitLockRelease(serial_); return result;
 }
+bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !boot || !dsp ||
+       (reinterpret_cast<ULONG_PTR>(dsp)&3) || length<0x54 || length>0x100000) return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    // PnP caller serializes against Enable/Disable. No IRQ lock/synchronization
+    // while disconnected. The wait lock excludes an executing old work item.
+    const bool result=closed_ && disableSeen_ &&
+        InterlockedCompareExchange(&pendingWork_,0,0)==0;
+    if(result) {
+        boot_=boot; dsp_=dsp; closed_=false; stopped_=false; ready_=false;
+        armed_=false; enabled_=false; fault_=false; enableSeen_=false; disableSeen_=false;
+    }
+    WdfWaitLockRelease(serial_); return result;
+}
 bool IpcInterrupt::Running() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
@@ -120,18 +134,20 @@ BOOLEAN IpcInterrupt::Isr(WDFINTERRUPT interrupt,ULONG) {
     if(!(status&1) || !(busy&0x80000000u)) return FALSE;
     if(!self.Mask()) { self.fault_=true; return TRUE; }
     // No mailbox read, wait, allocation or ACK at DIRQL. Framework coalesces work.
+    InterlockedExchange(&self.pendingWork_,1);
     (void)WdfInterruptQueueWorkItemForIsr(interrupt);
     return TRUE;
 }
 NTSTATUS IpcInterrupt::Enable(WDFINTERRUPT interrupt,WDFDEVICE) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
-    self.enableSeen_=true; self.enabled_=false; self.ready_=false;
+    self.disableSeen_=false; self.enableSeen_=true; self.enabled_=false; self.ready_=false;
     if(self.stopped_) return STATUS_SUCCESS;
     if(!self.Mask()) { self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
     self.enabled_=true; return STATUS_SUCCESS;
 }
 NTSTATUS IpcInterrupt::Disable(WDFINTERRUPT interrupt,WDFDEVICE) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
+    self.disableSeen_=true;
     self.enabled_=false; self.ready_=false;
     if(!self.dsp_) return STATUS_SUCCESS;
     if(!self.Mask()) { self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
@@ -140,6 +156,7 @@ NTSTATUS IpcInterrupt::Disable(WDFINTERRUPT interrupt,WDFDEVICE) {
 void IpcInterrupt::Work(WDFINTERRUPT interrupt,WDFOBJECT) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
     if(WdfWaitLockAcquire(self.serial_,nullptr)!=STATUS_SUCCESS) return;
+    InterlockedExchange(&self.pendingWork_,0);
     if(!self.closed_ && self.Sync(Operation::Begin)) {
         const auto status=self.boot_->PollNotifications();
         if(status==sof::CommandStatus::Ok) (void)self.Sync(Operation::Rearm);

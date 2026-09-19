@@ -46,3 +46,12 @@ constexpr BOOLEAN TRUE=1;
 constexpr UCHAR CmResourceTypeInterrupt=2;
 struct CM_PARTIAL_RESOURCE_DESCRIPTOR { UCHAR Type; };
 using PCM_PARTIAL_RESOURCE_DESCRIPTOR=CM_PARTIAL_RESOURCE_DESCRIPTOR*;
+
+// Deterministic callback model only; not a multithreaded atomic implementation.
+using LONG=int32_t;
+inline LONG InterlockedExchange(volatile LONG* p,LONG value) {
+    const LONG old=*p; *p=value; return old;
+}
+inline LONG InterlockedCompareExchange(volatile LONG* p,LONG value,LONG compare) {
+    const LONG old=*p; if(old==compare) *p=value; return old;
+}

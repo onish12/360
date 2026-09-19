@@ -320,5 +320,41 @@ int main() {
                                         image.data(),image.size(),x.data(),x.size(),20)));
         FrameworkDeleteChildren();
     }
+    // Reuse the framework interrupt only after old work and power exit finish.
+    for(unsigned fail=0;fail<2;++fail) {
+        Reset(); GlkBoot first,second; IpcInterrupt bridge; ColdPower session(first,bridge);
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+        CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&first,dsp.data(),0x100000)));
+        std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
+        auto enter=[&]() { return session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
+                                               image.data(),image.size(),x.data(),x.size(),20); };
+        CHECK(NT_SUCCESS(enter())); CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(NT_SUCCESS(session.AfterInterruptsEnabled()));
+        CHECK(!session.NextD0(second,dsp.data(),0x100000));
+        Notify(); CHECK(Interrupt() && queued); CHECK(session.BeforeInterruptsDisabled());
+        CHECK(!session.NextD0(second,dsp.data(),0x100000)); // not disabled
+        CHECK(NT_SUCCESS(FrameworkEnable(false))); unmapped=true;
+        CHECK(!session.NextD0(second,dsp.data(),0x100000)); // old queued work
+        RunWork(); CHECK(!session.NextD0(first,dsp.data(),0x100000)); // single-attempt owner
+        CHECK(!session.NextD0(second,dsp.data()+1,0x100000));
+        irql=2; CHECK(!session.NextD0(second,dsp.data(),0x100000)); irql=0;
+        CHECK(session.NextD0(second,dsp.data(),0x100000)); // no MMIO while powered off
+        CHECK(!session.CanReleaseMappings() && !session.TransferEvidence().commandReady);
+        // Simulate fresh D0 register state while preserving the WDF objects.
+        unmapped=false; hda.assign(0x4000,0); dsp.assign(0x100000,0);
+        Put(hda,0,2,0x6701); Put(hda,8,4,1); Put(hda,0x14,4,0x500);
+        Put(hda,0x500,4,0x10030700); Put(hda,0x700,4,0x10040000); Put(hda,0x504,4,0x40000000);
+        missingReady=(fail!=0);
+        const auto result=enter(); CHECK(NT_SUCCESS(result)==(fail==0));
+        if(!fail) {
+            CHECK(NT_SUCCESS(FrameworkEnable(true))); CHECK(NT_SUCCESS(session.AfterInterruptsEnabled()));
+            Notify(); CHECK(Interrupt()); RunWork(); phaser360::sof::IpcNotification event;
+            CHECK(bridge.Pop(&event) && event.acknowledged);
+            CHECK(session.BeforeInterruptsDisabled()); CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        } else {
+            CHECK(session.CanReleaseMappings() && !connected && live==2);
+        }
+        unmapped=true; CHECK(bridge.Stop()); FrameworkDeleteChildren();
+    }
     std::printf("SOF_GLK_BOOT_TESTS=%u PASS; windows_api=SIMULATED; hardware=NONE\n",checks);
 }
