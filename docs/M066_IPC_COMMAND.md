@@ -113,3 +113,20 @@ a successful command and rejection of reuse after timeout.
 Remaining: notification dispatch/interrupt ownership, authenticated image owner,
 PnP/power integration, command-specific topology/DAI/codec configuration, stream
 DMA and WaveRT endpoints. WDK compilation is distinct from hardware validation.
+
+## Verified build evidence
+
+Implementation commit: `4e1a78e321f23da0e4bb72d94a60b7503e42f4ca`.
+Implementation tree: `44f16eab80795221a8b5a2675ca1ed6e56f389c6`.
+Builds completed on 2026-09-18; final evidence checked on 2026-09-19.
+
+- [Real WDK/KMDF build](https://github.com/onish12/360/actions/runs/35370440869): PASS, job 105682870170; seven host test executables also passed.
+- [Windows and Linux verification](https://github.com/onish12/360/actions/runs/35370440819): PASS; Windows 11 test executables (job 105682870092), Linux ASan/UBSan 10 (job 105682870439). The hash-pinned firmware/XMan checks also passed.
+- Command model: 70,243 assertions, including 30 I/O failure points with pre-write and posted-write failure behavior.
+- Integrated Windows API/MMIO model: 77,634 assertions. These are assertions in simulated tests, not physical-device trials.
+- [Development artifact](https://github.com/onish12/360/actions/runs/35370440869/artifacts/10557946850): `PHASER360_M066_WDK_IPC_COMMAND`, 123,311 bytes.
+- GitHub-reported archive SHA-256: `65ee219f4e0c0ee187a1aeafd4cd1ec691254bcbec02967d83519dd80ab58dfc`. The archive was not independently downloaded and hashed in this session.
+
+The artifact contains a static library and source/documentation, not an audio
+installer. Runtime tests use simulated APIs/registers; hardware execution and
+sound remain unverified. This later documentation update changes no tested code.

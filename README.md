@@ -48,9 +48,13 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Validated XMan windows, stale-message clearing before boot, bounded fresh
   FW_READY reception and host acknowledgment after confirmed DMA release.
   WDK compilation and Windows/Linux tests pass; no hardware execution yet.
+- **M0.6.6:** [IPC3 command/reply transport](docs/M066_IPC_COMMAND.md).
+  Bounded mailbox requests, DONE-based reply capture, signed firmware errors,
+  deadline handling and no reuse after uncertain completion. Integrated with
+  the Windows boot owner; notification dispatch and hardware validation remain.
 - **Working Windows audio:** not yet implemented. Authenticated image ownership,
-  PnP/power integration, operational IPC, machine/codec integration and WaveRT
-  remain separate milestones.
+  PnP/power and notification handling, machine/codec integration, stream DMA
+  and WaveRT remain separate milestones.
 
 The older bootstrap description below is retained for source history. Do not
 interpret either milestone's CI success as permission to enable hardware writes.
