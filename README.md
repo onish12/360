@@ -101,6 +101,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   deliberately unresolved. Final source `1c028cda` passes real WDK compilation,
   10 WDK host tests, 14 Windows tests and 12 Linux ASan/UBSan tests; hardware
   remains untested. No codec, amplifier or playback path is added.
+- **M0.6.15B:** [paired PnP resource lifetime](docs/M0615_PNP_RESOURCE_BUNDLE.md).
+  Validates raw/translated resource pairing, maps HDA/DSP with the shared gate
+  closed, records a bounded set of interrupt descriptor pairs without guessing
+  a vector, then opens the gate only after full preparation. Normal Release closes
+  access before unmapping; terminal Removed never reopens. Still resource-only:
+  no DSP boot, DMA consumer, codec, amplifier or playback.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

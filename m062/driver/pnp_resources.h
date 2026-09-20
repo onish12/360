@@ -2,29 +2,63 @@
 #pragma once
 #include <ntddk.h>
 #include <wdf.h>
+#include "hardware_access_gate.h"
+
 namespace phaser360 { namespace windows {
-// Resource-only PnP adapter. Not a boot driver: no register access, DMA, IRQ
-// creation, D0 callbacks or externally accessible mapping pointers. Construct
-// the owner normally; keep it alive until after WDF device destruction. Calls
-// must be serialized at PASSIVE_LEVEL. ReleaseHardware performs explicit cleanup.
+
+struct PnpInterruptResource {
+    PCM_PARTIAL_RESOURCE_DESCRIPTOR raw=nullptr;
+    PCM_PARTIAL_RESOURCE_DESCRIPTOR translated=nullptr;
+};
+
+struct PnpResourceView {
+    static constexpr ULONG kMaxInterrupts=8;
+    UCHAR* hda=nullptr;
+    ULONG hdaLength=0;
+    UCHAR* dsp=nullptr;
+    ULONG dspLength=0;
+    PnpInterruptResource interrupts[kMaxInterrupts]={};
+    ULONG interruptCount=0;
+};
+
+// Resource-lifetime PnP adapter. Still not a boot/audio driver.
+//
+// PrepareHardware validates raw/translated pairing, maps the two measured GLK
+// memory resources, records (but does not select) assigned interrupt descriptor
+// pairs, and opens the shared HardwareAccessGate only after full preparation.
+// ReleaseHardware closes the gate before normal unmapping; a terminal Removed
+// gate is already closed to consumers. This class has no DMA/boot/IRQ consumer.
 class PnpResources final {
 public:
-    PnpResources() noexcept = default;
+    explicit PnpResources(HardwareAccessGate& gate) noexcept : gate_(&gate) {}
+    PnpResources()=delete;
     PnpResources(const PnpResources&)=delete;
     PnpResources& operator=(const PnpResources&)=delete;
+
     // Before WdfDeviceCreate. Resets attributes and reserves primary context.
-    // Do not replace the callbacks or context type after this call.
     static NTSTATUS Configure(PWDFDEVICE_INIT,WDF_OBJECT_ATTRIBUTES*) noexcept;
     // After WdfDeviceCreate using those attributes, before DeviceAdd returns.
     NTSTATUS Attach(WDFDEVICE) noexcept;
-    bool Prepared() const noexcept { return hda_!=nullptr && dsp_!=nullptr; }
+
+    bool Prepared() const noexcept {
+        return gate_ && gate_->Allowed() && hda_!=nullptr && dsp_!=nullptr;
+    }
+    // Serialized PASSIVE caller only. Copied descriptor pointers are borrowed
+    // from the PrepareHardware lists and expire at ReleaseHardware. Consumers
+    // must independently honor the same HardwareAccessGate on every access.
+    bool CopyPreparedView(PnpResourceView*) const noexcept;
+
 private:
     WDFDEVICE device_=nullptr;
-    void* hda_=nullptr;
-    void* dsp_=nullptr;
-    NTSTATUS Prepare(WDFCMRESLIST) noexcept;
-    void Release() noexcept;
+    HardwareAccessGate* gate_;
+    UCHAR* hda_=nullptr;
+    UCHAR* dsp_=nullptr;
+    PnpResourceView view_={};
+
+    NTSTATUS Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcept;
+    NTSTATUS Release() noexcept;
     static NTSTATUS PrepareHardware(WDFDEVICE,WDFCMRESLIST,WDFCMRESLIST);
     static NTSTATUS ReleaseHardware(WDFDEVICE,WDFCMRESLIST);
 };
-}}
+
+} }
