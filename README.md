@@ -98,7 +98,9 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   surprise-removal transition blocks new MMIO and interrupt synchronization in
   the modeled paths. This is a prerequisite for, not a substitute for, the
   composed PnP/power owner; DMA-parent teardown on concurrent removal remains
-  deliberately unresolved. No codec, amplifier or playback path is added.
+  deliberately unresolved. Final source `1c028cda` passes real WDK compilation,
+  10 WDK host tests, 14 Windows tests and 12 Linux ASan/UBSan tests; hardware
+  remains untested. No codec, amplifier or playback path is added.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

@@ -77,3 +77,35 @@ writes and zero new interrupt-synchronization calls after removal.
 This deterministic host model is not proof of real KMDF concurrency, physical
 DMA quiescence or hardware behavior. WDK compilation and Windows/Linux
 sanitizer/regression results must pass before M0.6.15A is considered complete.
+
+
+## Verified CI evidence (2026-09-20)
+
+Final implementation commit: `1c028cdaed3bbbd74ace1399a19d209ddcc85dbd`.
+Tree: `bcd2e839184241651a9445c846c39914b2b2e877`.
+
+- WDK/KMDF run `35536086135`, job `106145256500`: real WDK compilation
+  passes and all 10 selected host tests pass. The integrated production-wrapper
+  model reports `SOF_GLK_BOOT_TESTS=265876 PASS`.
+- Windows/Linux run `35536086156`: Windows job `106145256686` passes all
+  14 CTest tests; Linux job `106145256749` passes all 12 tests with the
+  workflow's ASan/UBSan instrumentation. Both report 265,876 integrated
+  assertions. These are modeled assertions, not independent hardware trials.
+- The Windows fixture step reports `SOF_CNG_PIN_TESTS=10 PASS` with real Windows
+  CNG and the official hash-pinned fixture, plus
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS` with real CNG and simulated boot.
+- Development artifact `PHASER360_M0615A_WDK_ACCESS_FENCE`: ID
+  `10613236668`, 260,454 bytes. GitHub reports archive SHA-256
+  `3817ccc23e0f26d947de0dc17b90ae8769d9d6e2d0083f1f3a2e56c6bcac1104`.
+  This is service-reported archive metadata, not an independently downloaded
+  and recomputed digest.
+
+The first implementation attempt exposed a regression in the malformed-XMan
+test because the new gate intentionally rejected an unbound boot owner before
+the old test reached IPC validation. That test was corrected to establish its
+intended precondition. A second audit then removed unsynchronized IRQ-state
+writes from the surprise-removal fence and added an ISR-after-removal regression.
+The final evidence above is for the corrected implementation only.
+
+No Lenovo execution, installable driver, codec/amplifier programming or playback
+is claimed by M0.6.15A.
