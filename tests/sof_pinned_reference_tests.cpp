@@ -29,7 +29,8 @@ int main(int argc,char** argv) {
     CHECK(argc==2); std::ifstream file(argv[1],std::ios::binary); CHECK(file.good());
     std::vector<UCHAR> input{std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>()};
     CHECK(input.size()==kPinnedImageBytes); original=input.data();
-    GlkBoot boot; IpcInterrupt irq; ColdPower power(boot,irq);
+    HardwareAccessGate gate; CHECK(gate.OpenForPrepare());
+    GlkBoot boot; IpcInterrupt irq; ColdPower power(boot,irq,gate);
     PinnedFirmware owner; CHECK(owner.Load(&checks,input.data(),input.size())==STATUS_SUCCESS);
     input[0]^=1; input[768]^=1;
     CHECK(owner.Enter(power,&checks,nullptr,0,nullptr,0)==STATUS_SUCCESS && entries==1);

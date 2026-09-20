@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "boot_dma.h"
+#include "hardware_access_gate.h"
 #include "../../src/sof/hda_stream.h"
 namespace phaser360 { namespace windows {
 // Caller owns a translated, resident, read/write, noncached HDA BAR mapping.
@@ -10,6 +11,10 @@ public:
     HdaTransport() noexcept = default;
     HdaTransport(const HdaTransport&) = delete;
     HdaTransport& operator=(const HdaTransport&) = delete;
+    bool BindAccessGate(HardwareAccessGate* gate) noexcept {
+        if(attempted_ || !gate || gate->Removed() || (gate_ && gate_!=gate)) return false;
+        gate_=gate; return true;
+    }
     // Single boot attempt per object. All operations serialized at PASSIVE_LEVEL.
     // Failure after allocation requires StopAndRelease before parent teardown.
     NTSTATUS Prepare(WDFDEVICE device, UCHAR* mappedHda, ULONG length,
@@ -20,6 +25,7 @@ public:
 private:
     BootDma dma_;
     sof::BootStream stream_;
+    HardwareAccessGate* gate_=nullptr;
     UCHAR* base_=nullptr;
     ULONG length_=0;
     bool allocated_=false, published_=false, attempted_=false;

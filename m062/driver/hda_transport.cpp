@@ -2,7 +2,7 @@
 #include "hda_transport.h"
 namespace phaser360 { namespace windows {
 bool HdaTransport::Valid(ULONG o,unsigned w) const noexcept {
-    return KeGetCurrentIrql()==PASSIVE_LEVEL && base_ &&
+    return KeGetCurrentIrql()==PASSIVE_LEVEL && gate_ && gate_->Allowed() && base_ &&
         (w==1 || w==2 || w==4) && o%w==0 && o<=length_ && w<=length_-o;
 }
 bool HdaTransport::Read(void* p,ULONG o,unsigned w,ULONG* value) noexcept {
@@ -27,7 +27,8 @@ bool HdaTransport::Verify(void* p) noexcept {
 }
 NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
                               const UCHAR* payload,SIZE_T bytes) noexcept {
-    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_) return STATUS_INVALID_DEVICE_STATE;
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_ || !gate_ || !gate_->Allowed())
+        return STATUS_INVALID_DEVICE_STATE;
     if(!base || (reinterpret_cast<ULONG_PTR>(base)&3) || !device || !payload ||
        !bytes || bytes>sof::kMaxDmaBytes) return STATUS_INVALID_PARAMETER;
     attempted_=true; base_=base; length_=length;

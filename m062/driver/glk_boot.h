@@ -16,6 +16,13 @@ struct TransferResult {
 // Serialized PASSIVE_LEVEL calls, single attempt, explicit Shutdown mandatory.
 class GlkBoot final {
 public:
+    bool BindAccessGate(HardwareAccessGate* gate) noexcept {
+        if(attempted_ || !gate || gate->Removed() || (gate_ && gate_!=gate)) return false;
+        if(!hda_.BindAccessGate(gate)) return false;
+        gate_=gate; return true;
+    }
+    HardwareAccessGate* AccessGate() const noexcept { return gate_; }
+    bool AccessAllowed() const noexcept { return gate_ && gate_->Allowed(); }
     NTSTATUS Prepare(WDFDEVICE,UCHAR* hda,ULONG hdaLength,UCHAR* dsp,ULONG dspLength,
                      const UCHAR* approvedPayload,SIZE_T bytes,
                      const UCHAR* approvedXman,SIZE_T xmanBytes,USHORT maxAbiMinor) noexcept;
@@ -30,6 +37,7 @@ public:
     sof::ReceiveError IpcError() const noexcept { return ipc_.Error(); }
     sof::RomError RomError() const noexcept { return primaryError_; }
 private:
+    HardwareAccessGate* gate_=nullptr;
     HdaTransport hda_;
     sof::GlkRom rom_;
     sof::Ipc3Receive ipc_;

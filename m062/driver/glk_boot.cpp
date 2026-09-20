@@ -2,7 +2,8 @@
 #include "glk_boot.h"
 namespace phaser360 { namespace windows {
 bool GlkBoot::Valid(ULONG o) const noexcept {
-    return KeGetCurrentIrql()==PASSIVE_LEVEL && dsp_ && !(o&3) && o<=length_ && length_-o>=4;
+    return KeGetCurrentIrql()==PASSIVE_LEVEL && AccessAllowed() && dsp_ &&
+        !(o&3) && o<=length_ && length_-o>=4;
 }
 bool GlkBoot::Read(void* p,ULONG o,ULONG* v) noexcept {
     auto& self=*static_cast<GlkBoot*>(p);
@@ -23,7 +24,8 @@ ULONGLONG GlkBoot::Now(void*) noexcept { return KeQueryInterruptTime()/10; }
 NTSTATUS GlkBoot::Prepare(WDFDEVICE device,UCHAR* hda,ULONG hdaLength,UCHAR* dsp,ULONG dspLength,
                           const UCHAR* payload,SIZE_T bytes,
                           const UCHAR* xman,SIZE_T xmanBytes,USHORT maxAbiMinor) noexcept {
-    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_) return STATUS_INVALID_DEVICE_STATE;
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_ || !AccessAllowed())
+        return STATUS_INVALID_DEVICE_STATE;
     if(!dsp || (reinterpret_cast<ULONG_PTR>(dsp)&3)) return STATUS_INVALID_PARAMETER;
     attempted_=true; dsp_=dsp; length_=dspLength;
     const sof::RomIo io={this,Read,Write,Delay,Now,length_};

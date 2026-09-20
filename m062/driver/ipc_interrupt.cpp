@@ -4,7 +4,7 @@ namespace phaser360 { namespace windows {
 struct IpcIrqContext { IpcInterrupt* owner; };
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(IpcIrqContext,GetIpcIrqContext)
 bool IpcInterrupt::Read(ULONG off,ULONG& value) noexcept {
-    if(!dsp_ || off>0x50 || (off&3)) return false;
+    if(!boot_ || !boot_->AccessAllowed() || !dsp_ || off>0x50 || (off&3)) return false;
     value=READ_REGISTER_ULONG(reinterpret_cast<ULONG*>(dsp_+off));
     return value!=MAXULONG;
 }
@@ -32,7 +32,7 @@ NTSTATUS IpcInterrupt::Create(WDFDEVICE device,PCM_PARTIAL_RESOURCE_DESCRIPTOR r
                               UCHAR* dsp,ULONG length) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || created_) return STATUS_INVALID_DEVICE_STATE;
     if(!device || !raw || !translated || raw->Type!=CmResourceTypeInterrupt ||
-       translated->Type!=CmResourceTypeInterrupt || !boot || !dsp ||
+       translated->Type!=CmResourceTypeInterrupt || !boot || !boot->AccessAllowed() || !dsp ||
        (reinterpret_cast<ULONG_PTR>(dsp)&3) || length<0x54 || length>0x100000) return STATUS_INVALID_PARAMETER;
     created_=true; boot_=boot; dsp_=dsp;
     WDF_OBJECT_ATTRIBUTES attributes;
@@ -91,14 +91,15 @@ BOOLEAN IpcInterrupt::Synchronized(WDFINTERRUPT,WDFCONTEXT context) {
 bool IpcInterrupt::Sync(Operation operation) noexcept {
     // Lifecycle callers serialize against Enable/Disable. Workers are excluded
     // by Stop's admission gate before framework Disable, even on mask failure.
-    if(!enableSeen_ || enableFailed_ || disableSeen_ || disconnectedSeen_) return false;
+    if(!boot_ || !boot_->AccessAllowed() || !enableSeen_ || enableFailed_ ||
+       disableSeen_ || disconnectedSeen_) return false;
     SyncRequest request={this,operation};
     return WdfInterruptSynchronize(interrupt_,Synchronized,&request)!=FALSE;
 }
 bool IpcInterrupt::CanStartBeforeEnable() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=!enableSeen_ && !admissionClosed_;
+    const bool result=boot_ && boot_->AccessAllowed() && !enableSeen_ && !admissionClosed_;
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::CancelBeforeEnable() noexcept {
@@ -110,7 +111,7 @@ bool IpcInterrupt::CancelBeforeEnable() noexcept {
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept {
-    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !boot || !dsp ||
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !boot || !boot->AccessAllowed() || !dsp ||
        (reinterpret_cast<ULONG_PTR>(dsp)&3) || length<0x54 || length>0x100000) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
     // PnP caller serializes against Enable/Disable. No IRQ lock/synchronization
@@ -245,7 +246,8 @@ bool IpcInterrupt::Pop(sof::IpcNotification* event) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
     // After Stop no boot access: caller may already be tearing the boot owner down.
-    const bool result=!admissionClosed_ && boot_->PopNotification(event);
+    const bool result=!admissionClosed_ && boot_->AccessAllowed() &&
+        boot_->PopNotification(event);
     WdfWaitLockRelease(serial_); return result;
 }
 }}

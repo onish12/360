@@ -21,6 +21,7 @@ static WDF_WORKITEM_CONFIG workConfig={};
 static unsigned createFailure=0;
 static bool connected=false,forbidMmio=false;
 static unsigned synchronizeCalls=0;
+static HardwareAccessGate accessGate;
 static WDF_INTERRUPT_CONFIG irqConfig={};
 static WDFINTERRUPT irqHandle=nullptr;
 static WDFWAITLOCK serialHandle=nullptr;
@@ -189,6 +190,8 @@ static void Notify() {
     IpcPut(dsp,0x40,0x90020000); IpcPut(dsp,0xc,1);
 }
 static void Reset() {
+    CHECK(accessGate.CloseForRelease());
+    CHECK(accessGate.OpenForPrepare());
     dpcQueued=false; workQueued=false; finishDpcDuringCancel=false; cancelCalls=0; flushCalls=0;
     connected=false; forbidMmio=false; synchronizeCalls=0; unmapped=false; dropIrqUnmask=false; dropIrqMask=false; createFailure=0; queued=false;
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
@@ -198,6 +201,7 @@ static void Reset() {
     Put(hda,0x500,4,0x10030700); Put(hda,0x700,4,0x10040000); Put(hda,0x504,4,0x40000000);
 }
 static NTSTATUS Prepare(GlkBoot& boot) {
+    CHECK(boot.BindAccessGate(&accessGate));
     static std::vector<UCHAR> image(286720,0xaa);
     auto x=IpcXman();
     return boot.Prepare(&checks,hda.data(),0x4000,dsp.data(),0x100000,image.data(),image.size(),x.data(),x.size(),20);
@@ -270,7 +274,7 @@ int main() {
         CHECK(boot.Command(q.data(),8,0x10000000,reply.data(),12).status==phaser360::sof::CommandStatus::State);
         CHECK(dspWrites==before);
     }
-    Reset(); { GlkBoot boot; IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt},translated=raw;
+    Reset(); { GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt},translated=raw;
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&translated,&boot,dsp.data(),0x100000)));
         CHECK(!bridge.Arm()); CHECK(NT_SUCCESS(FrameworkEnable(true)));
         CHECK(NT_SUCCESS(Prepare(boot))); CHECK(boot.Transfer().commandReady); CHECK(bridge.Arm() && bridge.Running());
@@ -287,19 +291,19 @@ int main() {
         CHECK(!Interrupt()); CHECK(NT_SUCCESS(FrameworkEnable(false))); FrameworkDeleteChildren();
     }
     for(unsigned failure=1;failure<=4;++failure) {
-        Reset(); GlkBoot boot; IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+        Reset(); GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         createFailure=failure;
         CHECK(!NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         CHECK(live==0 && dspWrites==0 && !bridge.Arm() && !bridge.Stop());
     }
-    Reset(); { GlkBoot boot; IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+    Reset(); { GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         CHECK(NT_SUCCESS(FrameworkEnable(true))); CHECK(NT_SUCCESS(Prepare(boot))); CHECK(boot.Transfer().commandReady);
         dropIrqUnmask=true; CHECK(!bridge.Arm() && !bridge.Running());
         CHECK(!(Get(dsp,8,4)&1) && !(Get(dsp,0x50,4)&3)); CHECK(!Interrupt());
         CHECK(bridge.Stop()); CHECK(boot.Shutdown()); CHECK(NT_SUCCESS(FrameworkEnable(false))); FrameworkDeleteChildren();
     }
-    Reset(); { GlkBoot boot; IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+    Reset(); { GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         CHECK(NT_SUCCESS(FrameworkEnable(true))); CHECK(NT_SUCCESS(Prepare(boot))); CHECK(boot.Transfer().commandReady);
         CHECK(bridge.Arm()); Notify(); IpcPut(dsp,0xc,2); auto before=dspWrites;
@@ -308,7 +312,7 @@ int main() {
         CHECK(!bridge.Running() && !bridge.Arm()); CHECK(!(Get(dsp,8,4)&1));
         CHECK(bridge.Stop()); CHECK(boot.Shutdown()); CHECK(NT_SUCCESS(FrameworkEnable(false))); FrameworkDeleteChildren();
     }
-    Reset(); { GlkBoot boot; IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+    Reset(); { GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         CHECK(NT_SUCCESS(FrameworkEnable(true))); CHECK(NT_SUCCESS(Prepare(boot))); CHECK(boot.Transfer().commandReady);
         CHECK(bridge.Arm()); dropIrqMask=true; CHECK(!bridge.Stop());
@@ -317,7 +321,7 @@ int main() {
     }
     // D0Entry runs BEFORE the framework connects/enables the interrupt.
     for(unsigned mode=0;mode<6;++mode) {
-        Reset(); GlkBoot boot; IpcInterrupt bridge; ColdPower session(boot,bridge);
+        Reset(); GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(boot,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
@@ -367,7 +371,7 @@ int main() {
     }
     // Reuse the framework interrupt only after old work and power exit finish.
     for(unsigned fail=0;fail<2;++fail) {
-        Reset(); GlkBoot first,second; IpcInterrupt bridge; ColdPower session(first,bridge);
+        Reset(); GlkBoot first,second; CHECK(first.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(first,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&first,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
@@ -402,7 +406,7 @@ int main() {
         unmapped=true; CHECK(bridge.Stop()); FrameworkDeleteChildren();
     }
     for(unsigned mode=0;mode<3;++mode) {
-        Reset(); GlkBoot boot,next; IpcInterrupt bridge;
+        Reset(); GlkBoot boot,next; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge;
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         CHECK(!bridge.DrainStopped() && cancelCalls==0 && flushCalls==0);
@@ -423,7 +427,7 @@ int main() {
     // The official KMDF implementation can skip Disable when Enable failed.
     // Model framework disconnect directly: do NOT manufacture a Disable callback.
     for(unsigned mode=0;mode<4;++mode) {
-        Reset(); GlkBoot boot,next; IpcInterrupt bridge; ColdPower session(boot,bridge);
+        Reset(); GlkBoot boot,next; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(boot,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         CHECK(!session.AfterInterruptsDisconnected()); // Fresh, no boot
@@ -466,7 +470,7 @@ int main() {
     // Regression: failed pre-disable Stop must close admission even though its
     // hardware mask failed. Queued DPC/work callbacks cannot touch the old IRQ.
     for(unsigned mode=0;mode<4;++mode) {
-        Reset(); GlkBoot boot,next; IpcInterrupt bridge; ColdPower session(boot,bridge);
+        Reset(); GlkBoot boot,next; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(boot,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
@@ -511,7 +515,7 @@ int main() {
     // Missing pre-disable admission closure is not silently accepted for an
     // already armed session. This is a negative contract test, with no queued work.
     Reset(); {
-        GlkBoot boot; IpcInterrupt bridge; ColdPower session(boot,bridge);
+        GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(boot,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
@@ -525,6 +529,37 @@ int main() {
         CHECK(synchronizeCalls==before && !queued);
         // Test-fixture teardown, not a production recovery path.
         forbidMmio=false; CHECK(boot.Shutdown()); FrameworkDeleteChildren();
+    }
+    // M0.6.15A: surprise-removal is terminal for hardware access.
+    Reset(); {
+        GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge;
+        ColdPower session(boot,bridge,accessGate);
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+        CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
+        std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
+        CHECK(NT_SUCCESS(session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
+                                      image.data(),image.size(),x.data(),x.size(),20)));
+        CHECK(NT_SUCCESS(FrameworkEnable(true)) && NT_SUCCESS(session.AfterInterruptsEnabled()));
+        Notify(); CHECK(Interrupt() && queued);
+        const auto writesBefore=dspWrites;
+        const auto syncBefore=synchronizeCalls;
+        accessGate.SurpriseRemove();
+        forbidMmio=true;
+        CHECK(accessGate.Removed() && !accessGate.Allowed());
+        CHECK(!bridge.Running() && !bridge.Arm());
+        phaser360::sof::IpcNotification event;
+        CHECK(!bridge.Pop(&event));
+        (void)bridge.Command(nullptr,0,0,nullptr,0);
+        CHECK(!session.BeforeInterruptsDisabled());
+        if(dpcQueued) RunDpc();
+        if(workQueued) RunWork();
+        CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore);
+        CHECK(!NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore);
+        CHECK(bridge.DrainStopped());
+        CHECK(!boot.Shutdown());
+        CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore && !queued);
+        FrameworkDeleteChildren();
     }
     std::printf("SOF_GLK_BOOT_TESTS=%u PASS; windows_api=SIMULATED; hardware=NONE\n",checks);
 }

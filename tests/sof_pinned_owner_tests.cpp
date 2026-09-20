@@ -32,7 +32,8 @@ NTSTATUS ColdPower::Enter(WDFDEVICE,UCHAR*,ULONG,UCHAR*,ULONG,const UCHAR* paylo
 }}
 int main() {
     std::vector<UCHAR> input(kPinnedImageBytes,0x55); caller=input.data();
-    GlkBoot boot; IpcInterrupt irq; ColdPower power(boot,irq); PinnedFirmware image; current=&image;
+    HardwareAccessGate gate; CHECK(gate.OpenForPrepare());
+    GlkBoot boot; IpcInterrupt irq; ColdPower power(boot,irq,gate); PinnedFirmware image; current=&image;
     CHECK(image.Enter(power,&checks,nullptr,0,nullptr,0)==STATUS_INVALID_DEVICE_STATE && bootCalls==0);
     CHECK(image.Load(&checks,input.data(),input.size()-1)==STATUS_INVALID_PARAMETER && live==0);
     irql=2; CHECK(image.Load(&checks,input.data(),input.size())==STATUS_INVALID_DEVICE_STATE); irql=0;

@@ -8,7 +8,9 @@ namespace phaser360 { namespace windows {
 // Caller creates the interrupt in PrepareHardware and owns mappings/image trust.
 class ColdPower final {
 public:
-    ColdPower(GlkBoot& boot,IpcInterrupt& irq) noexcept : boot_(&boot),irq_(irq) {}
+    ColdPower(GlkBoot& boot,IpcInterrupt& irq,HardwareAccessGate& access) noexcept
+        : boot_(&boot),irq_(irq),access_(&access),valid_(boot.BindAccessGate(&access)) {}
+    ColdPower(GlkBoot&,IpcInterrupt&)=delete;
     ColdPower(const ColdPower&)=delete;
     ColdPower& operator=(const ColdPower&)=delete;
     // New constructed boot owner; same prepared WDF interrupt/resources.
@@ -31,6 +33,8 @@ private:
     State state_=State::Fresh;
     GlkBoot* boot_;
     IpcInterrupt& irq_;
+    HardwareAccessGate* access_;
+    bool valid_;
     TransferResult transfer_;
 };
 }}

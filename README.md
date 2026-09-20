@@ -93,6 +93,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   omitted Disable. Queue drain remains separate from hardware/DMA quiescence.
   WDK and Windows/Linux verification pass; surprise-removal recovery and a
   composed booting PnP driver remain unfinished.
+- **M0.6.15A:** [hardware-access fence](docs/M0615_ACCESS_FENCE.md).
+  Adds one cached nonpaged atomic gate shared by HDA/DSP/IRQ consumers. A terminal
+  surprise-removal transition blocks new MMIO and interrupt synchronization in
+  the modeled paths. This is a prerequisite for, not a substitute for, the
+  composed PnP/power owner; DMA-parent teardown on concurrent removal remains
+  deliberately unresolved. No codec, amplifier or playback path is added.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
