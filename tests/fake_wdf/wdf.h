@@ -58,3 +58,7 @@ BOOLEAN WdfDpcCancel(WDFDPC,BOOLEAN);
 NTSTATUS WdfWorkItemCreate(WDF_WORKITEM_CONFIG*,WDF_OBJECT_ATTRIBUTES*,WDFWORKITEM*);
 void WdfWorkItemEnqueue(WDFWORKITEM);
 void WdfWorkItemFlush(WDFWORKITEM);
+
+using WDFMEMORY=FakeObject*;
+constexpr unsigned NonPagedPoolNx=512;
+NTSTATUS WdfMemoryCreate(WDF_OBJECT_ATTRIBUTES*,unsigned,ULONG,SIZE_T,WDFMEMORY*,void**);

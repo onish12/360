@@ -84,6 +84,12 @@ jobs:
           if ($env:RUNNER_OS -eq 'Windows') { $ipc = Join-Path $build 'Debug/phaser360_ipc_tests.exe' }
           & $ipc "$build/fixtures/sof-apl.ri"
           if ($LASTEXITCODE -ne 0) { throw 'Pinned XMan window validation failed.' }
+          if ($env:RUNNER_OS -eq 'Windows') {
+            & "$build/Debug/phaser360_cng_pin_tests.exe" "$build/fixtures/sof-apl.ri"
+            if ($LASTEXITCODE -ne 0) { throw 'Real CNG firmware pin validation failed.' }
+            & "$build/Debug/phaser360_pinned_reference_tests.exe" "$build/fixtures/sof-apl.ri"
+            if ($LASTEXITCODE -ne 0) { throw 'Owned firmware reference validation failed.' }
+          }
 
       - name: Stage development artifact (no firmware and no driver installer)
         shell: pwsh

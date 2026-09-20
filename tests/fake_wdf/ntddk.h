@@ -55,3 +55,5 @@ inline LONG InterlockedExchange(volatile LONG* p,LONG value) {
 inline LONG InterlockedCompareExchange(volatile LONG* p,LONG value,LONG compare) {
     const LONG old=*p; if(old==compare) *p=value; return old;
 }
+
+constexpr NTSTATUS STATUS_INVALID_IMAGE_HASH=-6;
