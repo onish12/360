@@ -87,6 +87,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   resources, with partial-failure cleanup and repeat-start tests. No mapping
   pointers are exposed; DSP boot and DMA/IRQ consumers are not connected.
   WDK compilation and Windows/Linux tests pass; hardware remains untested.
+- **M0.6.14:** [IRQ exit failure cleanup](docs/M0614_IRQ_EXIT.md).
+  Fixes queued-worker admission after a failed interrupt stop. Adds guarded
+  D0Exit cleanup after framework disconnection, including failed Enable with
+  omitted Disable. Queue drain remains separate from hardware/DMA quiescence.
+  WDK and Windows/Linux verification pass; surprise-removal recovery and a
+  composed booting PnP driver remain unfinished.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

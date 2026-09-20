@@ -103,5 +103,31 @@ ordered callback/interleaving tests, not real KMDF scheduling or concurrency
 stress tests. The original regression cases remain in the same executable.
 
 Local GCC ASan/UBSan: 264,785 assertions pass, with LeakSanitizer disabled under
-ptrace. Real WDK compilation and Windows/Linux CI results are recorded separately
-after the source commit completes. No physical hardware execution or playback.
+ptrace. CI evidence for the exact implementation commit follows.
+No physical hardware execution or playback.
+
+
+## Verified CI evidence (2026-09-20)
+
+Implementation commit: `eb80b1816b29b48265a3a007907a3c737f2934e1`.
+Tree: `9c2f506fe6aebf383bcb2aae746f02e42509a245`.
+
+- [WDK run 35534032135](https://github.com/onish12/360/actions/runs/35534032135),
+  job `106139723631`: real WDK compilation passes, followed by 10 host tests.
+- [Offline run 35534032116](https://github.com/onish12/360/actions/runs/35534032116):
+  Windows job `106139723571` passes 14 CTest tests; Linux job `106139723421`
+  passes 12 CTest tests with ASan/UBSan instrumentation.
+- All three jobs report `SOF_GLK_BOOT_TESTS=264785 PASS`, with simulated Windows
+  APIs and no hardware execution. This count includes the existing regression
+  suite, new cases and additional assertions forbidding MMIO during software-only
+  cleanup. It is not a count of independent scenarios or hardware tests.
+- Windows fixture checks remain green: real CNG 10 hash assertions and 12
+  combined pinned-snapshot assertions, with simulated boot entry.
+- [PHASER360_M0614_WDK_IRQ_EXIT development artifact](https://github.com/onish12/360/actions/runs/35534032135/artifacts/10612501387):
+  ID `10612501387`, 254,271 bytes. GitHub reports SHA-256
+  `0560834160186e62fcde89e3d516105285520f803a2b0ddb0e97c0e784ba92b9`.
+  This is service-reported archive metadata, not an independently computed hash.
+  The archive contains the static development library and sources/contracts;
+  no installable driver or audio playback is supplied.
+
+A subsequent documentation-only commit records these results and README status.
