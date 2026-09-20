@@ -81,4 +81,28 @@ WDK compilation separately checks the real declarations and callback ABI.
 
 Local GCC ASan/UBSan: 134 assertions pass (LeakSanitizer disabled under ptrace).
 The shared WDF shim changes are also checked against the existing integrated
-boot/IRQ suite. CI results will be recorded after the exact source commit builds.
+boot/IRQ suite. CI evidence for the exact source commit follows.
+
+
+## Verified CI evidence (2026-09-20)
+
+Implementation commit: `1d8852d2047c13fc06af5b35d5f62e4abc6e94c2`.
+Tree: `4dc90682e156f8b3a3ee0cb5db5a1f522c5f8f39`.
+
+- [WDK run 35493888145](https://github.com/onish12/360/actions/runs/35493888145),
+  job `106033364591`: real WDK compilation passes, followed by 10 host tests.
+- [Offline run 35493888199](https://github.com/onish12/360/actions/runs/35493888199):
+  Windows job `106033364835` passes 14 CTest tests; Linux job `106033364944`
+  passes 12 CTest tests with ASan/UBSan instrumentation.
+- All three jobs report `SOF_PNP_RESOURCES_TESTS=134 PASS` with simulated callbacks.
+  The existing integrated boot/IRQ test retains 199,647 passing assertions.
+- Windows additionally checks the official fixture with real CNG: 10 hash and
+  12 combined snapshot/entry assertions pass. Boot execution remains simulated.
+- [Development artifact PHASER360_M0613_WDK_PNP_RESOURCES](https://github.com/onish12/360/actions/runs/35493888145/artifacts/10599473163):
+  ID `10599473163`, 248,136 bytes. GitHub reports SHA-256
+  `ca9519cfc8e5471a8fc0cbe500daa9b6c239116831296f0851e651c1c8a67b1a`.
+  This is service-reported archive metadata, not an independently computed hash.
+  The archive contains a static development library and source/contracts, not
+  an installable driver. No hardware execution is claimed.
+
+A subsequent documentation-only commit records these results and README status.

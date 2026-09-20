@@ -82,6 +82,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   SHA-256 with Windows CNG before passing the bound XMan/payload to ColdPower.
   WDK compilation, Windows/Linux tests and real Windows CNG fixture checks pass.
   File identity is not hardware deployment approval or RSA-chain verification.
+- **M0.6.13:** [PnP resource callbacks](docs/M0613_PNP_RESOURCES.md).
+  Registers PrepareHardware/ReleaseHardware and validates/maps assigned HDA/DSP
+  resources, with partial-failure cleanup and repeat-start tests. No mapping
+  pointers are exposed; DSP boot and DMA/IRQ consumers are not connected.
+  WDK compilation and Windows/Linux tests pass; hardware remains untested.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
