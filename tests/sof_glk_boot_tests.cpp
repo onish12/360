@@ -546,6 +546,9 @@ int main() {
         accessGate.SurpriseRemove();
         forbidMmio=true;
         CHECK(accessGate.Removed() && !accessGate.Allowed());
+        // An ISR racing after the terminal gate must not reach fake MMIO.
+        CHECK(!Interrupt());
+        CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore);
         CHECK(bridge.FenceForSurpriseRemoval());
         CHECK(!bridge.Running() && !bridge.Arm());
         phaser360::sof::IpcNotification event;

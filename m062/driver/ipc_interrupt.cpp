@@ -156,10 +156,10 @@ bool IpcInterrupt::FenceForSurpriseRemoval() noexcept {
     // The shared hardware gate must already be terminal. Closing software
     // admission is safe without claiming that the device was masked/disconnected.
     const bool removed=boot_ && boot_->AccessGate() && boot_->AccessGate()->Removed();
-    if(removed) {
-        admissionClosed_=true;
-        stopped_=true; ready_=false; armed_=false; enabled_=false; fault_=true;
-    }
+    // Surprise removal is not synchronized with framework Enable/Disable.
+    // Do not mutate IRQ-lock-owned state here. The terminal access gate prevents
+    // later MMIO; this wait-lock-owned admission bit only blocks PASSIVE clients.
+    if(removed) admissionClosed_=true;
     WdfWaitLockRelease(serial_);
     return removed;
 }

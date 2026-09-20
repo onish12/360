@@ -24,10 +24,12 @@ synchronization, and Pop also refuses retained notification delivery after the
 gate is closed. ColdPower binds each fresh GlkBoot to the same gate and refuses
 active power operations when access is not allowed.
 
-After the gate becomes Removed, FenceForSurpriseRemoval closes the IRQ bridge's
-software admission under its PASSIVE wait lock without MMIO, interrupt
+After the gate becomes Removed, FenceForSurpriseRemoval closes only the IRQ
+bridge's PASSIVE software admission under its wait lock, without MMIO, interrupt
 synchronization, clearing the queued-work record, or claiming a successful
-hardware mask. The normal KMDF surprise-removal sequence can subsequently reach
+hardware mask. It deliberately does not modify fields owned by the interrupt
+lock because EvtDeviceSurpriseRemoval is not synchronized with other PnP/power
+callbacks. The normal KMDF surprise-removal sequence can subsequently reach
 EvtDeviceD0ExitPreInterruptsDisabled and EvtInterruptDisable. Only after the
 framework Disable/disconnect evidence exists may DrainStopped flush the queued
 DPC/work item; the drain still does not authorize DSP/DMA release.
@@ -62,7 +64,9 @@ No physical Lenovo execution is authorized by this change.
 
 The integrated Windows-wrapper model boots to command-ready, enables/arms the
 IRQ bridge, queues a notification, then marks the shared gate Removed while
-work is pending. From that point the test forbids every fake MMIO access and
+work is pending. It also injects an ISR after the terminal gate is closed and
+requires that the ISR perform no fake MMIO. From that point the test forbids
+every fake MMIO access and
 records WdfInterruptSynchronize calls. Running, Arm, Pop, Command, active
 shutdown, the explicit software-only surprise-removal fence, queued DPC/work
 completion, framework Disable, drain and direct GlkBoot shutdown are exercised.

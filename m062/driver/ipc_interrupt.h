@@ -23,8 +23,10 @@ public:
     bool DrainStopped() noexcept; // PASSIVE PnP thread, never from this worker
     bool Stop() noexcept; // closes admission even if masking fails; retain mappings on false
     // EvtDeviceSurpriseRemoval path after HardwareAccessGate::SurpriseRemove().
-    // Software-only fence: no MMIO, no interrupt synchronization, no hardware-mask
-    // claim. A later framework Disable/disconnect is still required before drain.
+    // Software-only fence: closes only PASSIVE admission. It deliberately does
+    // not mutate IRQ-lock-owned state because SurpriseRemoval is unsynchronized
+    // with Enable/Disable. No MMIO/synchronization/mask claim is made. A later
+    // framework Disable/disconnect is still required before drain.
     bool FenceForSurpriseRemoval() noexcept;
     // D0Exit thread after framework disconnect, still D0 and hardware accessible.
     // Previously armed sessions require pre-disable Stop. Failed/missing Enable
