@@ -14,6 +14,7 @@ NTSTATUS PnpResources::Configure(PWDFDEVICE_INIT init,WDF_OBJECT_ATTRIBUTES* att
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&callbacks);
     callbacks.EvtDevicePrepareHardware=PrepareHardware;
     callbacks.EvtDeviceReleaseHardware=ReleaseHardware;
+    callbacks.EvtDeviceSurpriseRemoval=SurpriseRemoval;
     WdfDeviceInitSetPnpPowerEventCallbacks(init,&callbacks);
     return STATUS_SUCCESS;
 }
@@ -40,6 +41,15 @@ NTSTATUS PnpResources::ReleaseHardware(WDFDEVICE device,WDFCMRESLIST translated)
     if(!owner) return STATUS_SUCCESS;
     if(owner->device_!=device) return STATUS_INVALID_DEVICE_STATE;
     return owner->Release();
+}
+
+void PnpResources::SurpriseRemoval(WDFDEVICE device) {
+    // KMDF invokes this at PASSIVE_LEVEL but does not synchronize it with the
+    // other PnP/power callbacks. Touch only the immutable owner/gate relation;
+    // do not inspect or unmap resource pointers here.
+    if(!device) return;
+    auto* owner=GetPnpResourcesContext(device)->owner;
+    if(owner && owner->gate_) owner->gate_->SurpriseRemove();
 }
 
 NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcept {
@@ -92,6 +102,12 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
 
     hda_=static_cast<UCHAR*>(MmMapIoSpaceEx(addresses[0],lengths[0],PAGE_READWRITE|PAGE_NOCACHE));
     if(!hda_) return STATUS_INSUFFICIENT_RESOURCES;
+    // SurpriseRemoval can race this callback. Do not create another mapping
+    // after the terminal gate has already been observed.
+    if(gate_->Removed()) {
+        (void)Release();
+        return STATUS_INVALID_DEVICE_STATE;
+    }
     dsp_=static_cast<UCHAR*>(MmMapIoSpaceEx(addresses[1],lengths[1],PAGE_READWRITE|PAGE_NOCACHE));
     if(!dsp_) {
         (void)Release();
@@ -110,16 +126,23 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
         return STATUS_INVALID_DEVICE_STATE;
     }
     view_=candidate;
+    // Linearize successful preparation only while access is still open. If
+    // surprise removal won the race after OpenForPrepare, unwind resource-only
+    // mappings and report a failed start; Removed remains terminal.
+    if(!gate_->Allowed()) {
+        view_={};
+        (void)Release();
+        return STATUS_INVALID_DEVICE_STATE;
+    }
     return STATUS_SUCCESS;
 }
 
 NTSTATUS PnpResources::Release() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !gate_) return STATUS_INVALID_DEVICE_STATE;
 
-    // On an orderly lifetime, close software access before unmapping. Removed
-    // is already terminal and therefore already closed to all guarded consumers.
-    if(!gate_->Removed() && !gate_->CloseForRelease())
-        return STATUS_INVALID_DEVICE_STATE;
+    // Atomic with respect to SurpriseRemove: Open becomes Closed, Closed stays
+    // Closed, and terminal Removed is accepted without being rewritten.
+    if(!gate_->CloseForRelease()) return STATUS_INVALID_DEVICE_STATE;
 
     view_={};
     if(dsp_) { MmUnmapIoSpace(dsp_,0x100000); dsp_=nullptr; }
@@ -131,7 +154,9 @@ bool PnpResources::CopyPreparedView(PnpResourceView* out) const noexcept {
     if(!out) return false;
     *out={};
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !Prepared()) return false;
-    *out=view_;
+    const auto snapshot=view_;
+    if(!gate_->Allowed()) return false;
+    *out=snapshot;
     return true;
 }
 

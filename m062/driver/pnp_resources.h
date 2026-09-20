@@ -59,6 +59,7 @@ private:
     NTSTATUS Release() noexcept;
     static NTSTATUS PrepareHardware(WDFDEVICE,WDFCMRESLIST,WDFCMRESLIST);
     static NTSTATUS ReleaseHardware(WDFDEVICE,WDFCMRESLIST);
+    static void SurpriseRemoval(WDFDEVICE);
 };
 
 } }

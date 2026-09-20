@@ -71,6 +71,7 @@ using WDFCMRESLIST=FakeResourceList*;
 struct WDF_PNPPOWER_EVENT_CALLBACKS {
     NTSTATUS(*EvtDevicePrepareHardware)(WDFDEVICE,WDFCMRESLIST,WDFCMRESLIST);
     NTSTATUS(*EvtDeviceReleaseHardware)(WDFDEVICE,WDFCMRESLIST);
+    void(*EvtDeviceSurpriseRemoval)(WDFDEVICE);
 };
 inline void WDF_PNPPOWER_EVENT_CALLBACKS_INIT(WDF_PNPPOWER_EVENT_CALLBACKS* c) { *c={}; }
 void WdfDeviceInitSetPnpPowerEventCallbacks(PWDFDEVICE_INIT,WDF_PNPPOWER_EVENT_CALLBACKS*);

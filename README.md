@@ -109,6 +109,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   no DSP boot, DMA consumer, codec, amplifier or playback. Source `66055d64`
   passes real WDK compilation, 10 WDK host tests, 14 Windows tests and 12 Linux
   ASan/UBSan tests; PnP resource validation reports 218 passing assertions.
+- **M0.6.15C:** [framework surprise-removal fence](docs/M0615_SURPRISE_CALLBACK.md).
+  Registers the real KMDF EvtDeviceSurpriseRemoval callback to make the shared
+  hardware-access gate terminal without MMIO or teardown work in that
+  unsynchronized callback. Prepare/Release transitions are made race-safe for
+  a concurrent terminal gate, with deterministic removal-during-map tests.
+  Still no DSP boot, selected IRQ, DMA consumer, codec, amplifier or playback.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

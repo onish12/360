@@ -15,7 +15,10 @@ public:
     }
     bool CloseForRelease() noexcept {
         const LONG old=InterlockedCompareExchange(&state_,kClosed,kOpen);
-        return old==kOpen || old==kClosed;
+        // Removed is already terminal/closed to consumers. Do not rewrite it.
+        // Treat it as release-safe so SurpriseRemoval racing with ReleaseHardware
+        // cannot strand resource cleanup merely because the state changed first.
+        return old==kOpen || old==kClosed || old==kRemoved;
     }
     void SurpriseRemove() noexcept {
         (void)InterlockedExchange(&state_,kRemoved);

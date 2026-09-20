@@ -21,6 +21,9 @@ static std::vector<Mapping> live;
 static std::vector<SIZE_T> unmaps;
 static std::array<LONGLONG,2> expectedAddresses={0xd1000000,0xd2000000};
 static HardwareAccessGate* activeGate=nullptr;
+static void(*surpriseCallback)(WDFDEVICE)=nullptr;
+static WDFDEVICE surpriseDevice=nullptr;
+static unsigned surpriseMapAt=0;
 
 unsigned KeGetCurrentIrql() { return irql; }
 void* FakeWdfContext(WDFINTERRUPT object) { return &object->owner; }
@@ -37,7 +40,9 @@ void* MmMapIoSpaceEx(PHYSICAL_ADDRESS address,SIZE_T bytes,ULONG flags) {
     check(mapCalls<=2 && address.QuadPart==expectedAddresses[mapCalls-1]);
     check(bytes==(mapCalls==1?0x4000u:0x100000u));
     if(mapCalls==failMap) return nullptr;
-    void* ptr=std::malloc(bytes); check(ptr!=nullptr); live.push_back({ptr,bytes,address.QuadPart}); return ptr;
+    void* ptr=std::malloc(bytes); check(ptr!=nullptr); live.push_back({ptr,bytes,address.QuadPart});
+    if(surpriseCallback && surpriseMapAt==mapCalls) surpriseCallback(surpriseDevice);
+    return ptr;
 }
 void MmUnmapIoSpace(void* ptr,SIZE_T bytes) {
     check(irql==PASSIVE_LEVEL && activeGate!=nullptr && !activeGate->Allowed());
@@ -68,7 +73,8 @@ int main() {
     check(attrs.contextSize==sizeof(void*) && attrs.ParentObject==nullptr);
     const auto prepare=init.callbacks.EvtDevicePrepareHardware;
     const auto release=init.callbacks.EvtDeviceReleaseHardware;
-    check(prepare!=nullptr && release!=nullptr);
+    const auto surprise=init.callbacks.EvtDeviceSurpriseRemoval;
+    check(prepare!=nullptr && release!=nullptr && surprise!=nullptr);
 
     HardwareAccessGate gate,secondGate;
     activeGate=&gate;
@@ -83,6 +89,8 @@ int main() {
     check(!NT_SUCCESS(owner.Attach(nullptr)));
     irql=2; check(!NT_SUCCESS(owner.Attach(&device))); irql=0;
     check(NT_SUCCESS(owner.Attach(&device)));
+    // Unattached device context must not affect the prepared owner's gate.
+    surprise(&other); check(!gate.Removed() && !gate.Allowed());
     check(!NT_SUCCESS(owner.Attach(&other)) && !NT_SUCCESS(second.Attach(&device)));
     check(NT_SUCCESS(release(&device,nullptr)));
     check(!NT_SUCCESS(prepare(&device,nullptr,nullptr)) && mapCalls==0);
@@ -91,7 +99,7 @@ int main() {
         mapCalls=0;
         check(prepare(&device,&badRaw,&badTranslated)==STATUS_DEVICE_CONFIGURATION_ERROR);
         check(mapCalls==0 && live.empty() && !owner.Prepared() && !gate.Allowed());
-        PnpResourceView view={{}};
+        PnpResourceView view={};
         check(!owner.CopyPreparedView(&view) && view.hda==nullptr && view.dsp==nullptr);
         check(NT_SUCCESS(release(&device,nullptr)));
     };
@@ -167,14 +175,30 @@ int main() {
     expectedAddresses={0x200004000LL,0x200100000LL};
     translated=validTranslated(); raw=validRaw(); mapCalls=0; unmaps.clear();
     check(NT_SUCCESS(prepare(&device,&raw,&translated)) && gate.Allowed());
-    gate.SurpriseRemove();
+    surprise(&device);
     check(gate.Removed() && !gate.Allowed() && !owner.Prepared());
     PnpResourceView view={}; check(!owner.CopyPreparedView(&view));
     check(NT_SUCCESS(release(&device,nullptr)) && live.empty() && gate.Removed());
     mapCalls=0;
     check(prepare(&device,&raw,&translated)==STATUS_INVALID_DEVICE_STATE && mapCalls==0);
-    check(!gate.OpenForPrepare() && !gate.CloseForRelease());
+    check(!gate.OpenForPrepare() && gate.CloseForRelease() && gate.Removed());
+
+    // Deterministic race: SurpriseRemoval fires from the first mapping call,
+    // before Prepare can map the DSP BAR or open the gate. Preparation must
+    // unwind the HDA map, keep Removed terminal and never perform map #2.
+    HardwareAccessGate raceGate; PnpResources raceOwner(raceGate); FakeObject raceDevice;
+    activeGate=&raceGate;
+    check(NT_SUCCESS(raceOwner.Attach(&raceDevice)));
+    expectedAddresses={0x300004000LL,0x300100000LL};
+    auto raceTranslated=validTranslated(); auto raceRaw=validRaw();
+    mapCalls=0; unmaps.clear(); surpriseCallback=surprise; surpriseDevice=&raceDevice; surpriseMapAt=1;
+    check(prepare(&raceDevice,&raceRaw,&raceTranslated)==STATUS_INVALID_DEVICE_STATE);
+    check(mapCalls==1 && live.empty() && raceGate.Removed() && !raceGate.Allowed());
+    check(unmaps==std::vector<SIZE_T>({0x4000}));
+    check(NT_SUCCESS(release(&raceDevice,nullptr)) && raceGate.Removed());
+    check(!raceGate.OpenForPrepare() && raceGate.CloseForRelease());
+    surpriseCallback=nullptr; surpriseDevice=nullptr; surpriseMapAt=0;
 
     std::cout<<"SOF_PNP_RESOURCES_TESTS="<<checks
-             <<" PASS; paired_raw_translated=YES; irq_selection=DEFERRED; hardware=NOT_TOUCHED\n";
+             <<" PASS; surprise_callback=REGISTERED; paired_raw_translated=YES; irq_selection=DEFERRED; hardware=NOT_TOUCHED\n";
 }
