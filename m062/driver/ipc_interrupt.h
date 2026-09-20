@@ -21,7 +21,11 @@ public:
     bool Running() noexcept; // software gate health, not proof of hardware delivery
     bool Arm() noexcept;
     bool DrainStopped() noexcept; // PASSIVE PnP thread, never from this worker
-    bool Stop() noexcept; // terminal; false means retain mapping and recover
+    bool Stop() noexcept; // closes admission even if masking fails; retain mappings on false
+    // D0Exit thread after framework disconnect, still D0 and hardware accessible.
+    // Previously armed sessions require pre-disable Stop. Failed/missing Enable
+    // may omit Disable; that branch retries masking at PASSIVE without IRQ sync.
+    bool StopAfterDisconnect() noexcept;
     sof::CommandResult Command(const UCHAR*,SIZE_T,ULONG,UCHAR*,SIZE_T) noexcept;
     bool Pop(sof::IpcNotification*) noexcept;
 private:
@@ -32,7 +36,10 @@ private:
     bool drained_=false;
     GlkBoot* boot_=nullptr;
     UCHAR* dsp_=nullptr;
-    bool closed_=false; // PASSIVE serial lock only
+    bool admissionClosed_=false; // PASSIVE lock; terminal even after failed Stop
+    bool closed_=false; // PASSIVE lock; confirmed interrupt mask/cancellation
+    bool disconnectedSeen_=false; // serialized D0Exit call, not a connection query
+    bool enableFailed_=false,disableMasked_=false,everArmed_=false; // IRQ lock, then serialized PnP reader
     volatile LONG pendingWork_=0;
     bool disableSeen_=false;
     bool enableSeen_=false;

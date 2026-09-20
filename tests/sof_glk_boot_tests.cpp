@@ -19,7 +19,8 @@ static WDFWORKITEM workHandle=nullptr;
 static WDF_DPC_CONFIG dpcConfig={};
 static WDF_WORKITEM_CONFIG workConfig={};
 static unsigned createFailure=0;
-static bool connected=false;
+static bool connected=false,forbidMmio=false;
+static unsigned synchronizeCalls=0;
 static WDF_INTERRUPT_CONFIG irqConfig={};
 static WDFINTERRUPT irqHandle=nullptr;
 static WDFWAITLOCK serialHandle=nullptr;
@@ -40,6 +41,7 @@ static bool In(void* p,const std::vector<UCHAR>& b) {
     return a>=base && a-base<b.size();
 }
 static ULONG Read(void* p,unsigned w) {
+    CHECK(!forbidMmio);
     CHECK(In(p,hda)||In(p,dsp)); auto& b=In(p,hda)?hda:dsp;
     const auto off=reinterpret_cast<uintptr_t>(p)-reinterpret_cast<uintptr_t>(b.data());
     if(&b==&dsp) CHECK(!unmapped);
@@ -47,6 +49,7 @@ static ULONG Read(void* p,unsigned w) {
     return Get(b,off,w);
 }
 static void Write(void* p,unsigned w,ULONG v) {
+    CHECK(!forbidMmio);
     CHECK(In(p,hda)||In(p,dsp)); auto& b=In(p,hda)?hda:dsp;
     const auto o=reinterpret_cast<uintptr_t>(p)-reinterpret_cast<uintptr_t>(b.data());
     if(&b==&dsp) {
@@ -125,6 +128,7 @@ NTSTATUS WdfInterruptCreate(WDFDEVICE,WDF_INTERRUPT_CONFIG* c,WDF_OBJECT_ATTRIBU
     irqHandle=*out; irqConfig=*c; ++live; return STATUS_SUCCESS;
 }
 BOOLEAN WdfInterruptSynchronize(WDFINTERRUPT h,PFN_WDF_INTERRUPT_SYNCHRONIZE cb,WDFCONTEXT p) {
+    ++synchronizeCalls;
     CHECK(connected && h==irqHandle && !irqHeld && irql==0 && mutexHeld);
     irql=5; irqHeld=true; const auto result=cb(h,p); irqHeld=false; irql=0; return result;
 }
@@ -186,7 +190,7 @@ static void Notify() {
 }
 static void Reset() {
     dpcQueued=false; workQueued=false; finishDpcDuringCancel=false; cancelCalls=0; flushCalls=0;
-    connected=false; unmapped=false; dropIrqUnmask=false; dropIrqMask=false; createFailure=0; queued=false;
+    connected=false; forbidMmio=false; synchronizeCalls=0; unmapped=false; dropIrqUnmask=false; dropIrqMask=false; createFailure=0; queued=false;
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
     dspWrites=0; irql=0; sequence=0; ticks=100000;
     stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
@@ -415,6 +419,112 @@ int main() {
         CHECK(bridge.DrainStopped() && cancelCalls==1 && flushCalls==1);
         unmapped=false; CHECK(boot.Shutdown()); unmapped=true;
         FrameworkDeleteChildren();
+    }
+    // The official KMDF implementation can skip Disable when Enable failed.
+    // Model framework disconnect directly: do NOT manufacture a Disable callback.
+    for(unsigned mode=0;mode<4;++mode) {
+        Reset(); GlkBoot boot,next; IpcInterrupt bridge; ColdPower session(boot,bridge);
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+        CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
+        CHECK(!session.AfterInterruptsDisconnected()); // Fresh, no boot
+        CHECK(!bridge.Stop() && synchronizeCalls==0); // not connected yet
+        std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
+        CHECK(NT_SUCCESS(session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
+                                      image.data(),image.size(),x.data(),x.size(),20)));
+        Put(dsp,8,4,1); dropIrqMask=true;
+        if(mode!=3) CHECK(!NT_SUCCESS(FrameworkEnable(true)) && !queued);
+        // mode 3: framework connection itself failed; Enable was never invoked.
+        connected=false;
+        if(mode!=1) dropIrqMask=false;
+        irql=2; CHECK(!bridge.StopAfterDisconnect() && !session.AfterInterruptsDisconnected()); irql=0;
+        CHECK(bridge.StopAfterDisconnect()==(mode!=1));
+        forbidMmio=true;
+        CHECK(!bridge.Arm() && !bridge.Running());
+        CHECK(bridge.DrainStopped() && !queued && synchronizeCalls==0);
+        CHECK(!session.CanReleaseMappings()); // closed IRQ is not DSP shutdown
+        forbidMmio=false;
+        if(mode==1) {
+            CHECK(!session.AfterInterruptsDisconnected() && !session.CanReleaseMappings());
+            CHECK((Get(dsp,4,4)&0x10000)!=0); // masking failure leaves DSP running
+            CHECK(!session.NextD0(next,dsp.data(),0x100000));
+            CHECK(!bridge.RebindStopped(&next,dsp.data(),0x100000));
+            CHECK(synchronizeCalls==0);
+            // Retry only while this simulated D0Exit still owns accessible hardware.
+            dropIrqMask=false;
+            CHECK(session.AfterInterruptsDisconnected() && session.CanReleaseMappings());
+        } else {
+            if(mode==2) {
+                power=false; CHECK(!session.AfterInterruptsDisconnected());
+                CHECK(!session.CanReleaseMappings()); power=true;
+            }
+            CHECK(session.AfterInterruptsDisconnected() && session.CanReleaseMappings());
+        }
+        forbidMmio=true; CHECK(session.AfterInterruptsDisconnected());
+        CHECK(synchronizeCalls==0 && live==4);
+        FrameworkDeleteChildren();
+    }
+    // Regression: failed pre-disable Stop must close admission even though its
+    // hardware mask failed. Queued DPC/work callbacks cannot touch the old IRQ.
+    for(unsigned mode=0;mode<4;++mode) {
+        Reset(); GlkBoot boot,next; IpcInterrupt bridge; ColdPower session(boot,bridge);
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+        CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
+        std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
+        CHECK(NT_SUCCESS(session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
+                                      image.data(),image.size(),x.data(),x.size(),20)));
+        CHECK(NT_SUCCESS(FrameworkEnable(true)) && NT_SUCCESS(session.AfterInterruptsEnabled()));
+        CHECK(!bridge.StopAfterDisconnect());
+        Notify(); CHECK(Interrupt() && queued);
+        if(mode==1) RunDpc(); // worker is already queued
+        if(mode==2) finishDpcDuringCancel=true; // DPC completes while Cancel waits
+        Put(dsp,8,4,1); dropIrqMask=true;
+        CHECK(!session.BeforeInterruptsDisabled() && !session.CanReleaseMappings());
+        const auto before=synchronizeCalls;
+        forbidMmio=true;
+        CHECK(!bridge.Arm() && !bridge.Running());
+        phaser360::sof::IpcNotification event;
+        CHECK(!bridge.Pop(&event));
+        (void)bridge.Command(nullptr,0,0,nullptr,0);
+        CHECK(synchronizeCalls==before && !Interrupt());
+        forbidMmio=false;
+        if(mode!=3) dropIrqMask=false;
+        CHECK(NT_SUCCESS(FrameworkEnable(false))==(mode!=3));
+        forbidMmio=true;
+        if(mode<2) RunWork(); // before post-disable adoption, must also be safe
+        CHECK(bridge.StopAfterDisconnect()==(mode!=3));
+        CHECK(bridge.DrainStopped() && !queued && synchronizeCalls==before);
+        CHECK(!session.CanReleaseMappings());
+        if(mode==3) {
+            CHECK(!session.AfterInterruptsDisconnected() && !session.CanReleaseMappings());
+            CHECK(!session.NextD0(next,dsp.data(),0x100000));
+            CHECK(!bridge.Stop() && synchronizeCalls==before);
+            // Restore only the simulated device for test-fixture teardown.
+            forbidMmio=false; dropIrqMask=false; CHECK(boot.Shutdown());
+        } else {
+            forbidMmio=false;
+            CHECK(session.AfterInterruptsDisconnected() && session.CanReleaseMappings());
+            forbidMmio=true; CHECK(session.AfterInterruptsDisconnected());
+            CHECK(synchronizeCalls==before && live==4);
+        }
+        FrameworkDeleteChildren();
+    }
+    // Missing pre-disable admission closure is not silently accepted for an
+    // already armed session. This is a negative contract test, with no queued work.
+    Reset(); {
+        GlkBoot boot; IpcInterrupt bridge; ColdPower session(boot,bridge);
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
+        CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
+        std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
+        CHECK(NT_SUCCESS(session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
+                                      image.data(),image.size(),x.data(),x.size(),20)));
+        CHECK(NT_SUCCESS(FrameworkEnable(true)) && NT_SUCCESS(session.AfterInterruptsEnabled()));
+        CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        forbidMmio=true; const auto before=synchronizeCalls;
+        CHECK(!bridge.StopAfterDisconnect() && !bridge.DrainStopped());
+        CHECK(!session.AfterInterruptsDisconnected() && !session.CanReleaseMappings());
+        CHECK(synchronizeCalls==before && !queued);
+        // Test-fixture teardown, not a production recovery path.
+        forbidMmio=false; CHECK(boot.Shutdown()); FrameworkDeleteChildren();
     }
     std::printf("SOF_GLK_BOOT_TESTS=%u PASS; windows_api=SIMULATED; hardware=NONE\n",checks);
 }

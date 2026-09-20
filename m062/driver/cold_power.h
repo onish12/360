@@ -18,6 +18,11 @@ public:
                    const UCHAR* approvedXman,SIZE_T xmanBytes,USHORT maxAbiMinor) noexcept;
     NTSTATUS AfterInterruptsEnabled() noexcept;
     bool BeforeInterruptsDisabled() noexcept;
+    // Fallback for never-armed startup or an attempted pre-disable Stop. Only
+    // in D0Exit after framework disconnect (Disable may be omitted), still D0,
+    // hardware present/accessible. This is a caller obligation, not a status flag.
+    // Not callable from ReleaseHardware or surprise-removal cleanup.
+    bool AfterInterruptsDisconnected() noexcept;
     bool RetryEarlyCleanup() noexcept; // only before any framework Enable
     bool CanReleaseMappings() const noexcept { return state_==State::Closed; }
     TransferResult TransferEvidence() const noexcept { return transfer_; }

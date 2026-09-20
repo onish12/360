@@ -79,7 +79,7 @@ BOOLEAN IpcInterrupt::Synchronized(WDFINTERRUPT,WDFCONTEXT context) {
         return self.dsp_ && self.Mask()?TRUE:FALSE;
     }
     if(!self.enabled_ || self.stopped_ || self.fault_) return FALSE;
-    if(req.operation==Operation::Arm) self.ready_=true;
+    if(req.operation==Operation::Arm) { self.ready_=true; self.everArmed_=true; }
     if(!self.ready_) return FALSE;
     if(req.operation==Operation::Begin) {
         if(!self.Mask()) { self.fault_=true; return FALSE; }
@@ -89,13 +89,16 @@ BOOLEAN IpcInterrupt::Synchronized(WDFINTERRUPT,WDFCONTEXT context) {
     return self.Unmask()?TRUE:FALSE;
 }
 bool IpcInterrupt::Sync(Operation operation) noexcept {
+    // Lifecycle callers serialize against Enable/Disable. Workers are excluded
+    // by Stop's admission gate before framework Disable, even on mask failure.
+    if(!enableSeen_ || enableFailed_ || disableSeen_ || disconnectedSeen_) return false;
     SyncRequest request={this,operation};
     return WdfInterruptSynchronize(interrupt_,Synchronized,&request)!=FALSE;
 }
 bool IpcInterrupt::CanStartBeforeEnable() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=!enableSeen_ && !closed_;
+    const bool result=!enableSeen_ && !admissionClosed_;
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::CancelBeforeEnable() noexcept {
@@ -103,7 +106,7 @@ bool IpcInterrupt::CancelBeforeEnable() noexcept {
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
     // Caller serializes against framework Enable; no ISR has ever been enabled.
     const bool result=!enableSeen_;
-    if(result) { stopped_=true; ready_=false; armed_=false; dsp_=nullptr; closed_=true; drained_=true; }
+    if(result) { stopped_=true; ready_=false; armed_=false; dsp_=nullptr; admissionClosed_=true; closed_=true; drained_=true; }
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept {
@@ -115,38 +118,65 @@ bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept
     const bool result=closed_ && drained_ && disableSeen_ &&
         InterlockedCompareExchange(&pendingWork_,0,0)==0;
     if(result) {
-        boot_=boot; dsp_=dsp; closed_=false; drained_=false; stopped_=false; ready_=false;
+        boot_=boot; dsp_=dsp; admissionClosed_=false; closed_=false; drained_=false; stopped_=false; ready_=false;
         armed_=false; enabled_=false; fault_=false; enableSeen_=false; disableSeen_=false;
+        disableMasked_=false; everArmed_=false; enableFailed_=false; disconnectedSeen_=false;
     }
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::Running() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=!closed_ && boot_->CommandUsable() && Sync(Operation::Check);
+    const bool result=!admissionClosed_ && boot_->CommandUsable() && Sync(Operation::Check);
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::Arm() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=!closed_ && boot_->CommandUsable() && Sync(Operation::Arm);
+    const bool result=!admissionClosed_ && boot_->CommandUsable() && Sync(Operation::Arm);
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::Stop() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=closed_ || Sync(Operation::Stop);
-    if(result) closed_=true;
+    bool result=closed_;
+    if(!result && enableSeen_ && !disableSeen_) {
+        // Acquire serial before closing admission: any current worker/command
+        // finishes first. Future workers must return without IRQ synchronization.
+        admissionClosed_=true;
+        result=Sync(Operation::Stop);
+    }
+    if(result) { admissionClosed_=true; closed_=true; }
+    WdfWaitLockRelease(serial_); return result;
+}
+bool IpcInterrupt::StopAfterDisconnect() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    // This entry's caller contract is completed framework disconnect in D0Exit,
+    // not merely a failed Enable return. No surprise removal or late BAR release.
+    // Failed/missing Enable can omit Disable: no ISR work was armed, but masking
+    // still requires readback. Do that directly at PASSIVE with no IRQ consumer.
+    const bool noEnable=!enableSeen_ || enableFailed_;
+    const bool eligible=(disableSeen_ || noEnable) && (admissionClosed_ || !everArmed_);
+    if(eligible) {
+        admissionClosed_=true; disconnectedSeen_=true;
+        stopped_=true; enabled_=false; ready_=false;
+        const bool masked=closed_ || (disableSeen_?disableMasked_:Mask());
+        if(masked) { closed_=true; dsp_=nullptr; }
+    }
+    const bool result=eligible && closed_;
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::DrainStopped() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool closed=closed_,done=drained_;
+    const bool closed=closed_ || (admissionClosed_ && (disableSeen_ || disconnectedSeen_)),done=drained_;
     WdfWaitLockRelease(serial_);
     if(!closed) return false;
     if(done) return true;
-    // Stop already synchronized with ISR and prevents all new DPC enqueue.
+    // Either Stop confirmed the mask or completed disconnect/Disable excludes
+    // new ISR delivery with admission already closed. Queue drain does NOT prove a
+    // hardware mask, DSP shutdown or DMA quiescence.
     // Never hold the wait lock: a running/queued worker needs it to return.
     (void)WdfDpcCancel(dpc_,TRUE);
     WdfWorkItemFlush(work_);
@@ -170,17 +200,17 @@ BOOLEAN IpcInterrupt::Isr(WDFINTERRUPT interrupt,ULONG) {
 }
 NTSTATUS IpcInterrupt::Enable(WDFINTERRUPT interrupt,WDFDEVICE) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
-    self.disableSeen_=false; self.enableSeen_=true; self.enabled_=false; self.ready_=false;
+    self.disableSeen_=false; self.disableMasked_=false; self.enableFailed_=false; self.enableSeen_=true; self.enabled_=false; self.ready_=false;
     if(self.stopped_) return STATUS_SUCCESS;
-    if(!self.Mask()) { self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
+    if(!self.Mask()) { self.enableFailed_=true; self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
     self.enabled_=true; return STATUS_SUCCESS;
 }
 NTSTATUS IpcInterrupt::Disable(WDFINTERRUPT interrupt,WDFDEVICE) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
     self.disableSeen_=true;
     self.enabled_=false; self.ready_=false;
-    if(!self.dsp_) return STATUS_SUCCESS;
-    if(!self.Mask()) { self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
+    self.disableMasked_=!self.dsp_ || self.Mask();
+    if(!self.disableMasked_) { self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
     return STATUS_SUCCESS;
 }
 void IpcInterrupt::Deferred(WDFDPC dpc) {
@@ -192,7 +222,7 @@ void IpcInterrupt::Work(WDFWORKITEM work) {
     auto& self=*GetIpcIrqContext(work)->owner;
     if(WdfWaitLockAcquire(self.serial_,nullptr)!=STATUS_SUCCESS) return;
     InterlockedExchange(&self.pendingWork_,0);
-    if(!self.closed_ && self.Sync(Operation::Begin)) {
+    if(!self.admissionClosed_ && self.Sync(Operation::Begin)) {
         const auto status=self.boot_->PollNotifications();
         if(status==sof::CommandStatus::Ok) (void)self.Sync(Operation::Rearm);
         else (void)self.Sync(Operation::Fault);
@@ -204,7 +234,7 @@ sof::CommandResult IpcInterrupt::Command(const UCHAR* request,SIZE_T bytes,ULONG
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return {};
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return {};
     sof::CommandResult result;
-    if(!closed_ && boot_->CommandUsable() && Sync(Operation::Begin)) {
+    if(!admissionClosed_ && boot_->CommandUsable() && Sync(Operation::Begin)) {
         result=boot_->Command(request,bytes,expected,reply,capacity);
         if(boot_->CommandUsable()) (void)Sync(Operation::Rearm);
         else (void)Sync(Operation::Fault);
@@ -215,7 +245,7 @@ bool IpcInterrupt::Pop(sof::IpcNotification* event) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
     // After Stop no boot access: caller may already be tearing the boot owner down.
-    const bool result=!closed_ && boot_->PopNotification(event);
+    const bool result=!admissionClosed_ && boot_->PopNotification(event);
     WdfWaitLockRelease(serial_); return result;
 }
 }}

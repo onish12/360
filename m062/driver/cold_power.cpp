@@ -36,6 +36,18 @@ NTSTATUS ColdPower::AfterInterruptsEnabled() noexcept {
     if(irq_.Arm()) { state_=State::Active; return STATUS_SUCCESS; }
     (void)BeforeInterruptsDisabled(); return STATUS_DEVICE_CONFIGURATION_ERROR;
 }
+bool ColdPower::AfterInterruptsDisconnected() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
+    if(state_==State::Closed) return true;
+    if(state_!=State::Booted && state_!=State::StopFailure) return false;
+    const bool masked=irq_.StopAfterDisconnect();
+    const bool drained=irq_.DrainStopped();
+    state_=State::StopFailure;
+    // Completed disconnect is not proof a hardware mask succeeded. Do not
+    // touch DSP/allow BAR release after an unconfirmed mask or queue drain.
+    if(!masked || !drained || !boot_->Shutdown()) return false;
+    state_=State::Closed; return true;
+}
 bool ColdPower::BeforeInterruptsDisabled() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
     if(state_==State::Closed) return true;
