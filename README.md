@@ -106,7 +106,9 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   closed, records a bounded set of interrupt descriptor pairs without guessing
   a vector, then opens the gate only after full preparation. Normal Release closes
   access before unmapping; terminal Removed never reopens. Still resource-only:
-  no DSP boot, DMA consumer, codec, amplifier or playback.
+  no DSP boot, DMA consumer, codec, amplifier or playback. Source `66055d64`
+  passes real WDK compilation, 10 WDK host tests, 14 Windows tests and 12 Linux
+  ASan/UBSan tests; PnP resource validation reports 218 passing assertions.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

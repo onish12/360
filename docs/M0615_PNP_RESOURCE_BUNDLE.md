@@ -75,3 +75,29 @@ rejected.
 The WDF/resource model is deterministic and does not touch hardware. Real WDK
 compilation plus Windows/Linux regression must pass before this submilestone is
 closed.
+
+
+## Verified CI evidence (2026-09-20)
+
+Implementation commit: `66055d64c1db1922768cf7831dc96b4c323022fe`.
+Tree: `75fa96ec71d839325441a45680ca849089ad7ef3`.
+
+- WDK/KMDF run `35536444898`, job `106146221656`: real WDK compilation
+  passes, followed by all 10 selected host tests. The PnP suite reports
+  `SOF_PNP_RESOURCES_TESTS=218 PASS; paired_raw_translated=YES;
+  irq_selection=DEFERRED; hardware=NOT_TOUCHED`; the integrated boot/IRQ model
+  remains `SOF_GLK_BOOT_TESTS=265876 PASS`.
+- Windows/Linux run `35536444957`: Windows job `106146221821` passes all
+  14 tests; Linux job `106146221723` passes all 12 tests with ASan/UBSan.
+  The hash-pinned official reference check passes on both supported paths.
+- Windows additionally reports `SOF_CNG_PIN_TESTS=10 PASS` using real Windows
+  CNG and the official fixture, plus `SOF_PINNED_REFERENCE_TESTS=13 PASS`
+  with real CNG and simulated boot.
+- Development artifact `PHASER360_M0615B_WDK_PNP_RESOURCE_BUNDLE`: ID
+  `10612847751`, 266,940 bytes. GitHub reports archive SHA-256
+  `afaab111218723ea91aa1aaa64d720745de1d480b3c27c136868aba457be3bc1`.
+  This is service-reported archive metadata, not an independently downloaded
+  and recomputed archive hash.
+
+No physical controller access, interrupt selection, DSP boot, DMA consumer,
+codec/amplifier programming or playback is claimed by M0.6.15B.
