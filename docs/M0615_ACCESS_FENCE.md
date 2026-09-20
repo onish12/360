@@ -24,6 +24,14 @@ synchronization, and Pop also refuses retained notification delivery after the
 gate is closed. ColdPower binds each fresh GlkBoot to the same gate and refuses
 active power operations when access is not allowed.
 
+After the gate becomes Removed, FenceForSurpriseRemoval closes the IRQ bridge's
+software admission under its PASSIVE wait lock without MMIO, interrupt
+synchronization, clearing the queued-work record, or claiming a successful
+hardware mask. The normal KMDF surprise-removal sequence can subsequently reach
+EvtDeviceD0ExitPreInterruptsDisabled and EvtInterruptDisable. Only after the
+framework Disable/disconnect evidence exists may DrainStopped flush the queued
+DPC/work item; the drain still does not authorize DSP/DMA release.
+
 ## What this does not solve
 
 Closing the software gate is not proof that hardware DMA stopped, that an
@@ -40,7 +48,10 @@ No physical Lenovo execution is authorized by this change.
 ## Primary references reviewed
 
 - Microsoft, Surprise-Removal Sequence.
-- Microsoft, WDM IRPs and KMDF event callback ordering.
+- Microsoft, WDM IRPs and KMDF event callback ordering: the surprise-removal
+  sequence includes EvtDeviceSurpriseRemoval, then the power-down path including
+  EvtDeviceD0ExitPreInterruptsDisabled, EvtInterruptDisable, D0Exit and
+  ReleaseHardware.
 - Microsoft, EvtDevicePrepareHardware.
 - Microsoft, Introduction to Hardware Resources.
 - Microsoft, WdfDpcCancel and WdfWorkItemFlush.
@@ -53,9 +64,11 @@ The integrated Windows-wrapper model boots to command-ready, enables/arms the
 IRQ bridge, queues a notification, then marks the shared gate Removed while
 work is pending. From that point the test forbids every fake MMIO access and
 records WdfInterruptSynchronize calls. Running, Arm, Pop, Command, active
-shutdown, queued DPC/work completion, framework Disable, drain and direct
-GlkBoot shutdown are exercised. The invariant requires zero new MMIO writes and
-zero new interrupt-synchronization calls after removal.
+shutdown, the explicit software-only surprise-removal fence, queued DPC/work
+completion, framework Disable, drain and direct GlkBoot shutdown are exercised.
+The test also requires drain to remain refused before framework Disable, then
+succeed as a software drain afterward. The invariant requires zero new MMIO
+writes and zero new interrupt-synchronization calls after removal.
 
 This deterministic host model is not proof of real KMDF concurrency, physical
 DMA quiescence or hardware behavior. WDK compilation and Windows/Linux

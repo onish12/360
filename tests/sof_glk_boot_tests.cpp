@@ -253,7 +253,7 @@ int main() {
         auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && !r.ipcReady);
         CHECK(!boot.Windows() && live==0); CHECK(boot.Shutdown());
     }
-    Reset(); { GlkBoot boot; auto x=IpcXman(); x[0]=0;
+    Reset(); { GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); auto x=IpcXman(); x[0]=0;
         const UCHAR image[4]={};
         CHECK(!NT_SUCCESS(boot.Prepare(&checks,hda.data(),0x4000,dsp.data(),0x100000,image,4,x.data(),x.size(),20)));
         CHECK(dspWrites==0 && live==0); CHECK(boot.IpcError()==phaser360::sof::ReceiveError::Windows);
@@ -546,6 +546,7 @@ int main() {
         accessGate.SurpriseRemove();
         forbidMmio=true;
         CHECK(accessGate.Removed() && !accessGate.Allowed());
+        CHECK(bridge.FenceForSurpriseRemoval());
         CHECK(!bridge.Running() && !bridge.Arm());
         phaser360::sof::IpcNotification event;
         CHECK(!bridge.Pop(&event));
@@ -554,6 +555,7 @@ int main() {
         if(dpcQueued) RunDpc();
         if(workQueued) RunWork();
         CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore);
+        CHECK(!bridge.DrainStopped()); // framework has not disconnected/disabled yet
         CHECK(!NT_SUCCESS(FrameworkEnable(false)));
         CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore);
         CHECK(bridge.DrainStopped());

@@ -22,6 +22,10 @@ public:
     bool Arm() noexcept;
     bool DrainStopped() noexcept; // PASSIVE PnP thread, never from this worker
     bool Stop() noexcept; // closes admission even if masking fails; retain mappings on false
+    // EvtDeviceSurpriseRemoval path after HardwareAccessGate::SurpriseRemove().
+    // Software-only fence: no MMIO, no interrupt synchronization, no hardware-mask
+    // claim. A later framework Disable/disconnect is still required before drain.
+    bool FenceForSurpriseRemoval() noexcept;
     // D0Exit thread after framework disconnect, still D0 and hardware accessible.
     // Previously armed sessions require pre-disable Stop. Failed/missing Enable
     // may omit Disable; that branch retries masking at PASSIVE without IRQ sync.

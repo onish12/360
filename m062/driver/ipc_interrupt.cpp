@@ -150,6 +150,19 @@ bool IpcInterrupt::Stop() noexcept {
     if(result) { admissionClosed_=true; closed_=true; }
     WdfWaitLockRelease(serial_); return result;
 }
+bool IpcInterrupt::FenceForSurpriseRemoval() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    // The shared hardware gate must already be terminal. Closing software
+    // admission is safe without claiming that the device was masked/disconnected.
+    const bool removed=boot_ && boot_->AccessGate() && boot_->AccessGate()->Removed();
+    if(removed) {
+        admissionClosed_=true;
+        stopped_=true; ready_=false; armed_=false; enabled_=false; fault_=true;
+    }
+    WdfWaitLockRelease(serial_);
+    return removed;
+}
 bool IpcInterrupt::StopAfterDisconnect() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
