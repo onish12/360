@@ -28,7 +28,7 @@ struct WDF_OBJECT_ATTRIBUTES { WDFOBJECT ParentObject; size_t contextSize; };
 inline void WDF_OBJECT_ATTRIBUTES_INIT(WDF_OBJECT_ATTRIBUTES* a) { *a={}; }
 #define WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(a,t) do { *(a)={}; (a)->contextSize=sizeof(t); } while(0)
 void* FakeWdfContext(WDFINTERRUPT);
-#define WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(t,n) inline t* n(WDFINTERRUPT h) { return static_cast<t*>(FakeWdfContext(h)); }
+#define WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(t,n) inline t* n(WDFOBJECT h) { return static_cast<t*>(FakeWdfContext(static_cast<WDFINTERRUPT>(h))); }
 struct WDF_INTERRUPT_CONFIG {
     PFN_WDF_INTERRUPT_ISR EvtInterruptIsr;
     void* EvtInterruptDpc;
@@ -62,3 +62,17 @@ void WdfWorkItemFlush(WDFWORKITEM);
 using WDFMEMORY=FakeObject*;
 constexpr unsigned NonPagedPoolNx=512;
 NTSTATUS WdfMemoryCreate(WDF_OBJECT_ATTRIBUTES*,unsigned,ULONG,SIZE_T,WDFMEMORY*,void**);
+
+// PnP registration shim; callback execution is a host model, not KMDF.
+struct FakeDeviceInit;
+using PWDFDEVICE_INIT=FakeDeviceInit*;
+struct FakeResourceList;
+using WDFCMRESLIST=FakeResourceList*;
+struct WDF_PNPPOWER_EVENT_CALLBACKS {
+    NTSTATUS(*EvtDevicePrepareHardware)(WDFDEVICE,WDFCMRESLIST,WDFCMRESLIST);
+    NTSTATUS(*EvtDeviceReleaseHardware)(WDFDEVICE,WDFCMRESLIST);
+};
+inline void WDF_PNPPOWER_EVENT_CALLBACKS_INIT(WDF_PNPPOWER_EVENT_CALLBACKS* c) { *c={}; }
+void WdfDeviceInitSetPnpPowerEventCallbacks(PWDFDEVICE_INIT,WDF_PNPPOWER_EVENT_CALLBACKS*);
+ULONG WdfCmResourceListGetCount(WDFCMRESLIST);
+PCM_PARTIAL_RESOURCE_DESCRIPTOR WdfCmResourceListGetDescriptor(WDFCMRESLIST,ULONG);

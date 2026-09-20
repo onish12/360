@@ -20,6 +20,9 @@ add_library(phaser360_hda_bdl STATIC src/sof/hda_bdl.cpp src/sof/hda_stream.cpp 
 add_executable(phaser360_glk_boot_tests tests/sof_glk_boot_tests.cpp m062/driver/cold_power.cpp m062/driver/ipc_interrupt.cpp m062/driver/glk_boot.cpp m062/driver/hda_transport.cpp m062/driver/boot_dma.cpp)
 target_include_directories(phaser360_glk_boot_tests PRIVATE tests/fake_wdf)
 target_link_libraries(phaser360_glk_boot_tests PRIVATE phaser360_hda_bdl)
+add_executable(phaser360_pnp_resources_tests tests/sof_pnp_resources_tests.cpp m062/driver/pnp_resources.cpp)
+target_include_directories(phaser360_pnp_resources_tests PRIVATE tests/fake_wdf)
+target_compile_features(phaser360_pnp_resources_tests PRIVATE cxx_std_17)
 add_executable(phaser360_pinned_owner_tests tests/sof_pinned_owner_tests.cpp m062/driver/pinned_firmware.cpp)
 target_include_directories(phaser360_pinned_owner_tests PRIVATE tests/fake_wdf)
 target_compile_features(phaser360_pinned_owner_tests PRIVATE cxx_std_17)
@@ -38,7 +41,7 @@ add_executable(phaser360_dma_owner_tests tests/sof_dma_owner_tests.cpp m062/driv
 target_include_directories(phaser360_dma_owner_tests PRIVATE tests/fake_wdf)
 target_link_libraries(phaser360_dma_owner_tests PRIVATE phaser360_hda_bdl)
 
-foreach(target phaser360_pinned_owner_tests phaser360_command_tests phaser360_ipc_tests phaser360_glk_boot_tests phaser360_rom_tests phaser360_stream_tests phaser360_hda_bdl phaser360_bdl_tests phaser360_dma_owner_tests phaser360_sof_boot phaser360_sof_boot_tests phaser360_sof_parser phaser360_sof_tests phaser360_sof_inspect phaser360_m051_resource_tests)
+foreach(target phaser360_pnp_resources_tests phaser360_pinned_owner_tests phaser360_command_tests phaser360_ipc_tests phaser360_glk_boot_tests phaser360_rom_tests phaser360_stream_tests phaser360_hda_bdl phaser360_bdl_tests phaser360_dma_owner_tests phaser360_sof_boot phaser360_sof_boot_tests phaser360_sof_parser phaser360_sof_tests phaser360_sof_inspect phaser360_m051_resource_tests)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX /permissive-)
     else()
@@ -51,6 +54,7 @@ foreach(target phaser360_pinned_owner_tests phaser360_command_tests phaser360_ip
 endforeach()
 
 enable_testing()
+add_test(NAME sof_pnp_resources COMMAND phaser360_pnp_resources_tests)
 add_test(NAME sof_pinned_owner COMMAND phaser360_pinned_owner_tests)
 add_test(NAME sof_command COMMAND phaser360_command_tests)
 add_test(NAME sof_ipc COMMAND phaser360_ipc_tests)

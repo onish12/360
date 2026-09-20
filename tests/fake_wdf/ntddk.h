@@ -44,7 +44,17 @@ ULONGLONG KeQueryInterruptTime();
 using BOOLEAN=unsigned char;
 constexpr BOOLEAN TRUE=1;
 constexpr UCHAR CmResourceTypeInterrupt=2;
-struct CM_PARTIAL_RESOURCE_DESCRIPTOR { UCHAR Type; };
+struct CM_PARTIAL_RESOURCE_DESCRIPTOR {
+    UCHAR Type;
+    USHORT Flags=0;
+    struct { struct { PHYSICAL_ADDRESS Start; ULONG Length; } Memory; } u={};
+};
+constexpr UCHAR CmResourceTypeMemory=3,CmResourceTypeMemoryLarge=7;
+constexpr USHORT CM_RESOURCE_MEMORY_READ_ONLY=1,CM_RESOURCE_MEMORY_WRITE_ONLY=2;
+constexpr ULONG PAGE_READWRITE=4,PAGE_NOCACHE=0x200;
+#define UNREFERENCED_PARAMETER(x) (void)(x)
+void* MmMapIoSpaceEx(PHYSICAL_ADDRESS,SIZE_T,ULONG);
+void MmUnmapIoSpace(void*,SIZE_T);
 using PCM_PARTIAL_RESOURCE_DESCRIPTOR=CM_PARTIAL_RESOURCE_DESCRIPTOR*;
 
 // Deterministic callback model only; not a multithreaded atomic implementation.
