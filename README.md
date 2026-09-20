@@ -77,7 +77,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   and work-item flush before DSP shutdown. This supplies the orderly drain
   required before next-D0 rebinding. WDK and Windows/Linux tests pass.
   Full PnP/removal policy remains unfinished.
-- **Working Windows audio:** not yet implemented. Authenticated image ownership,
+- **M0.6.12:** [Owned firmware identity gate](docs/M0612_PINNED_FIRMWARE.md).
+  Copies the complete reference image into owned memory and verifies its fixed
+  SHA-256 with Windows CNG before passing the bound XMan/payload to ColdPower.
+  WDK compilation, Windows/Linux tests and real Windows CNG fixture checks pass.
+  File identity is not hardware deployment approval or RSA-chain verification.
+- **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
 

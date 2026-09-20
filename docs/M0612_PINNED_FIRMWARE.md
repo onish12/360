@@ -86,3 +86,26 @@ nor WDK compilation is kernel execution or hardware compatibility validation.
 
 PnP/removal recovery, platform IRQ routing, machine/codec configuration, stream
 DMA and WaveRT remain incomplete. No installer or audio output is supplied.
+
+## Verified CI evidence (2026-09-20)
+
+Implementation commit: `55df6ee65c515fab4a10c2e30b1633e738d2b600`.
+Tree: `ebf9ae5d1c82f171944ec2775fb12b99945bb938`.
+
+- [WDK run 35493196228](https://github.com/onish12/360/actions/runs/35493196228),
+  job `106031539929`: real WDK library compilation and nine host tests pass.
+- [Offline run 35493196221](https://github.com/onish12/360/actions/runs/35493196221):
+  Windows job `106031540022` passes 13 CTest tests; Linux job `106031540163`
+  passes 11 CTest tests with ASan/UBSan instrumentation.
+- Windows fixture step additionally reports `SOF_CNG_PIN_TESTS=10 PASS`,
+  `crypto=REAL_WINDOWS_CNG; official_fixture=CHECKED`, and
+  `SOF_PINNED_REFERENCE_TESTS=12 PASS; crypto=REAL_WINDOWS_CNG; boot=SIMULATED`.
+- Ownership fault suite: `SOF_PINNED_OWNER_TESTS=30 PASS; hash=SIMULATED`.
+  The WDK job's native CNG test runs without the fixture; actual fixture checks
+  above run in the separate Windows offline job. No kernel/device execution.
+- [PHASER360_M0612_WDK_PINNED_FIRMWARE](https://github.com/onish12/360/actions/runs/35493196228/artifacts/10599517344):
+  ID `10599517344`, 222,965 bytes. GitHub reports SHA-256
+  `1768a4c5d9b29d9b40a14dd97747169ec430bd12c9140c1610c5a470ebb805d8`.
+  This archive digest is service metadata, not independently recomputed.
+
+A subsequent documentation-only commit records these results and README status.
