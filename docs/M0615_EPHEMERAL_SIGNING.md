@@ -1,6 +1,6 @@
 # M0.6.15H14.1 deterministic ephemeral signing gate
 
-H14.1 proves that the exact H13.1 package can be cryptographically signed and verified in CI without distributing a signed driver package or any private key. Tool discovery is pinned to the restored Microsoft.Windows.WDK.x64.10.0.28000.2526 package instead of recursively scanning the runner.
+H14.1 proves that the exact H13.1 package can be cryptographically signed and verified in CI without distributing a signed driver package or any private key. Tool discovery is deterministic: SignTool is supplied by the official `Microsoft.Windows.SDK.BuildTools` package pinned to 10.0.28000.2526, while Inf2Cat remains supplied by the matching `Microsoft.Windows.WDK.x64` package.
 
 It does not establish production Windows kernel acceptance on the Lenovo and it
 does not modify target trust.
@@ -60,7 +60,7 @@ Inf2Cat is rerun for 10_VB_X64 after SYS signing.
 
 ## Deterministic WDK tools
 
-H14.1 resolves SignTool from `c\\bin\\10.0.28000.0\\x64\\signtool.exe` and Inf2Cat from `c\\bin\\10.0.28000.0\\x86\\Inf2Cat.exe` inside the already pinned WDK NuGet package. The workflow emits begin/end markers for discovery, certificate creation/trust, SYS signing, Inf2Cat, CAT signing, verification and cleanup so a timeout identifies the exact operation.
+H14.1 resolves SignTool from `Microsoft.Windows.SDK.BuildTools.10.0.28000.2526\\bin\\10.0.28000.0\\x64\\signtool.exe` and Inf2Cat from `Microsoft.Windows.WDK.x64.10.0.28000.2526\\c\\bin\\10.0.28000.0\\x86\\Inf2Cat.exe`. The workflow emits begin/end markers for discovery, certificate creation/trust, SYS signing, Inf2Cat, CAT signing, verification and cleanup so a timeout identifies the exact operation.
 
 ## Verification and evidence
 

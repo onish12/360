@@ -345,8 +345,6 @@ jobs:
           }
           $inf2cat = $inf2catItem.FullName
           Write-Host "H13_INF2CAT_PATH=$inf2cat"
-
-          Write-Host 'H14_INF2CAT_BEGIN'
           & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
           if ($LASTEXITCODE -ne 0) { throw 'H13_INF2CAT_FAILED' }
 
@@ -382,8 +380,6 @@ jobs:
             'PLAYBACK=NO'
           ) | Set-Content -LiteralPath $report
           Write-Host "H13_INF2CAT=PASS; os=10_VB_X64; exact_hwid=YES; exact_os_build=19044; build_19045_plus=BLOCKED; kmdf=1.31; package_uploaded=FALSE; install_executed=FALSE; playback=NO"
-
-          Write-Host 'H14_CLEANUP_BEGIN'
           Remove-Item -LiteralPath $package -Recurse -Force
           if (Test-Path -LiteralPath $package) { throw 'H13_PACKAGE_DELETE_FAILED' }
           Remove-Item -LiteralPath $sys -Force
@@ -433,10 +429,10 @@ jobs:
           Copy-Item -LiteralPath .\m062\m1\phaser360_m1_boot.inf -Destination $inf
 
           Write-Host 'H14_TOOL_DISCOVERY_BEGIN'
+          $buildToolsPackage = (Resolve-Path .\m062\packages\Microsoft.Windows.SDK.BuildTools.10.0.28000.2526).Path
+          $signtool = Join-Path $buildToolsPackage 'bin\10.0.28000.0\x64\signtool.exe'
           $wdkPackage = (Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
-          $wdkBin = Join-Path $wdkPackage 'c\bin\10.0.28000.0'
-          $signtool = Join-Path $wdkBin 'x64\signtool.exe'
-          $inf2cat = Join-Path $wdkBin 'x86\Inf2Cat.exe'
+          $inf2cat = Join-Path $wdkPackage 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
           if (-not (Test-Path -LiteralPath $signtool -PathType Leaf)) { throw 'H14_SIGNTOOL_NOT_FOUND' }
           if (-not (Test-Path -LiteralPath $inf2cat -PathType Leaf)) { throw 'H14_INF2CAT_NOT_FOUND' }
           Write-Host "H14_SIGNTOOL_PATH=$signtool"

@@ -4,6 +4,8 @@ Set-StrictMode -Version 2
 $root=Join-Path $PSScriptRoot '..'
 $workflowPath=Join-Path $root '.github\workflows\build-m062-dma.yml'
 $workflow=Get-Content -LiteralPath $workflowPath -Raw
+$packagesPath=Join-Path $root 'm062\packages.config'
+$packages=Get-Content -LiteralPath $packagesPath -Raw
 
 foreach($required in @(
     'New-SelfSignedCertificate',
@@ -59,11 +61,15 @@ foreach($forbidden in @(
     }
 }
 
-if($workflow.IndexOf("Microsoft.Windows.WDK.x64.10.0.28000.2526",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-   $workflow.IndexOf("c\bin\10.0.28000.0",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-   $workflow.IndexOf("x64\signtool.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-   $workflow.IndexOf("x86\Inf2Cat.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0) {
-    throw 'H14_PINNED_WDK_TOOL_PATHS_MISSING'
+if($packages.IndexOf('Microsoft.Windows.SDK.BuildTools',[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $packages.IndexOf('version="10.0.28000.2526"',[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    throw 'H14_PINNED_BUILD_TOOLS_PACKAGE_MISSING'
+}
+if($workflow.IndexOf("Microsoft.Windows.SDK.BuildTools.10.0.28000.2526",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $workflow.IndexOf("bin\10.0.28000.0\x64\signtool.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $workflow.IndexOf("Microsoft.Windows.WDK.x64.10.0.28000.2526",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $workflow.IndexOf("c\bin\10.0.28000.0\x86\Inf2Cat.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    throw 'H14_PINNED_TOOL_PATHS_MISSING'
 }
 
 # Signing order must be: sign SYS -> Inf2Cat -> sign CAT.
