@@ -6,9 +6,26 @@
 
 namespace phaser360 { namespace windows {
 
+enum class PnpInterruptKind : UCHAR {
+    LineBased=0,
+    MessageSignaled
+};
+
 struct PnpInterruptResource {
     PCM_PARTIAL_RESOURCE_DESCRIPTOR raw=nullptr;
     PCM_PARTIAL_RESOURCE_DESCRIPTOR translated=nullptr;
+    PnpInterruptKind kind=PnpInterruptKind::LineBased;
+    UCHAR rawShareDisposition=0;
+    UCHAR translatedShareDisposition=0;
+    USHORT rawFlags=0;
+    USHORT translatedFlags=0;
+    USHORT messageCount=0; // raw MSI/MSI-X descriptor only
+    ULONG rawLevel=0;      // line-based only
+    ULONG rawVector=0;
+    ULONG_PTR rawAffinity=0;
+    ULONG translatedLevel=0;
+    ULONG translatedVector=0;
+    ULONG_PTR translatedAffinity=0;
 };
 
 enum class PnpPowerPhase : UCHAR {

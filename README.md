@@ -126,6 +126,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   consumer, codec, amplifier or playback is connected. Source `376c9a97`
   passes real WDK compilation, 10 WDK host tests, 14 Windows tests and 12 Linux
   ASan/UBSan tests; the PnP/power skeleton reports 313 passing assertions.
+- **M0.6.15E:** [interrupt resource inventory](docs/M0615_IRQ_INVENTORY.md).
+  Decodes line-based and message-signaled raw/translated interrupt descriptors
+  using the Windows-defined union selected by CM_RESOURCE_INTERRUPT_MESSAGE.
+  Vector, IRQL, affinity, sharing and message count are inventory only; no
+  descriptor is selected and WdfInterruptCreate is not called. Live Lenovo IRQ
+  shape remains a required read-only evidence step before interrupt binding.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

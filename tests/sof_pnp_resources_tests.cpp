@@ -9,6 +9,7 @@ using phaser360::windows::HardwareAccessGate;
 using phaser360::windows::PnpResources;
 using phaser360::windows::PnpResourceView;
 using phaser360::windows::PnpPowerPhase;
+using phaser360::windows::PnpInterruptKind;
 
 static unsigned checks=0,irql=0,mapCalls=0,failMap=0;
 static void check(bool ok) { ++checks; if(!ok) { std::cerr<<"PNP check failed: "<<checks<<'\n'; std::exit(1); } }
@@ -55,14 +56,39 @@ static CM_PARTIAL_RESOURCE_DESCRIPTOR memory(LONGLONG address,ULONG bytes) {
     CM_PARTIAL_RESOURCE_DESCRIPTOR d={}; d.Type=CmResourceTypeMemory;
     d.u.Memory.Start.QuadPart=address; d.u.Memory.Length=bytes; return d;
 }
-static CM_PARTIAL_RESOURCE_DESCRIPTOR interrupt() {
-    CM_PARTIAL_RESOURCE_DESCRIPTOR d={}; d.Type=CmResourceTypeInterrupt; return d;
+static CM_PARTIAL_RESOURCE_DESCRIPTOR lineInterrupt(ULONG level,ULONG vector,
+                                                    ULONG_PTR affinity,UCHAR share=3,
+                                                    USHORT flags=CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE) {
+    CM_PARTIAL_RESOURCE_DESCRIPTOR d={}; d.Type=CmResourceTypeInterrupt;
+    d.ShareDisposition=share; d.Flags=flags;
+    d.u.Interrupt.Level=level; d.u.Interrupt.Vector=vector; d.u.Interrupt.Affinity=affinity;
+    return d;
+}
+static CM_PARTIAL_RESOURCE_DESCRIPTOR messageRaw(USHORT count,ULONG vector,
+                                                ULONG_PTR affinity,UCHAR share=2,
+                                                USHORT extraFlags=CM_RESOURCE_INTERRUPT_LATCHED) {
+    CM_PARTIAL_RESOURCE_DESCRIPTOR d={}; d.Type=CmResourceTypeInterrupt;
+    d.ShareDisposition=share; d.Flags=USHORT(extraFlags|CM_RESOURCE_INTERRUPT_MESSAGE);
+    d.u.MessageInterrupt.Raw.MessageCount=count;
+    d.u.MessageInterrupt.Raw.Vector=vector;
+    d.u.MessageInterrupt.Raw.Affinity=affinity;
+    return d;
+}
+static CM_PARTIAL_RESOURCE_DESCRIPTOR messageTranslated(ULONG level,ULONG vector,
+                                                       ULONG_PTR affinity,UCHAR share=2,
+                                                       USHORT extraFlags=CM_RESOURCE_INTERRUPT_LATCHED) {
+    CM_PARTIAL_RESOURCE_DESCRIPTOR d={}; d.Type=CmResourceTypeInterrupt;
+    d.ShareDisposition=share; d.Flags=USHORT(extraFlags|CM_RESOURCE_INTERRUPT_MESSAGE);
+    d.u.MessageInterrupt.Translated.Level=level;
+    d.u.MessageInterrupt.Translated.Vector=vector;
+    d.u.MessageInterrupt.Translated.Affinity=affinity;
+    return d;
 }
 static FakeResourceList validTranslated() {
-    return {{memory(expectedAddresses[0],0x4000),interrupt(),memory(expectedAddresses[1],0x100000)},-1};
+    return {{memory(expectedAddresses[0],0x4000),lineInterrupt(5,0x51,0x0f),memory(expectedAddresses[1],0x100000)},-1};
 }
 static FakeResourceList validRaw() {
-    return {{memory(0x10000,0x4000),interrupt(),memory(0x200000,0x100000)},-1};
+    return {{memory(0x10000,0x4000),lineInterrupt(3,0x11,0x03),memory(0x200000,0x100000)},-1};
 }
 
 int main() {
@@ -120,6 +146,13 @@ int main() {
     { auto a=raw,b=translated; a.nullAt=1; rejected(a,b); }
     { auto a=raw,b=translated; b.entries.pop_back(); rejected(a,b); }
     { auto a=raw,b=translated; a.entries[1].Type=CmResourceTypeMemory; rejected(a,b); }
+    // Message/line disagreement makes the valid union member ambiguous.
+    { auto a=raw,b=translated; a.entries[1]=messageRaw(1,0x20,1); rejected(a,b); }
+    // Message resources with no messages are structurally unusable.
+    { auto a=raw,b=translated;
+      a.entries[1]=messageRaw(0,0x20,1);
+      b.entries[1]=messageTranslated(6,0x60,1);
+      rejected(a,b); }
     { auto a=raw,b=translated; b.entries.push_back(memory(0xd3000000,0x4000)); a.entries.push_back(memory(0x300000,0x4000)); rejected(a,b); }
     { auto a=raw,b=translated; std::swap(b.entries[0],b.entries[2]); rejected(a,b); }
     { auto a=raw,b=translated; b.entries[0].Type=CmResourceTypeMemoryLarge; a.entries[0].Type=CmResourceTypeMemoryLarge; rejected(a,b); }
@@ -139,7 +172,8 @@ int main() {
         a.entries.push_back(memory(0x10000,0x4000));
         b.entries.push_back(memory(expectedAddresses[0],0x4000));
         for(unsigned i=0;i<PnpResourceView::kMaxInterrupts+1;++i) {
-            a.entries.push_back(interrupt()); b.entries.push_back(interrupt());
+            a.entries.push_back(lineInterrupt(3,0x11+i,1));
+            b.entries.push_back(lineInterrupt(5,0x51+i,1));
         }
         a.entries.push_back(memory(0x200000,0x100000));
         b.entries.push_back(memory(expectedAddresses[1],0x100000));
@@ -191,8 +225,15 @@ int main() {
         check(view.hda==live[0].ptr && view.hdaLength==0x4000);
         check(view.dsp==live[1].ptr && view.dspLength==0x100000);
         check(view.interruptCount==1);
-        check(view.interrupts[0].raw==&raw.entries[1]);
-        check(view.interrupts[0].translated==&translated.entries[1]);
+        const auto& irq=view.interrupts[0];
+        check(irq.raw==&raw.entries[1] && irq.translated==&translated.entries[1]);
+        check(irq.kind==PnpInterruptKind::LineBased && irq.messageCount==0);
+        check(irq.rawShareDisposition==3 && irq.translatedShareDisposition==3);
+        check(irq.rawFlags==CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE);
+        check(irq.translatedFlags==CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE);
+        check(irq.rawLevel==3 && irq.rawVector==0x11 && irq.rawAffinity==0x03);
+        check(irq.translatedLevel==5 && irq.translatedVector==0x51 &&
+              irq.translatedAffinity==0x0f);
         check(!NT_SUCCESS(prepare(&device,&raw,&translated)) && mapCalls==2 && live.size()==2);
         irql=2; check(!NT_SUCCESS(release(&device,nullptr)) && live.size()==2); irql=0;
         check(NT_SUCCESS(release(&device,nullptr)));
@@ -202,6 +243,33 @@ int main() {
         check(unmaps==std::vector<SIZE_T>({0x100000,0x4000}));
         check(NT_SUCCESS(release(&device,nullptr)) && unmaps.size()==2);
     }
+
+    // Message-signaled resources use a different CM descriptor union. Inventory
+    // it without choosing a vector or creating a WDFINTERRUPT.
+    expectedAddresses={0x180004000LL,0x180100000LL};
+    translated=validTranslated(); raw=validRaw(); mapCalls=0; unmaps.clear();
+    raw.entries[1]=messageRaw(4,0x21,0x03,2,
+                              USHORT(CM_RESOURCE_INTERRUPT_LATCHED|CM_RESOURCE_INTERRUPT_WAKE_HINT));
+    translated.entries[1]=messageTranslated(
+        7,0x71,0x0c,2,
+        USHORT(CM_RESOURCE_INTERRUPT_LATCHED|CM_RESOURCE_INTERRUPT_WAKE_HINT));
+    check(NT_SUCCESS(prepare(&device,&raw,&translated)));
+    {
+        PnpResourceView messageView={};
+        check(owner.CopyPreparedView(&messageView) && messageView.interruptCount==1);
+        const auto& irq=messageView.interrupts[0];
+        check(irq.kind==PnpInterruptKind::MessageSignaled);
+        check(irq.raw==&raw.entries[1] && irq.translated==&translated.entries[1]);
+        check(irq.messageCount==4 && irq.rawLevel==0);
+        check(irq.rawVector==0x21 && irq.rawAffinity==0x03);
+        check(irq.translatedLevel==7 && irq.translatedVector==0x71 &&
+              irq.translatedAffinity==0x0c);
+        check((irq.rawFlags & CM_RESOURCE_INTERRUPT_MESSAGE)!=0 &&
+              (irq.translatedFlags & CM_RESOURCE_INTERRUPT_MESSAGE)!=0);
+        check((irq.rawFlags & CM_RESOURCE_INTERRUPT_WAKE_HINT)!=0 &&
+              (irq.translatedFlags & CM_RESOURCE_INTERRUPT_WAKE_HINT)!=0);
+    }
+    check(NT_SUCCESS(release(&device,nullptr)) && live.empty());
 
     // Surprise removal is terminal. Release may unmap resource-only mappings,
     // but the same owner/gate can never be prepared again.
@@ -259,5 +327,5 @@ int main() {
     check(entryFailGate.Removed() && entryFailOwner.PowerPhase()==PnpPowerPhase::NoResources);
 
     std::cout<<"SOF_PNP_RESOURCES_TESTS="<<checks
-             <<" PASS; power_skeleton=REGISTERED; surprise_callback=REGISTERED; paired_raw_translated=YES; irq_selection=DEFERRED; hardware=NOT_TOUCHED\n";
+             <<" PASS; irq_inventory=LINE_AND_MESSAGE; irq_selection=DEFERRED; power_skeleton=REGISTERED; surprise_callback=REGISTERED; paired_raw_translated=YES; hardware=NOT_TOUCHED\n";
 }

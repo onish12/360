@@ -143,7 +143,45 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
         if(descriptor->Type==CmResourceTypeInterrupt) {
             if(candidate.interruptCount==PnpResourceView::kMaxInterrupts)
                 return STATUS_DEVICE_CONFIGURATION_ERROR;
-            candidate.interrupts[candidate.interruptCount++]={rawDescriptor,descriptor};
+
+            const bool rawMessage=(rawDescriptor->Flags & CM_RESOURCE_INTERRUPT_MESSAGE)!=0;
+            const bool translatedMessage=(descriptor->Flags & CM_RESOURCE_INTERRUPT_MESSAGE)!=0;
+            // Raw and translated entries describe the same interrupt. A
+            // disagreement about which union member is valid is structurally
+            // ambiguous and must never reach WdfInterruptCreate.
+            if(rawMessage!=translatedMessage)
+                return STATUS_DEVICE_CONFIGURATION_ERROR;
+
+            auto& irq=candidate.interrupts[candidate.interruptCount++];
+            irq.raw=rawDescriptor;
+            irq.translated=descriptor;
+            irq.kind=rawMessage ? PnpInterruptKind::MessageSignaled
+                                : PnpInterruptKind::LineBased;
+            irq.rawShareDisposition=rawDescriptor->ShareDisposition;
+            irq.translatedShareDisposition=descriptor->ShareDisposition;
+            irq.rawFlags=rawDescriptor->Flags;
+            irq.translatedFlags=descriptor->Flags;
+
+            if(rawMessage) {
+                irq.messageCount=rawDescriptor->u.MessageInterrupt.Raw.MessageCount;
+                // MessageCount identifies how many MSI messages the raw
+                // resource represents. Zero would provide no usable message.
+                if(irq.messageCount==0) return STATUS_DEVICE_CONFIGURATION_ERROR;
+                irq.rawVector=rawDescriptor->u.MessageInterrupt.Raw.Vector;
+                irq.rawAffinity=static_cast<ULONG_PTR>(
+                    rawDescriptor->u.MessageInterrupt.Raw.Affinity);
+                irq.translatedLevel=descriptor->u.MessageInterrupt.Translated.Level;
+                irq.translatedVector=descriptor->u.MessageInterrupt.Translated.Vector;
+                irq.translatedAffinity=static_cast<ULONG_PTR>(
+                    descriptor->u.MessageInterrupt.Translated.Affinity);
+            } else {
+                irq.rawLevel=rawDescriptor->u.Interrupt.Level;
+                irq.rawVector=rawDescriptor->u.Interrupt.Vector;
+                irq.rawAffinity=static_cast<ULONG_PTR>(rawDescriptor->u.Interrupt.Affinity);
+                irq.translatedLevel=descriptor->u.Interrupt.Level;
+                irq.translatedVector=descriptor->u.Interrupt.Vector;
+                irq.translatedAffinity=static_cast<ULONG_PTR>(descriptor->u.Interrupt.Affinity);
+            }
             continue;
         }
 

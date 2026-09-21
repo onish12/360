@@ -46,11 +46,36 @@ constexpr BOOLEAN TRUE=1;
 constexpr UCHAR CmResourceTypeInterrupt=2;
 struct CM_PARTIAL_RESOURCE_DESCRIPTOR {
     UCHAR Type;
+    UCHAR ShareDisposition=0;
     USHORT Flags=0;
-    struct { struct { PHYSICAL_ADDRESS Start; ULONG Length; } Memory; } u={};
+    union {
+        struct { PHYSICAL_ADDRESS Start; ULONG Length; } Memory;
+        struct { ULONG Level; ULONG Vector; ULONG_PTR Affinity; } Interrupt;
+        struct {
+            union {
+                struct {
+                    USHORT Group;
+                    USHORT Reserved;
+                    USHORT MessageCount;
+                    ULONG Vector;
+                    ULONG_PTR Affinity;
+                } Raw;
+                struct {
+                    ULONG Level;
+                    ULONG Vector;
+                    ULONG_PTR Affinity;
+                } Translated;
+            };
+        } MessageInterrupt;
+    } u={};
 };
 constexpr UCHAR CmResourceTypeMemory=3,CmResourceTypeMemoryLarge=7;
 constexpr USHORT CM_RESOURCE_MEMORY_READ_ONLY=1,CM_RESOURCE_MEMORY_WRITE_ONLY=2;
+constexpr USHORT CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE=0x0000;
+constexpr USHORT CM_RESOURCE_INTERRUPT_LATCHED=0x0001;
+constexpr USHORT CM_RESOURCE_INTERRUPT_MESSAGE=0x0002;
+constexpr USHORT CM_RESOURCE_INTERRUPT_SECONDARY_INTERRUPT=0x0010;
+constexpr USHORT CM_RESOURCE_INTERRUPT_WAKE_HINT=0x0020;
 constexpr ULONG PAGE_READWRITE=4,PAGE_NOCACHE=0x200;
 #define UNREFERENCED_PARAMETER(x) (void)(x)
 void* MmMapIoSpaceEx(PHYSICAL_ADDRESS,SIZE_T,ULONG);
