@@ -258,6 +258,10 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   x64/Native PE headers, requires the production BCrypt CNG imports, and rejects
   user-mode DLLs plus PortCls/KS/DRMK/ACX imports. Only the textual header/import
   reports are staged; the SYS and firmware fixture remain deleted before upload.
+  Final H9 source `0b8a0b2f` passes real WDK compilation, 10 WDK host
+  regressions, 14 Windows tests and 12 Linux tests. The temporary 338,944-byte
+  SYS is x64/Native, retains all required BCrypt imports, and has no user-mode
+  DLL or Windows audio-stack import; it is deleted before upload.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

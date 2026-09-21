@@ -115,3 +115,53 @@ H9 does not add:
 
 Physical M1 remains blocked until the binary audit is green and a separate,
 reviewed recovery + target-identity package exists.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final H9 source/runner-fix commit:
+`0b8a0b2f5fc4a5182c6a689d0b37a7a30de9fc81`.
+Tree: `cb2ba8057f5d3c3e2e69011d6d9fc3dbe4517d0b`.
+
+The first H9 source commit `ea0695d0` failed only because the workflow
+invoked `dumpbin` by PATH name on the hosted runner. The final commit resolves
+the x64 Hostx64/x64 dumpbin explicitly through the installed Visual Studio
+toolchain. No driver production source changed in that correction.
+
+Final verification:
+
+- WDK/KMDF run `35629003161`, job `106430333102`: real WDK
+  static-library compilation passes and all 10 selected host regressions pass.
+- PnP remains `SOF_PNP_RESOURCES_TESTS=516 PASS`.
+- Repeated-D0 model remains `SOF_GLK_BOOT_TESTS=327105 PASS`.
+- Pinned firmware owner remains `SOF_PINNED_OWNER_TESTS=34 PASS`.
+- H6/H7/H8 static guards remain green.
+- Temporary real KMDF SYS:
+  - 338,944 bytes;
+  - SHA-256
+    `1e34a821fb7444b8bb270cddd7c1c043281d82897fb67f5d636061ac419275fb`;
+  - PE machine x64;
+  - subsystem Native.
+- H9 runtime import audit reports
+  `H9_PE_AUDIT=PASS; machine=X64; subsystem=NATIVE;
+  cng_imports=PRESENT; usermode_imports=NONE; audio_imports=NONE;
+  sys_uploaded=FALSE`.
+- The final image contains all required BCrypt imports used by the runtime
+  firmware identity check and no PortCls/KS/DRMK/ACX import.
+- H9 static guard reports
+  `H9_PE_AUDIT_STATIC_TESTS=PASS; headers=REQUIRED; imports=REQUIRED;
+  cng_import=REQUIRED; usermode_imports=FORBIDDEN;
+  audio_imports=FORBIDDEN; sys_upload=NO; inf=ABSENT; playback=NO`.
+- Windows/Linux offline run `35629009717`: Windows job
+  `106430355542` passes 14/14 plus the generated-provider
+  `H7_EMBEDDED_FIRMWARE_TESTS=19 PASS`; Linux job
+  `106430355308` passes 12/12.
+- Official Windows fixture remains
+  `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`.
+- Report-only artifact `PHASER360_M0615H9_PE_AUDIT_REPORT`: ID
+  `10653831424`, 480,967 bytes; GitHub archive SHA-256
+  `f5369342f335309812dba1b59dc8cdd968f9a6eb24abb3d45fb36a7b4e895853`.
+
+The SYS and firmware fixture are deleted before artifact upload. H9 authorizes
+no physical Lenovo execution and no audio path.
