@@ -302,6 +302,14 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   KMDF 1.31 driver links; the temporary driver is 342,016 bytes with SHA-256
   `8f69789c237a7f997320c17c8297ce860bebb8fb698de084ca3334c22bc0d8b4`.
   No INF/SYS is distributed and physical execution remains unauthorized.
+- **M0.6.15H13:** [exact-target INF signability and baseline backup](docs/M0615_INF_SIGNABILITY.md).
+  Adds an INF that matches only the reviewed DEV_3198/SUBSYS_00000000/REV_06
+  hardware identity, uses a demand-start KMDF 1.31 service, and contains no
+  filter or audio-endpoint installation. CI temporarily assembles SYS+INF,
+  validates the package with Inf2Cat for Windows 10 10_VB_X64, records hashes,
+  then deletes SYS/INF/CAT before artifact upload. A separate target-side script
+  can later export and hash the currently bound Intel package with
+  pnputil /export-driver only; it performs no installation or device mutation.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
