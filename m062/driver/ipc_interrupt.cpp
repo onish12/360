@@ -34,6 +34,57 @@ NTSTATUS IpcInterrupt::CreateDormant(WDFDEVICE device) noexcept {
     hardwareEnableAllowed_=false;
     return CreateObjects(device,nullptr,nullptr);
 }
+bool IpcInterrupt::BindDormant(const PnpDormantInterruptBinding& binding,
+                               GlkBoot* boot) noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !created_ ||
+       hardwareEnableAllowed_ || !boot || !binding.gate || !binding.gate->Allowed() ||
+       !binding.dsp || (reinterpret_cast<ULONG_PTR>(binding.dsp)&3) ||
+       binding.dspLength!=0x100000 || !binding.raw || !binding.translated ||
+       binding.raw->Type!=CmResourceTypeInterrupt ||
+       binding.translated->Type!=CmResourceTypeInterrupt)
+        return false;
+
+    const bool rawMessage=(binding.raw->Flags & CM_RESOURCE_INTERRUPT_MESSAGE)!=0;
+    const bool translatedMessage=(binding.translated->Flags & CM_RESOURCE_INTERRUPT_MESSAGE)!=0;
+    if(rawMessage!=translatedMessage) return false;
+    if(binding.kind==PnpInterruptKind::MessageSignaled) {
+        if(!rawMessage || binding.messageCount!=1) return false;
+    } else if(rawMessage || binding.messageCount!=0) {
+        return false;
+    }
+
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    bool result=!boot_ && !dsp_ && !enableSeen_ && !enabled_ && !everArmed_ &&
+                !stopped_ && !fault_ && !admissionClosed_ && boot->Fresh();
+    if(result) {
+        result=boot->BindAccessGate(binding.gate) &&
+               boot->AccessGate()==binding.gate && boot->AccessAllowed() &&
+               binding.gate->Allowed();
+    }
+    if(result) { boot_=boot; dsp_=binding.dsp; }
+    WdfWaitLockRelease(serial_);
+    return result;
+}
+
+bool IpcInterrupt::UnbindDormant() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !created_ ||
+       hardwareEnableAllowed_)
+        return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    const bool disconnected=!enabled_ && (!enableSeen_ || disableSeen_);
+    const bool result=boot_ && dsp_ && disconnected && !everArmed_ &&
+        !ready_ && InterlockedCompareExchange(&pendingWork_,0,0)==0;
+    if(result) {
+        boot_=nullptr; dsp_=nullptr;
+        admissionClosed_=false; closed_=false; disconnectedSeen_=false;
+        enableFailed_=false; disableMasked_=false; drained_=false;
+        enableSeen_=false; disableSeen_=false;
+        armed_=false; enabled_=false; ready_=false; fault_=false; stopped_=false;
+    }
+    WdfWaitLockRelease(serial_);
+    return result;
+}
+
 NTSTATUS IpcInterrupt::Create(WDFDEVICE device,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
                               PCM_PARTIAL_RESOURCE_DESCRIPTOR translated,GlkBoot* boot,
                               UCHAR* dsp,ULONG length) noexcept {
@@ -102,15 +153,17 @@ BOOLEAN IpcInterrupt::Synchronized(WDFINTERRUPT,WDFCONTEXT context) {
 bool IpcInterrupt::Sync(Operation operation) noexcept {
     // Lifecycle callers serialize against Enable/Disable. Workers are excluded
     // by Stop's admission gate before framework Disable, even on mask failure.
-    if(!boot_ || !boot_->AccessAllowed() || !enableSeen_ || enableFailed_ ||
-       disableSeen_ || disconnectedSeen_) return false;
+    if(!hardwareEnableAllowed_ || !boot_ || !boot_->AccessAllowed() ||
+       !enableSeen_ || enableFailed_ || disableSeen_ || disconnectedSeen_)
+        return false;
     SyncRequest request={this,operation};
     return WdfInterruptSynchronize(interrupt_,Synchronized,&request)!=FALSE;
 }
 bool IpcInterrupt::CanStartBeforeEnable() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=boot_ && boot_->AccessAllowed() && !enableSeen_ && !admissionClosed_;
+    const bool result=hardwareEnableAllowed_ && boot_ && boot_->AccessAllowed() &&
+        !enableSeen_ && !admissionClosed_;
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::CancelBeforeEnable() noexcept {

@@ -307,3 +307,37 @@ bool phaser360::windows::PnpResources::CopySingleInterruptForCreate(
     }
     return true;
 }
+
+bool phaser360::windows::PnpResources::CopyDormantInterruptBinding(
+    PnpDormantInterruptBinding* out) const noexcept {
+    if(!out) return false;
+    *out=PnpDormantInterruptBinding{};
+
+    PnpResourceView snapshot{};
+    PnpInterruptResource selected{};
+    if(!CopyPreparedView(&snapshot) || snapshot.interruptCount!=1 ||
+       !CopySingleInterruptForCreate(&selected))
+        return false;
+
+    const auto& only=snapshot.interrupts[0];
+    if(!snapshot.dsp || snapshot.dspLength!=0x100000 ||
+       selected.raw!=only.raw || selected.translated!=only.translated ||
+       selected.kind!=only.kind || selected.messageCount!=only.messageCount ||
+       !gate_ || !gate_->Allowed())
+        return false;
+
+    PnpDormantInterruptBinding candidate{};
+    candidate.gate=gate_;
+    candidate.dsp=snapshot.dsp;
+    candidate.dspLength=snapshot.dspLength;
+    candidate.raw=selected.raw;
+    candidate.translated=selected.translated;
+    candidate.kind=selected.kind;
+    candidate.messageCount=selected.messageCount;
+
+    // SurpriseRemoval is terminal and may race this serialized PnP reader.
+    // Never publish a binding after the gate has closed.
+    if(!candidate.gate->Allowed()) return false;
+    *out=candidate;
+    return true;
+}

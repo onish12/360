@@ -184,6 +184,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   `c7681b7d` passes real WDK compilation, 10 WDK host tests, 14 Windows
   tests and 12 Linux tests; the integrated wrapper model reports 265,918
   assertions with hardware untouched.
+- **M0.6.15H2:** [dormant PnP-to-IRQ binding](docs/M0615_DORMANT_IRQ_BINDING.md).
+  Exports the single admitted PnP interrupt plus the current mapped DSP BAR as
+  a short-lived software binding and attaches it to the device-lifetime IRQ
+  shell. Explicit unbind prevents a BAR pointer from surviving
+  ReleaseHardware. ColdPower, Sync and hardware Enable remain blocked because
+  no MMIO grant exists yet.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

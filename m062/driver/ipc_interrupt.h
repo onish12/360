@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "glk_boot.h"
+#include "pnp_resources.h"
 namespace phaser360 { namespace windows {
 // Device-context lifetime. Create in PrepareHardware, Arm after successful boot
 // in D0. Stop in D0ExitPreInterruptsDisabled BEFORE boot shutdown/BAR unmapping.
@@ -14,6 +15,10 @@ public:
     // DeviceAdd-only shell: WDF owns one device-lifetime interrupt object and
     // receives its assigned resource later. No boot/DSP binding and no MMIO.
     NTSTATUS CreateDormant(WDFDEVICE) noexcept;
+    // H2 software binding only. The WDF object already exists and remains
+    // hardware-inert: this does not grant MMIO in Enable/ISR/Sync paths.
+    bool BindDormant(const PnpDormantInterruptBinding&,GlkBoot*) noexcept;
+    bool UnbindDormant() noexcept;
     // Legacy/precomposed test entry: creates with explicit assigned descriptors.
     NTSTATUS Create(WDFDEVICE,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
                     PCM_PARTIAL_RESOURCE_DESCRIPTOR translated,GlkBoot*,UCHAR* dsp,ULONG length) noexcept;

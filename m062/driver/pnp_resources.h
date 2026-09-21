@@ -46,6 +46,19 @@ struct PnpResourceView {
     ULONG interruptCount=0;
 };
 
+// Short-lived software handoff from the prepared PnP owner to the dormant
+// device-lifetime interrupt shell. Descriptor pointers remain borrowed from
+// PrepareHardware and must never be retained past ReleaseHardware.
+struct PnpDormantInterruptBinding {
+    HardwareAccessGate* gate=nullptr;
+    UCHAR* dsp=nullptr;
+    ULONG dspLength=0;
+    PCM_PARTIAL_RESOURCE_DESCRIPTOR raw=nullptr;
+    PCM_PARTIAL_RESOURCE_DESCRIPTOR translated=nullptr;
+    PnpInterruptKind kind=PnpInterruptKind::LineBased;
+    USHORT messageCount=0;
+};
+
 // Resource-lifetime PnP adapter. Still not a boot/audio driver.
 //
 // PrepareHardware validates raw/translated pairing, maps the two measured GLK
@@ -77,6 +90,9 @@ public:
     // DEV_3198 hardware contract. Does not create/enable a WDF interrupt.
     // LINE is accepted. MESSAGE is accepted only for exactly one raw message.
     bool CopySingleInterruptForCreate(PnpInterruptResource*) const noexcept;
+    // M0.6.15H2: export one short-lived, software-only binding contract for the
+    // dormant WDF interrupt shell. Does not call WdfInterruptCreate or MMIO.
+    bool CopyDormantInterruptBinding(PnpDormantInterruptBinding*) const noexcept;
 
 private:
     WDFDEVICE device_=nullptr;

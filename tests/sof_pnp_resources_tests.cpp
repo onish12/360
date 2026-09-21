@@ -11,6 +11,7 @@ using phaser360::windows::PnpResourceView;
 using phaser360::windows::PnpPowerPhase;
 using phaser360::windows::PnpInterruptKind;
 using phaser360::windows::PnpInterruptResource;
+using phaser360::windows::PnpDormantInterruptBinding;
 
 static unsigned checks=0,irql=0,mapCalls=0,failMap=0;
 static void check(bool ok) { ++checks; if(!ok) { std::cerr<<"PNP check failed: "<<checks<<'\n'; std::exit(1); } }
@@ -239,6 +240,13 @@ int main() {
         check(owner.CopySingleInterruptForCreate(&selected));
         check(selected.raw==irq.raw && selected.translated==irq.translated &&
               selected.kind==PnpInterruptKind::LineBased && selected.messageCount==0);
+        PnpDormantInterruptBinding binding{};
+        check(owner.CopyDormantInterruptBinding(&binding));
+        check(binding.gate==&gate && binding.dsp==view.dsp &&
+              binding.dspLength==0x100000 && binding.raw==irq.raw &&
+              binding.translated==irq.translated &&
+              binding.kind==PnpInterruptKind::LineBased &&
+              binding.messageCount==0);
         check(!NT_SUCCESS(prepare(&device,&raw,&translated)) && mapCalls==2 && live.size()==2);
         irql=2; check(!NT_SUCCESS(release(&device,nullptr)) && live.size()==2); irql=0;
         check(NT_SUCCESS(release(&device,nullptr)));
@@ -248,6 +256,10 @@ int main() {
         PnpInterruptResource releasedSelected{};
         releasedSelected.raw=reinterpret_cast<PCM_PARTIAL_RESOURCE_DESCRIPTOR>(1);
         check(!owner.CopySingleInterruptForCreate(&releasedSelected) && releasedSelected.raw==nullptr);
+        PnpDormantInterruptBinding releasedBinding{};
+        releasedBinding.dsp=reinterpret_cast<UCHAR*>(1);
+        check(!owner.CopyDormantInterruptBinding(&releasedBinding) &&
+              releasedBinding.dsp==nullptr && releasedBinding.gate==nullptr);
         check(unmaps==std::vector<SIZE_T>({0x100000,0x4000}));
         check(NT_SUCCESS(release(&device,nullptr)) && unmaps.size()==2);
     }
@@ -279,6 +291,8 @@ int main() {
         PnpInterruptResource selected{};
         selected.raw=reinterpret_cast<PCM_PARTIAL_RESOURCE_DESCRIPTOR>(1);
         check(!owner.CopySingleInterruptForCreate(&selected) && selected.raw==nullptr);
+        PnpDormantInterruptBinding binding{};
+        check(!owner.CopyDormantInterruptBinding(&binding) && binding.dsp==nullptr);
     }
     check(NT_SUCCESS(release(&device,nullptr)) && live.empty());
 
@@ -296,6 +310,14 @@ int main() {
               selected.messageCount==1 &&
               selected.raw==&raw.entries[1] &&
               selected.translated==&translated.entries[1]);
+        PnpDormantInterruptBinding binding{};
+        check(owner.CopyDormantInterruptBinding(&binding));
+        check(binding.gate==&gate && binding.dsp==live[1].ptr &&
+              binding.dspLength==0x100000 &&
+              binding.kind==PnpInterruptKind::MessageSignaled &&
+              binding.messageCount==1 &&
+              binding.raw==&raw.entries[1] &&
+              binding.translated==&translated.entries[1]);
     }
     check(NT_SUCCESS(release(&device,nullptr)) && live.empty());
 
@@ -313,6 +335,8 @@ int main() {
         check(owner.CopyPreparedView(&view) && view.interruptCount==2);
         PnpInterruptResource selected{};
         check(!owner.CopySingleInterruptForCreate(&selected) && selected.raw==nullptr);
+        PnpDormantInterruptBinding binding{};
+        check(!owner.CopyDormantInterruptBinding(&binding) && binding.dsp==nullptr);
     }
     check(NT_SUCCESS(release(&device,nullptr)) && live.empty());
 
@@ -327,6 +351,9 @@ int main() {
     surprise(&device);
     check(gate.Removed() && !gate.Allowed() && !owner.Prepared());
     PnpResourceView view={}; check(!owner.CopyPreparedView(&view));
+    PnpDormantInterruptBinding removedBinding{};
+    check(!owner.CopyDormantInterruptBinding(&removedBinding) &&
+          removedBinding.gate==nullptr && removedBinding.dsp==nullptr);
     // Surprise removal from D0 still unwinds through the pre-disable and D0Exit
     // callbacks; neither callback is allowed to require hardware access.
     check(!NT_SUCCESS(release(&device,nullptr)) && live.size()==2);
@@ -372,5 +399,5 @@ int main() {
     check(entryFailGate.Removed() && entryFailOwner.PowerPhase()==PnpPowerPhase::NoResources);
 
     std::cout<<"SOF_PNP_RESOURCES_TESTS="<<checks
-             <<" PASS; irq_inventory=LINE_AND_MESSAGE; irq_admission=SINGLE_PAIR_LINE_OR_ONE_MESSAGE; wdf_interrupt_create=NO; power_skeleton=REGISTERED; surprise_callback=REGISTERED; paired_raw_translated=YES; hardware=NOT_TOUCHED\n";
+             <<" PASS; irq_inventory=LINE_AND_MESSAGE; irq_admission=SINGLE_PAIR_LINE_OR_ONE_MESSAGE; dormant_binding=PNP_TO_IRQ_SHELL_SOFTWARE_ONLY; wdf_interrupt_create=NO; power_skeleton=REGISTERED; surprise_callback=REGISTERED; paired_raw_translated=YES; hardware=NOT_TOUCHED\n";
 }

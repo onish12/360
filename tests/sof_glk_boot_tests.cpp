@@ -301,6 +301,60 @@ int main() {
         forbidMmio=false;
         FrameworkDeleteChildren();
     }
+    // M0.6.15H2: bind the dormant shell to one admitted PnP/DSP lifetime,
+    // but do not grant hardware enable. ColdPower and Sync must remain blocked.
+    Reset(); {
+        GlkBoot boot;
+        IpcInterrupt bridge;
+        CHECK(NT_SUCCESS(bridge.CreateDormant(&checks)));
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={};
+        CM_PARTIAL_RESOURCE_DESCRIPTOR translated={};
+        raw.Type=CmResourceTypeInterrupt;
+        translated.Type=CmResourceTypeInterrupt;
+        raw.Flags=CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        translated.Flags=CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&accessGate;
+        binding.dsp=dsp.data();
+        binding.dspLength=0x100000;
+        binding.raw=&raw;
+        binding.translated=&translated;
+        binding.kind=PnpInterruptKind::LineBased;
+        binding.messageCount=0;
+
+        auto bad=binding;
+        bad.dspLength=0x4000;
+        CHECK(!bridge.BindDormant(bad,&boot));
+        bad=binding; bad.messageCount=1;
+        CHECK(!bridge.BindDormant(bad,&boot));
+        irql=2; CHECK(!bridge.BindDormant(binding,&boot)); irql=0;
+
+        CHECK(bridge.BindDormant(binding,&boot));
+        CHECK(boot.AccessGate()==&accessGate && boot.Fresh());
+        CHECK(!bridge.BindDormant(binding,&boot));
+        CHECK(!bridge.CanStartBeforeEnable());
+
+        const auto writesBefore=dspWrites;
+        const auto syncBefore=synchronizeCalls;
+        forbidMmio=true;
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(!bridge.UnbindDormant()); // connected shell cannot drop BAR lifetime
+        CHECK(!Interrupt() && !queued);
+        CHECK(!bridge.Running() && !bridge.Arm());
+        CHECK(!bridge.CanStartBeforeEnable());
+        CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore && !queued);
+        CHECK(bridge.UnbindDormant());
+        CHECK(!bridge.UnbindDormant());
+
+        // Device-lifetime shell can take a fresh prepared-resource binding
+        // again after framework disconnect and software unbind.
+        CHECK(bridge.BindDormant(binding,&boot));
+        CHECK(!bridge.CanStartBeforeEnable());
+        CHECK(bridge.UnbindDormant());
+        forbidMmio=false;
+        FrameworkDeleteChildren();
+    }
     Reset(); { GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt},translated=raw;
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&translated,&boot,dsp.data(),0x100000)));
         CHECK(!bridge.Arm()); CHECK(NT_SUCCESS(FrameworkEnable(true)));
