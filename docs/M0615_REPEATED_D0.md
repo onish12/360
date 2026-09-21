@@ -165,3 +165,41 @@ H5 does not add:
 - WaveRT/ACX stream playback.
 
 No audio output is authorized by H5.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final H5 source commit:
+`be18501b8843c698dc7eebe18e77f90f22b6bf57`.
+Tree: `e17bede4ce3db6ac2ff13abd886499d4ace8d80b`.
+
+The preceding H5 commit `0262e02b` passed Windows/Linux host tests but failed
+the real WDK compile because including the standard `<new>` header pulled
+exception declarations that are invalid under `/kernel`. H5 was corrected to
+use a minimal kernel-safe placement-new overload while retaining
+`WdfMemoryCreate` as the only allocation source. No lifecycle logic changed in
+that correction.
+
+- WDK/KMDF run `35614629909`, job `106382055406`: real WDK
+  compilation passes and all 10 selected host tests pass.
+- PnP remains `SOF_PNP_RESOURCES_TESTS=516 PASS;
+  lifecycle_hooks=ORDERED_FAIL_CLOSED; hardware=NOT_TOUCHED`.
+- Integrated boot/IRQ/repeated-D0 model reports
+  `SOF_GLK_BOOT_TESTS=327105 PASS; windows_api=SIMULATED; hardware=NONE`.
+- Windows/Linux run `35614629792`: Windows job `106382054937`
+  passes all 14 tests and Linux job `106382054580` passes all 12 tests.
+- Windows official firmware identity checks remain
+  `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`.
+- F4 read-only collector guards remain green:
+  `IRQ_CAPTURE_SELFTEST=PASS`,
+  `IRQ_CAPTURE_STATIC_TESTS=PASS`,
+  `cfgmgr_readonly=YES`,
+  `mutation_commands=REJECTED`.
+- Development artifact `PHASER360_M0615H5_FRESH_PER_D0`: ID
+  `10646360670`, 401,353 bytes. GitHub reports archive SHA-256
+  `b3c5e3675dd9619e1c57c748a307ed4d8682cf9bd63b29c55c27d7c5a3659493`.
+
+H5 remains non-installable and was not executed on the physical Lenovo.
+No codec/amplifier programming, stream playback or Windows audio endpoint is
+present.
