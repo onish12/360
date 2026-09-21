@@ -141,7 +141,10 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   `/enum-devices` with read-only enumeration switches. It records raw
   `/resources` output, full PnP/device properties, before/after binding state
   and SHA-256 sums. No driver install/bind, restart, MMIO, DSP boot,
-  WdfInterruptCreate, IRQ selection or playback is performed.
+  WdfInterruptCreate, IRQ selection or playback is performed. Source
+  `905ea62a` passes real WDK compilation, 10/10 selected host tests and the
+  collector's read-only/self-test guards; the live Lenovo capture is now the
+  required next evidence step.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

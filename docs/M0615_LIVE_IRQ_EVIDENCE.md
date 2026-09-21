@@ -55,3 +55,40 @@ deferred and a separate read-only kernel resource probe must be designed.
 
 No value in this evidence package authorizes DSP boot, interrupt binding,
 MAX98357A enable, codec programming or playback.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final source commit: `905ea62a67e13d6824623920ddab1de92af01f7d`.
+Tree: `52e38488f9932a3068451fa1e52d22e122899f53`.
+
+- Workflow run `35575050669`, WDK job `106254900340`: real WDK/KMDF
+  compilation passes.
+- The selected kernel/host regression set passes 10/10 tests. PnP remains
+  `SOF_PNP_RESOURCES_TESTS=360 PASS; irq_inventory=LINE_AND_MESSAGE;
+  irq_selection=DEFERRED; power_skeleton=REGISTERED;
+  surprise_callback=REGISTERED; paired_raw_translated=YES;
+  hardware=NOT_TOUCHED`.
+- Collector self-test reports
+  `IRQ_CAPTURE_SELFTEST=PASS; readonly_enum_only=YES;
+  mutation_commands=REJECTED`.
+- Static collector checks report
+  `IRQ_CAPTURE_STATIC_TESTS=PASS; syntax=PASS; launcher_pause=YES;
+  pnputil_wrapped=YES`.
+- Development artifact `PHASER360_M0615F_READONLY_IRQ_CAPTURE`: ID
+  `10627489354`, 286,389 bytes. GitHub reports archive SHA-256
+  `a471a37a6b5fe37e941368274193cdaedde4ab96d977ff9efea554e686ddda9f`.
+  This is service-reported archive metadata, not an independently recomputed
+  hash of a locally downloaded artifact.
+
+Two CI-harness defects were found and corrected before closure. The first static
+test looked for a direct `& $pnp` invocation even though PnPUtil was correctly
+centralized in `Invoke-PnpReadOnly` as `& $PnPUtil`. The corrected test now
+requires exactly one wrapped invocation and zero direct main-flow invocations.
+The second harness checked a stale `$LASTEXITCODE` after a PowerShell script
+that had already reported PASS; the workflow now uses PowerShell success state
+and terminating errors for that script step.
+
+M0.6.15F is therefore cleared only for the documented read-only evidence
+capture. It does not authorize IRQ binding, WdfInterruptCreate, DSP boot,
+codec/amplifier programming or playback.
