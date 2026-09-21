@@ -24,6 +24,17 @@ foreach($required in @(
     'TARGET_TRUST_MODIFIED=FALSE',
     'H14_PACKAGE_UPLOADED=FALSE',
     'H14_INSTALL_EXECUTED=FALSE',
+    'H14_TOOL_DISCOVERY_BEGIN',
+    'H14_SIGNTOOL_PATH=',
+    'H14_INF2CAT_PATH=',
+    'H14_CERT_CREATE_BEGIN',
+    'H14_CERT_TRUST_BEGIN',
+    'H14_SYS_SIGN_BEGIN',
+    'H14_INF2CAT_BEGIN',
+    'H14_CAT_SIGN_BEGIN',
+    'H14_VERIFY_BEGIN',
+    'H14_CLEANUP_BEGIN',
+    'H14_CLEANUP_END',
     'Remove-Item -LiteralPath $package -Recurse -Force'
 )) {
     if($workflow.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
@@ -46,6 +57,13 @@ foreach($forbidden in @(
     if($workflow.IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0) {
         throw "H14_WORKFLOW_FORBIDDEN_PRESENT: $forbidden"
     }
+}
+
+if($workflow.IndexOf("Microsoft.Windows.WDK.x64.10.0.28000.2526",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $workflow.IndexOf("c\\bin\\10.0.28000.0",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $workflow.IndexOf("x64\\signtool.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $workflow.IndexOf("x86\\Inf2Cat.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    throw 'H14_PINNED_WDK_TOOL_PATHS_MISSING'
 }
 
 # Signing order must be: sign SYS -> Inf2Cat -> sign CAT.
