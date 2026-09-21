@@ -230,3 +230,39 @@ Tree: `f03d1caab753432643d1fcd927fdd696aa676aed`.
 F3 is cleared only for the read-only live evidence capture on the Windows 10
 21H2 target. It still does not authorize IRQ binding, WdfInterruptCreate, DSP
 boot, codec/amplifier programming or playback.
+
+
+## M0.6.15F4 — Configuration Manager allocated-resource fallback
+
+The first live F3 execution on the Windows 10 21H2 target failed before any
+capture because SetupDiGetDeviceRegistryProperty(SPDRP_ALLOC_CONFIG) did not
+return that property for the present DEV_3198 devnode. Microsoft documents
+ERROR_INVALID_DATA when the requested property does not exist or its data is
+not valid. F3 performed no mutation and is therefore withdrawn for this target.
+
+F4 removes SPDRP_ALLOC_CONFIG from the Windows 10 path. It resolves the exact
+DEV_3198 devnode with CM_Locate_DevNodeW, obtains its ALLOC_LOG_CONF through
+CM_Get_First_Log_Conf, enumerates resource descriptors with
+CM_Get_Next_Res_Des, and copies each descriptor through
+CM_Get_Res_Des_Data_Size plus CM_Get_Res_Des_Data.
+
+Only handle-release functions CM_Free_Res_Des_Handle and
+CM_Free_Log_Conf_Handle are used. Mutating APIs such as CM_Add_Res_Des,
+CM_Modify_Res_Des, CM_Free_Res_Des and CM_Free_Log_Conf are forbidden by the
+static test.
+
+The collector stores every returned resource descriptor as a separate binary
+file and writes cfgmgr_alloc_resources.json with its ResourceId, byte count and
+SHA-256. ResType_IRQ is inventoried as
+IRQ_RESOURCE_SIGNALING_UNDETERMINED. Configuration Manager's IRQ_RESOURCE
+format describes the allocated IRQ resource but does not carry the
+CM_RESOURCE_INTERRUPT_MESSAGE discriminator used by the kernel
+CM_PARTIAL_RESOURCE_DESCRIPTOR. F4 therefore does not infer LINE, MSI or MSI-X.
+
+A successful F4 capture can establish that an allocated IRQ resource exists and
+preserve its exact Configuration Manager bytes. If signaling type remains
+undetermined, IRQ selection remains deferred and a later separately-reviewed
+read-only kernel resource probe is required before WdfInterruptCreate.
+
+No driver install/bind, restart, MMIO, DSP boot, codec/amplifier programming or
+playback is authorized by F4.

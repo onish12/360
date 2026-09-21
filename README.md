@@ -156,12 +156,16 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   a later independent ABI audit found its Win10 parser assumed a 32-byte
   `CM_PARTIAL_RESOURCE_DESCRIPTOR`, while WDK defines the structure under
   pack(4) and the x64 size is 20 bytes.
-- **M0.6.15F3:** corrects the Win10 allocated-resource parser and adds real-WDK
-  compile-time ABI assertions for descriptor size/offsets plus an independent
-  Pack=4 PowerShell self-test. Only Type/ShareDisposition/Flags and the MESSAGE
-  discriminator are interpreted; the union is retained as raw hex. Source
-  `49d44ab3` passes real WDK compilation, 10/10 selected host tests and all
-  collector guards; this is the cleared read-only package for Windows 10 21H2.
+- **M0.6.15F3:** corrected the Win10 allocated-resource parser and passed WDK
+  ABI checks, but the first target execution showed SPDRP_ALLOC_CONFIG is not
+  exposed for this DEV_3198 devnode on Windows 10 21H2. It failed read-only
+  before capture and is withdrawn for this target.
+- **M0.6.15F4:** uses Configuration Manager ALLOC_LOG_CONF on Windows 10 instead:
+  CM_Locate_DevNodeW, CM_Get_First_Log_Conf, CM_Get_Next_Res_Des and the two
+  read-only data getters. Returned descriptors are preserved as raw bytes.
+  ResType_IRQ is evidence of an allocated IRQ resource only; signaling type is
+  deliberately UNDETERMINED, so IRQ selection and WdfInterruptCreate remain
+  blocked pending sufficient evidence.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

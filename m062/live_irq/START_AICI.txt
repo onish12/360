@@ -1,30 +1,18 @@
-PHASER360 M0.6.15F3 - CAPTURA IRQ READ-ONLY (Windows 10/11)
+PHASER360 M0.6.15F4 - CAPTURA IRQ READ-ONLY (Windows 10/11)
 
-1. Extrage integral artifactul/pachetul.
-2. Intra in folderul live_irq.
-3. Click dreapta pe COLLECT_IRQ_EVIDENCE.cmd si alege Run as administrator.
-4. Fereastra ramane deschisa la final.
-5. Trimite fisierul RESULT_IRQ_READONLY_*.zip creat in acelasi folder.
+1. Extrage integral pachetul.
+2. Click dreapta pe COLLECT_IRQ_EVIDENCE.cmd si alege Run as administrator.
+3. Fereastra ramane deschisa la final.
+4. Trimite RESULT_IRQ_READONLY_*.zip.
 
-Windows 10 21H2/22H2:
-- foloseste SetupAPI numai pentru citirea SPDRP_ALLOC_CONFIG;
-- salveaza setupapi_alloc_config.bin si setupapi_alloc_config.json;
-- parserul foloseste layout pack(4) verificat de WDK real;
-- nu modifica registry/PnP.
+Windows 10 21H2 build 19044:
+- NU mai foloseste SPDRP_ALLOC_CONFIG;
+- citeste ALLOC_LOG_CONF prin Configuration Manager;
+- salveaza fiecare resource descriptor ca binar si un inventar JSON;
+- descriptorul IRQ este marcat SIGNALING_UNDETERMINED, nu este ghicit LINE/MSI.
 
-Windows 11 22H2+:
-- poate folosi PnPUtil /enum-devices /resources, tot read-only.
+Windows 11 22H2+ pastreaza PnPUtil /enum-devices /resources read-only.
 
-Aceasta etapa:
-- NU instaleaza drivere;
-- NU leaga/dezleaga drivere;
-- NU dezactiveaza sau reporneste dispozitivul;
-- NU scrie registry;
-- NU face MMIO;
-- NU porneste DSP-ul;
-- NU creeaza intreruperea KMDF;
-- NU selecteaza IRQ-ul;
-- NU reda sunet.
-
-Daca apare CAPTURE_PARTIAL sau o eroare, nu modifica nimic manual.
-Trimite exact mesajul afisat si orice ZIP creat.
+NU instaleaza/bindeaza drivere, NU reporneste/dezactiveaza dispozitivul,
+NU scrie registry/PnP, NU face MMIO, NU porneste DSP-ul,
+NU creeaza WDF interrupt, NU selecteaza IRQ-ul si NU reda sunet.
