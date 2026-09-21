@@ -109,3 +109,27 @@ owner remains the next milestone.
 
 No physical MMIO, driver install, codec/amplifier operation or playback is
 authorized by H3.
+
+
+## Verified CI evidence (2026-09-21)
+
+Implementation commit: `0f7313ddce4b54193808db0f36a44aade54a0f63`.
+Tree: `e757dcde64292b13ddf8440ec9a1d670c18607ee`.
+
+- WDK/KMDF run `35609234071`, job `106363895582`: real WDK
+  compilation passes and all 10 selected host tests pass.
+- Integrated boot/IRQ regression reports
+  `SOF_GLK_BOOT_TESTS=267115 PASS; windows_api=SIMULATED; hardware=NONE`.
+- PnP/H2 remains `SOF_PNP_RESOURCES_TESTS=420 PASS`.
+- Windows/Linux run `35609233951`: Windows job `106363894811`
+  passes all 14 tests and Linux job `106363895239` passes all 12 tests.
+- Windows official firmware identity checks remain
+  `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`.
+- F4 collector self/static guards remain green.
+- Development artifact `PHASER360_M0615H3_TWO_STAGE_IRQ_PERMISSION`:
+  ID `10643401362`, 317,825 bytes. GitHub reports archive SHA-256
+  `bce045656868398de3d5c0d73fbecda45b7451b95fa6dca7699c01d425511eea`.
+
+H3 was not executed on the physical Lenovo. No installable driver, codec,
+amplifier or playback path is added.

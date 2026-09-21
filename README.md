@@ -197,7 +197,9 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   The second grant is available only after the existing boot owner reports
   command-ready firmware. A closed-session reset removes both grants and the old
   GlkBoot/BAR lifetime before reuse. Still not wired into PnP callbacks and not
-  executed on hardware.
+  executed on hardware. Source `0f7313dd` passes real WDK compilation,
+  10 WDK host tests, 14 Windows tests and 12 Linux tests; the integrated
+  boot/IRQ model reports 267,115 assertions.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
