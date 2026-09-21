@@ -26,8 +26,10 @@ foreach($command in @('Disable-PnpDevice','Enable-PnpDevice','Remove-PnpDevice',
         throw "MUTATING_COMMAND_PRESENT: $command"
     }
 }
-if(([regex]::Matches($text,'(?i)&\s*\$pnp\b')).Count -ne 1) {
-    throw 'PNPUTIL_INVOCATION_MUST_BE_SINGLE_WRAPPED_SITE'
+$wrappedCount=([regex]::Matches($text,'(?i)&\s*\$PnPUtil\b')).Count
+$directCount=([regex]::Matches($text,'(?i)&\s*\$pnp\b')).Count
+if($wrappedCount -ne 1 -or $directCount -ne 0) {
+    throw "PNPUTIL_INVOCATION_MUST_BE_SINGLE_WRAPPED_SITE: wrapped=$wrappedCount direct=$directCount"
 }
 if($cmd -notmatch '(?i)pause') { throw 'LAUNCHER_MUST_KEEP_CONSOLE_OPEN' }
 if($cmd -match '(?i)pnputil') { throw 'LAUNCHER_MUST_NOT_CALL_PNPUTIL_DIRECTLY' }
