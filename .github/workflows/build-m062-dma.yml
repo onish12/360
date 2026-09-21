@@ -115,9 +115,21 @@ jobs:
             throw 'H8_DRIVER_PE_INVALID'
           }
 
-          $headers = (& dumpbin /headers $sys 2>&1 | Out-String)
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) { throw 'H9_VSWHERE_MISSING' }
+          $vsRoot = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+          if (-not $vsRoot) { throw 'H9_VS_INSTALLATION_NOT_FOUND' }
+          $dumpbinItem = Get-ChildItem -LiteralPath (Join-Path $vsRoot 'VC\Tools\MSVC') -Filter dumpbin.exe -Recurse -File |
+            Where-Object { $_.FullName -match '\\bin\\Hostx64\\x64\\dumpbin\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $dumpbinItem) { throw 'H9_DUMPBIN_NOT_FOUND' }
+          $dumpbinPath = $dumpbinItem.FullName
+          Write-Host "H9_DUMPBIN=$dumpbinPath"
+
+          $headers = (& $dumpbinPath /headers $sys 2>&1 | Out-String)
           if ($LASTEXITCODE -ne 0) { throw 'H9_DUMPBIN_HEADERS_FAILED' }
-          $imports = (& dumpbin /imports $sys 2>&1 | Out-String)
+          $imports = (& $dumpbinPath /imports $sys 2>&1 | Out-String)
           if ($LASTEXITCODE -ne 0) { throw 'H9_DUMPBIN_IMPORTS_FAILED' }
 
           $headersReport = Join-Path $build 'H9_PE_HEADERS.txt'

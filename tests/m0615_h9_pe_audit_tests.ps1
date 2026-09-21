@@ -8,8 +8,10 @@ $entry=Get-Content -LiteralPath (Join-Path $root 'm062\driver\driver_entry.cpp')
 $owner=Get-Content -LiteralPath (Join-Path $root 'm062\driver\device_owner.cpp') -Raw
 
 foreach($required in @(
-    'dumpbin /headers $sys',
-    'dumpbin /imports $sys',
+    'vswhere.exe',
+    'H9_DUMPBIN_NOT_FOUND',
+    '$dumpbinPath /headers $sys',
+    '$dumpbinPath /imports $sys',
     'H9_PE_HEADERS.txt',
     'H9_PE_IMPORTS.txt',
     'H9_PE_AUDIT=PASS',
@@ -24,6 +26,10 @@ foreach($required in @(
     if($workflow.IndexOf($required,[StringComparison]::Ordinal) -lt 0) {
         throw "H9_WORKFLOW_REQUIRED_MISSING: $required"
     }
+}
+if($workflow.IndexOf('Hostx64',[StringComparison]::Ordinal) -lt 0 -or
+   $workflow.IndexOf('x64',[StringComparison]::Ordinal) -lt 0) {
+    throw 'H9_X64_DUMPBIN_SELECTION_MISSING'
 }
 
 foreach($required in @(
