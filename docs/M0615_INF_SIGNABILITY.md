@@ -118,3 +118,57 @@ H13 validates package shape only. It does not:
 The next milestone must resolve test-signing/trust and produce a separately
 reviewed deployment package with explicit normal and WinRE rollback gates before
 any target installation can be authorized.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final H13 source/cleanup commit:
+`3b6f1de63c1fb5ca9b56da338507fd943b34508d`.
+Tree: `5ad90bb6e6c9a00726270e02739a5fe35db30e4d`.
+
+The preceding commit `1808a12b` already proved INF signability: Inf2Cat
+reported no errors or warnings and generated the catalog successfully. That run
+failed only after the PASS marker because a PowerShell cleanup expression used
+`Test-Path ... -or Test-Path ...` without grouping each call. The final commit
+changes only that cleanup expression.
+
+Final verification:
+
+- WDK/KMDF real compilation: PASS.
+- All 10 selected host regressions: PASS.
+- PnP remains
+  `SOF_PNP_RESOURCES_TESTS=516 PASS; hardware=NOT_TOUCHED`.
+- Integrated GLK/IRQ/repeated-D0 model remains
+  `SOF_GLK_BOOT_TESTS=327112 PASS; hardware=NONE`.
+- H8 temporary real KMDF link: PASS; 342,016-byte SYS, SHA-256
+  `8f69789c237a7f997320c17c8297ce860bebb8fb698de084ca3334c22bc0d8b4`;
+  SYS not uploaded.
+- H9 PE/import audit: PASS; x64 Native image, production CNG imports present,
+  user-mode/audio-stack imports absent.
+- H10 reproducible build: PASS; both KMDF 1.31 links are bit-identical.
+- H11 read-only telemetry static guard: PASS.
+- H12 exact-target/WinRE preflight self-test: PASS.
+- H12.1 Windows 10 / KMDF 1.31 compatibility guard: PASS.
+- Inf2Cat path used:
+  `Microsoft.Windows.WDK.x64.10.0.28000.2526\c\bin\10.0.28000.0\x86\Inf2Cat.exe`.
+- Inf2Cat target: `10_VB_X64`.
+- Inf2Cat signability result: 0 errors, 0 warnings; catalog generated.
+- H13 runtime marker:
+  `H13_INF2CAT=PASS; exact_hwid=YES; kmdf=1.31;
+  package_uploaded=FALSE; install_executed=FALSE; playback=NO`.
+- H13 static guard:
+  `H13_PACKAGE_STATIC_TESTS=PASS; exact_hwid=YES; kmdf=1.31;
+  service_start=DEMAND; filters=NONE; endpoints=NONE;
+  baseline_export=READ_ONLY_SYSTEM; install=NO; package_upload=NO; playback=NO`.
+- The temporary package directory and linked SYS are deleted before artifact
+  staging.
+- Development artifact
+  `PHASER360_M0615H13_INF_SIGNABILITY_BASELINE_BACKUP`: ID
+  `10658631955`, 531,432 bytes; GitHub archive SHA-256
+  `6eeeba3015e98f90ecef9bc0dafe12a99593e38cd25746d2f63784c96ebef67c`.
+- The development artifact rejects SYS, INF, CAT, firmware, certificate and
+  private-key payloads.
+
+H13 therefore establishes exact-target INF/catalog signability and the
+read-only baseline-export mechanism only. It does not authorize target
+installation or physical DSP execution.

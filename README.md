@@ -310,6 +310,10 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   then deletes SYS/INF/CAT before artifact upload. A separate target-side script
   can later export and hash the currently bound Intel package with
   pnputil /export-driver only; it performs no installation or device mutation.
+  Final H13 source/cleanup `3b6f1de6` passes the full H1-H12 regression
+  chain. Inf2Cat reports zero errors and zero warnings for `10_VB_X64`,
+  generates the catalog, and the package is then deleted. The development
+  artifact contains no SYS/INF/CAT/firmware/key material.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
