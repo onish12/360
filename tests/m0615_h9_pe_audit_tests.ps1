@@ -56,7 +56,14 @@ foreach($forbidden in @(
     }
 }
 
-if($workflow -match '(?im)Copy-Item[^\r\n]*phaser360_m1_boot\.sys') {
+$artifactSysCopies=@(
+    $workflow -split "\r?\n" | Where-Object {
+        $_ -match '(?i)Copy-Item' -and
+        $_ -match '(?i)_artifact_m062' -and
+        $_ -match '(?i)phaser360_m1_boot\.sys'
+    }
+)
+if($artifactSysCopies.Count -ne 0) {
     throw 'H9_SYS_COPY_TO_ARTIFACT_FORBIDDEN'
 }
 

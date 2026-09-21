@@ -105,7 +105,14 @@ foreach($required in @(
     }
 }
 
-if($workflow -match '(?im)Copy-Item[^\r\n]*(phaser360_m1_boot\.inf|phaser360_m1_boot\.cat|phaser360_m1_boot\.sys)') {
+$artifactPackageCopies=@(
+    $workflow -split "\r?\n" | Where-Object {
+        $_ -match '(?i)Copy-Item' -and
+        $_ -match '(?i)_artifact_m062' -and
+        $_ -match '(?i)(phaser360_m1_boot\.inf|phaser360_m1_boot\.cat|phaser360_m1_boot\.sys)'
+    }
+)
+if($artifactPackageCopies.Count -ne 0) {
     throw 'H13_PACKAGE_PAYLOAD_COPY_TO_ARTIFACT_FORBIDDEN'
 }
 

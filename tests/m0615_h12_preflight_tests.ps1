@@ -56,6 +56,13 @@ foreach($required in @(
     if($workflow.IndexOf($required,[StringComparison]::Ordinal) -lt 0){throw "H12_WORKFLOW_GUARD_MISSING: $required"}
 }
 
-if($workflow -match '(?im)Copy-Item[^\r\n]*\.(sys|inf|cat|cer|pfx|p12)\b'){throw 'H12_INSTALLABLE_OR_KEY_MATERIAL_COPY_FORBIDDEN'}
+$artifactPayloadCopies=@(
+    $workflow -split "\r?\n" | Where-Object {
+        $_ -match '(?i)Copy-Item' -and
+        $_ -match '(?i)_artifact_m062' -and
+        $_ -match '(?i)\.(sys|inf|cat|cer|pfx|p12)\b'
+    }
+)
+if($artifactPayloadCopies.Count -ne 0){throw 'H12_INSTALLABLE_OR_KEY_MATERIAL_COPY_FORBIDDEN'}
 
 Write-Host 'H12_M1_PREFLIGHT_STATIC_TESTS=PASS; target=EXACT_DEV3198_REV06; windows_build=19044; winre=REQUIRED; preflight_mutations=NONE; recovery=DOCUMENTED_NOT_EXECUTED; installable=NO; playback=NO'

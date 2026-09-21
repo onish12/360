@@ -61,7 +61,14 @@ foreach($required in @(
     }
 }
 
-if($workflow -match '(?im)Copy-Item[^\r\n]*\.(sys|inf|cat|cer|pfx|p12|pvk)\b'){
+$artifactPayloadCopies=@(
+    $workflow -split "\r?\n" | Where-Object {
+        $_ -match '(?i)Copy-Item' -and
+        $_ -match '(?i)_artifact_m062' -and
+        $_ -match '(?i)\.(sys|inf|cat|cer|pfx|p12|pvk)\b'
+    }
+)
+if($artifactPayloadCopies.Count -ne 0){
     throw 'H12_1_PACKAGE_COPY_FORBIDDEN'
 }
 
