@@ -253,6 +253,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   `8dd3fa9cc0e0fb2e5c100c364808bcf16aef7200b11d011a688df7f1642f83b9`,
   then is deleted before upload. There is no INF, installer, physical
   execution or audio path.
+- **M0.6.15H9:** [PE/import audit](docs/M0615_PE_IMPORT_AUDIT.md).
+  Audits the exact temporary H8 SYS with dumpbin before deletion. CI requires
+  x64/Native PE headers, requires the production BCrypt CNG imports, and rejects
+  user-mode DLLs plus PortCls/KS/DRMK/ACX imports. Only the textual header/import
+  reports are staged; the SYS and firmware fixture remain deleted before upload.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
