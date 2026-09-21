@@ -165,7 +165,8 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   read-only data getters. Returned descriptors are preserved as raw bytes.
   ResType_IRQ is evidence of an allocated IRQ resource only; signaling type is
   deliberately UNDETERMINED, so IRQ selection and WdfInterruptCreate remain
-  blocked pending sufficient evidence.
+  blocked pending sufficient evidence. Source `5d36b8ac` passes real WDK
+  compilation, 10/10 selected host tests and all CfgMgr read-only/static guards.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

@@ -266,3 +266,30 @@ read-only kernel resource probe is required before WdfInterruptCreate.
 
 No driver install/bind, restart, MMIO, DSP boot, codec/amplifier programming or
 playback is authorized by F4.
+
+
+## F4 verified CI evidence (2026-09-21)
+
+Implementation commit: `5d36b8ac460ba01d1919236d4d7aa1da14872afd`.
+Tree: `fddec39eeda21890a0e8145bb763af5af75608b7`.
+
+- Workflow run `35578706182`, WDK job `106266326048`: real WDK/KMDF
+  compilation passes.
+- All 10 selected kernel/host regression tests pass. PnP remains
+  `SOF_PNP_RESOURCES_TESTS=360 PASS; irq_inventory=LINE_AND_MESSAGE;
+  irq_selection=DEFERRED; power_skeleton=REGISTERED;
+  surprise_callback=REGISTERED; paired_raw_translated=YES;
+  hardware=NOT_TOUCHED`.
+- Collector self-test reports
+  `IRQ_CAPTURE_SELFTEST=PASS; cfgmgr_alloc_log_conf=YES;
+  cfgmgr_readonly=YES; irq_signal_type=UNDETERMINED;
+  mutation_commands=REJECTED`.
+- Static guards report
+  `IRQ_CAPTURE_STATIC_TESTS=PASS; syntax=PASS; cfgmgr_readonly=YES;
+  alloc_log_conf=YES; mutation_api_guard=YES; win10_path=YES`.
+- Development artifact `PHASER360_M0615F4_CFGMGR_READONLY_IRQ_CAPTURE`:
+  ID `10628862002`, 296,028 bytes. GitHub reports archive SHA-256
+  `c586a5ae8750ecf3a2c4c5293dcf18b1f8efb4ec3d1b5c8a23da725ab86b41ae`.
+
+F4 is cleared only for the documented read-only allocated-resource capture on
+the Windows 10 21H2 target. Signaling type and IRQ selection remain deferred.
