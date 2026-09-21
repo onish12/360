@@ -115,6 +115,9 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   unsynchronized callback. Prepare/Release transitions are made race-safe for
   a concurrent terminal gate, with deterministic removal-during-map tests.
   Still no DSP boot, selected IRQ, DMA consumer, codec, amplifier or playback.
+  Source `0ca3bca8` passes real WDK compilation, 10 WDK host tests, 14 Windows
+  tests and 12 Linux ASan/UBSan tests; PnP lifecycle validation reports 232
+  passing assertions.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

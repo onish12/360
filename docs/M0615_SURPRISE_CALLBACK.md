@@ -82,3 +82,29 @@ The fake callback scheduler is deterministic, not a real multicore KMDF race
 test. Real WDK compilation plus Windows/Linux regression and sanitizer runs must
 pass for the exact source before this submilestone is closed. No Lenovo
 execution or playback is authorized by this milestone.
+
+
+## Verified CI evidence (2026-09-20)
+
+Implementation commit: `0ca3bca817bd7fe71e4d4c6dadb09db8334f1929`.
+Tree: `760fb2ba5fc1f14babaafc62f33607ca31ea6e2f`.
+
+- WDK/KMDF run `35536755724`, job `106147051575`: real WDK
+  compilation passes, then all 10 selected host tests pass. PnP reports
+  `SOF_PNP_RESOURCES_TESTS=232 PASS; surprise_callback=REGISTERED;
+  paired_raw_translated=YES; irq_selection=DEFERRED; hardware=NOT_TOUCHED`.
+- Windows/Linux run `35536755749`: Windows job `106147051615` passes
+  all 14 tests; Linux job `106147051795` passes all 12 tests with
+  ASan/UBSan. The integrated boot/IRQ model remains
+  `SOF_GLK_BOOT_TESTS=265876 PASS`.
+- Windows also reports `SOF_CNG_PIN_TESTS=10 PASS` against the official
+  hash-pinned fixture with real Windows CNG and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`.
+- Development artifact `PHASER360_M0615C_WDK_SURPRISE_CALLBACK`: ID
+  `10613317792`, 271,483 bytes. GitHub reports archive SHA-256
+  `d7c20217cd3158331ce5b8a7bf38389fcf52e3d698bb112b9994a65d0b25ef6e`.
+  This is service-reported archive metadata, not an independently recomputed
+  archive hash.
+
+No physical Lenovo execution, DSP boot, interrupt selection, codec/amplifier
+programming or playback is claimed by M0.6.15C.
