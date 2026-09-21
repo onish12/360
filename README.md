@@ -290,7 +290,9 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   unknown or disabled recovery status fails closed. The artifact contains only
   preflight/recovery material and explicitly rejects SYS, INF, CAT, firmware
   and certificate/private-key payloads. H12 performs no install, bind/unbind,
-  restart, registry/BCD write, MMIO, DSP boot or playback.
+  restart, registry/BCD write, MMIO, DSP boot or playback. Final H12 source
+  `4deeb69b` passes real WDK compilation and all H8-H11 regressions; its
+  exact-target/WinRE self-test and mutation-free static guard both pass.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

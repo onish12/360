@@ -101,3 +101,41 @@ in the development artifact.
 
 The next milestone may design the package/INF and baseline-driver backup, but it must
 preserve these H12 gates before any physical install is produced.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final H12 source commit:
+`4deeb69b7f9b0450a820e454ada19999e7bdc42b`.
+Tree: `03afba2a1145053afaf2f1bff13f621a228e4ce3`.
+
+- H12 WDK/KMDF run `35636429612`, job `106454857104`: PASS.
+- Real WDK component library compile: `WDK_DMA_LIBRARY=PASS`.
+- PnP/lifecycle regression remains `SOF_PNP_RESOURCES_TESTS=516 PASS`.
+- H11 software telemetry remains `H11_TELEMETRY_STATE_TESTS=14 PASS`.
+- Integrated GLK/IRQ/repeated-D0 model remains
+  `SOF_GLK_BOOT_TESTS=327112 PASS; hardware=NONE`.
+- F4 live-resource collector self/static guards remain PASS.
+- H8 temporary linked driver remains non-distributed:
+  342,016 bytes, SHA-256
+  `e36938ffdda9c903bf5a5205feb13832ce4c3cfed52f25e98d5daefb5eda9f0b`,
+  then deleted before upload.
+- H9 x64/Native PE/import audit: PASS.
+- H10 reproducible two-build audit: PASS.
+- H11 query-only telemetry guard: PASS.
+- H12 deterministic preflight self-test:
+  `H12_M1_PREFLIGHT_SELFTEST=PASS; exact_target=YES;
+  winre_parser=FAIL_CLOSED; mutations=NONE`.
+- H12 static safety guard:
+  `H12_M1_PREFLIGHT_STATIC_TESTS=PASS;
+  target=EXACT_DEV3198_REV06; windows_build=19044; winre=REQUIRED;
+  preflight_mutations=NONE; recovery=DOCUMENTED_NOT_EXECUTED;
+  installable=NO; playback=NO`.
+- Windows and Linux offline-parser jobs on run `35636429677`: PASS.
+- Development artifact
+  `PHASER360_M0615H12_M1_PREFLIGHT_RECOVERY`: ID `10656557676`,
+  524,639 bytes; GitHub archive SHA-256
+  `7277ce8247943668a3dea1e16c64308985de663686e8296218f82cd8e7e313dd`.
+
+The H12 artifact contains no SYS, RI, INF, CAT or certificate/private-key
+payload. H12 authorizes only the read-only preflight, not driver installation.
