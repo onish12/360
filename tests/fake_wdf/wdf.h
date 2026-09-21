@@ -68,10 +68,24 @@ struct FakeDeviceInit;
 using PWDFDEVICE_INIT=FakeDeviceInit*;
 struct FakeResourceList;
 using WDFCMRESLIST=FakeResourceList*;
+enum WDF_POWER_DEVICE_STATE {
+    WdfPowerDeviceInvalid=0,
+    WdfPowerDeviceD0,
+    WdfPowerDeviceD1,
+    WdfPowerDeviceD2,
+    WdfPowerDeviceD3,
+    WdfPowerDeviceD3Final,
+    WdfPowerDevicePrepareForHibernation,
+    WdfPowerDeviceMaximum
+};
 struct WDF_PNPPOWER_EVENT_CALLBACKS {
     NTSTATUS(*EvtDevicePrepareHardware)(WDFDEVICE,WDFCMRESLIST,WDFCMRESLIST);
     NTSTATUS(*EvtDeviceReleaseHardware)(WDFDEVICE,WDFCMRESLIST);
     void(*EvtDeviceSurpriseRemoval)(WDFDEVICE);
+    NTSTATUS(*EvtDeviceD0Entry)(WDFDEVICE,WDF_POWER_DEVICE_STATE);
+    NTSTATUS(*EvtDeviceD0EntryPostInterruptsEnabled)(WDFDEVICE,WDF_POWER_DEVICE_STATE);
+    NTSTATUS(*EvtDeviceD0ExitPreInterruptsDisabled)(WDFDEVICE,WDF_POWER_DEVICE_STATE);
+    NTSTATUS(*EvtDeviceD0Exit)(WDFDEVICE,WDF_POWER_DEVICE_STATE);
 };
 inline void WDF_PNPPOWER_EVENT_CALLBACKS_INIT(WDF_PNPPOWER_EVENT_CALLBACKS* c) { *c={}; }
 void WdfDeviceInitSetPnpPowerEventCallbacks(PWDFDEVICE_INIT,WDF_PNPPOWER_EVENT_CALLBACKS*);

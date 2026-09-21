@@ -8,6 +8,7 @@
 using phaser360::windows::HardwareAccessGate;
 using phaser360::windows::PnpResources;
 using phaser360::windows::PnpResourceView;
+using phaser360::windows::PnpPowerPhase;
 
 static unsigned checks=0,irql=0,mapCalls=0,failMap=0;
 static void check(bool ok) { ++checks; if(!ok) { std::cerr<<"PNP check failed: "<<checks<<'\n'; std::exit(1); } }
@@ -74,7 +75,12 @@ int main() {
     const auto prepare=init.callbacks.EvtDevicePrepareHardware;
     const auto release=init.callbacks.EvtDeviceReleaseHardware;
     const auto surprise=init.callbacks.EvtDeviceSurpriseRemoval;
-    check(prepare!=nullptr && release!=nullptr && surprise!=nullptr);
+    const auto d0Entry=init.callbacks.EvtDeviceD0Entry;
+    const auto postEnable=init.callbacks.EvtDeviceD0EntryPostInterruptsEnabled;
+    const auto preDisable=init.callbacks.EvtDeviceD0ExitPreInterruptsDisabled;
+    const auto d0Exit=init.callbacks.EvtDeviceD0Exit;
+    check(prepare!=nullptr && release!=nullptr && surprise!=nullptr &&
+          d0Entry!=nullptr && postEnable!=nullptr && preDisable!=nullptr && d0Exit!=nullptr);
 
     HardwareAccessGate gate,secondGate;
     activeGate=&gate;
@@ -83,7 +89,11 @@ int main() {
     auto translated=validTranslated();
     auto raw=validRaw();
 
-    check(!gate.Allowed() && !gate.Removed());
+    check(!gate.Allowed() && !gate.Removed() && owner.PowerPhase()==PnpPowerPhase::NoResources);
+    check(!NT_SUCCESS(d0Entry(&device,WdfPowerDeviceD3Final)));
+    check(!NT_SUCCESS(postEnable(&device,WdfPowerDeviceD3Final)));
+    check(!NT_SUCCESS(preDisable(&device,WdfPowerDeviceD3Final)));
+    check(!NT_SUCCESS(d0Exit(&device,WdfPowerDeviceD3Final)));
     check(!NT_SUCCESS(prepare(&device,&raw,&translated)) && mapCalls==0);
     check(NT_SUCCESS(release(&device,nullptr)) && live.empty());
     check(!NT_SUCCESS(owner.Attach(nullptr)));
@@ -152,7 +162,30 @@ int main() {
         translated=validTranslated(); raw=validRaw(); mapCalls=0; unmaps.clear();
         irql=2; check(!NT_SUCCESS(prepare(&device,&raw,&translated)) && mapCalls==0); irql=0;
         check(NT_SUCCESS(prepare(&device,&raw,&translated)));
-        check(owner.Prepared() && gate.Allowed() && live.size()==2);
+        check(owner.Prepared() && gate.Allowed() && live.size()==2 &&
+              owner.PowerPhase()==PnpPowerPhase::Prepared);
+        // Framework power skeleton: Prepare -> D0Entry -> [InterruptEnable] ->
+        // PostInterruptsEnabled -> PreInterruptsDisabled -> [InterruptDisable] ->
+        // D0Exit -> Release. No hardware access is performed by these callbacks.
+        const auto mapsBeforePower=mapCalls;
+        const auto unmapsBeforePower=unmaps.size();
+        irql=2; check(!NT_SUCCESS(d0Entry(&device,WdfPowerDeviceD3Final))); irql=0;
+        check(owner.PowerPhase()==PnpPowerPhase::Prepared);
+        check(NT_SUCCESS(d0Entry(&device,WdfPowerDeviceD3Final)));
+        check(owner.PowerPhase()==PnpPowerPhase::D0Entered);
+        check(!NT_SUCCESS(d0Entry(&device,WdfPowerDeviceD3Final)));
+        check(NT_SUCCESS(postEnable(&device,WdfPowerDeviceD3Final)));
+        check(owner.PowerPhase()==PnpPowerPhase::Operational);
+        check(!NT_SUCCESS(postEnable(&device,WdfPowerDeviceD3Final)));
+        // Release must not unmap while the framework lifecycle still says D0.
+        check(!NT_SUCCESS(release(&device,nullptr)) && live.size()==2 && gate.Allowed());
+        check(NT_SUCCESS(preDisable(&device,WdfPowerDeviceD3Final)));
+        check(owner.PowerPhase()==PnpPowerPhase::PreInterruptsDisabled);
+        check(!NT_SUCCESS(preDisable(&device,WdfPowerDeviceD3Final)));
+        check(NT_SUCCESS(d0Exit(&device,WdfPowerDeviceD3Final)));
+        check(owner.PowerPhase()==PnpPowerPhase::Prepared);
+        check(!NT_SUCCESS(d0Exit(&device,WdfPowerDeviceD3Final)));
+        check(mapCalls==mapsBeforePower && unmaps.size()==unmapsBeforePower);
         PnpResourceView view={};
         check(owner.CopyPreparedView(&view));
         check(view.hda==live[0].ptr && view.hdaLength==0x4000);
@@ -175,9 +208,18 @@ int main() {
     expectedAddresses={0x200004000LL,0x200100000LL};
     translated=validTranslated(); raw=validRaw(); mapCalls=0; unmaps.clear();
     check(NT_SUCCESS(prepare(&device,&raw,&translated)) && gate.Allowed());
+    check(NT_SUCCESS(d0Entry(&device,WdfPowerDeviceD3Final)));
+    check(NT_SUCCESS(postEnable(&device,WdfPowerDeviceD3Final)));
+    check(owner.PowerPhase()==PnpPowerPhase::Operational);
     surprise(&device);
     check(gate.Removed() && !gate.Allowed() && !owner.Prepared());
     PnpResourceView view={}; check(!owner.CopyPreparedView(&view));
+    // Surprise removal from D0 still unwinds through the pre-disable and D0Exit
+    // callbacks; neither callback is allowed to require hardware access.
+    check(!NT_SUCCESS(release(&device,nullptr)) && live.size()==2);
+    check(NT_SUCCESS(preDisable(&device,WdfPowerDeviceD3Final)));
+    check(NT_SUCCESS(d0Exit(&device,WdfPowerDeviceD3Final)));
+    check(owner.PowerPhase()==PnpPowerPhase::Prepared);
     check(NT_SUCCESS(release(&device,nullptr)) && live.empty() && gate.Removed());
     mapCalls=0;
     check(prepare(&device,&raw,&translated)==STATUS_INVALID_DEVICE_STATE && mapCalls==0);
@@ -189,16 +231,33 @@ int main() {
     HardwareAccessGate raceGate; PnpResources raceOwner(raceGate); FakeObject raceDevice;
     activeGate=&raceGate;
     check(NT_SUCCESS(raceOwner.Attach(&raceDevice)));
+    check(raceOwner.PowerPhase()==PnpPowerPhase::NoResources);
     expectedAddresses={0x300004000LL,0x300100000LL};
     auto raceTranslated=validTranslated(); auto raceRaw=validRaw();
     mapCalls=0; unmaps.clear(); surpriseCallback=surprise; surpriseDevice=&raceDevice; surpriseMapAt=1;
     check(prepare(&raceDevice,&raceRaw,&raceTranslated)==STATUS_INVALID_DEVICE_STATE);
-    check(mapCalls==1 && live.empty() && raceGate.Removed() && !raceGate.Allowed());
+    check(mapCalls==1 && live.empty() && raceGate.Removed() && !raceGate.Allowed() &&
+          raceOwner.PowerPhase()==PnpPowerPhase::NoResources);
     check(unmaps==std::vector<SIZE_T>({0x4000}));
     check(NT_SUCCESS(release(&raceDevice,nullptr)) && raceGate.Removed());
     check(!raceGate.OpenForPrepare() && raceGate.CloseForRelease());
     surpriseCallback=nullptr; surpriseDevice=nullptr; surpriseMapAt=0;
 
+    // Failed D0Entry after a terminal gate must not require a synthetic D0Exit.
+    HardwareAccessGate entryFailGate; PnpResources entryFailOwner(entryFailGate); FakeObject entryFailDevice;
+    activeGate=&entryFailGate;
+    expectedAddresses={0x400004000LL,0x400100000LL};
+    auto entryFailTranslated=validTranslated(); auto entryFailRaw=validRaw();
+    mapCalls=0; unmaps.clear();
+    check(NT_SUCCESS(entryFailOwner.Attach(&entryFailDevice)));
+    check(NT_SUCCESS(prepare(&entryFailDevice,&entryFailRaw,&entryFailTranslated)));
+    surprise(&entryFailDevice);
+    check(entryFailGate.Removed() && entryFailOwner.PowerPhase()==PnpPowerPhase::Prepared);
+    check(!NT_SUCCESS(d0Entry(&entryFailDevice,WdfPowerDeviceD3Final)));
+    check(entryFailOwner.PowerPhase()==PnpPowerPhase::Prepared);
+    check(NT_SUCCESS(release(&entryFailDevice,nullptr)) && live.empty());
+    check(entryFailGate.Removed() && entryFailOwner.PowerPhase()==PnpPowerPhase::NoResources);
+
     std::cout<<"SOF_PNP_RESOURCES_TESTS="<<checks
-             <<" PASS; surprise_callback=REGISTERED; paired_raw_translated=YES; irq_selection=DEFERRED; hardware=NOT_TOUCHED\n";
+             <<" PASS; power_skeleton=REGISTERED; surprise_callback=REGISTERED; paired_raw_translated=YES; irq_selection=DEFERRED; hardware=NOT_TOUCHED\n";
 }

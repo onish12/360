@@ -118,6 +118,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Source `0ca3bca8` passes real WDK compilation, 10 WDK host tests, 14 Windows
   tests and 12 Linux ASan/UBSan tests; PnP lifecycle validation reports 232
   passing assertions.
+- **M0.6.15D:** [KMDF D0 callback skeleton](docs/M0615_POWER_SKELETON.md).
+  Registers D0Entry, post-interrupt-enable, pre-interrupt-disable and D0Exit as
+  a software-only lifecycle state machine. ReleaseHardware refuses to unmap while
+  the owner still claims D0, while surprise-removal unwind remains possible with
+  the terminal gate closed. No ColdPower call, DSP boot, selected IRQ, DMA
+  consumer, codec, amplifier or playback is connected.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

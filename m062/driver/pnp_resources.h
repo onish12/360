@@ -11,6 +11,14 @@ struct PnpInterruptResource {
     PCM_PARTIAL_RESOURCE_DESCRIPTOR translated=nullptr;
 };
 
+enum class PnpPowerPhase : UCHAR {
+    NoResources=0,
+    Prepared,
+    D0Entered,
+    Operational,
+    PreInterruptsDisabled
+};
+
 struct PnpResourceView {
     static constexpr ULONG kMaxInterrupts=8;
     UCHAR* hda=nullptr;
@@ -43,6 +51,7 @@ public:
     bool Prepared() const noexcept {
         return gate_ && gate_->Allowed() && hda_!=nullptr && dsp_!=nullptr;
     }
+    PnpPowerPhase PowerPhase() const noexcept { return phase_; }
     // Serialized PASSIVE caller only. Copied descriptor pointers are borrowed
     // from the PrepareHardware lists and expire at ReleaseHardware. Consumers
     // must independently honor the same HardwareAccessGate on every access.
@@ -54,12 +63,17 @@ private:
     UCHAR* hda_=nullptr;
     UCHAR* dsp_=nullptr;
     PnpResourceView view_={};
+    PnpPowerPhase phase_=PnpPowerPhase::NoResources;
 
     NTSTATUS Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcept;
     NTSTATUS Release() noexcept;
     static NTSTATUS PrepareHardware(WDFDEVICE,WDFCMRESLIST,WDFCMRESLIST);
     static NTSTATUS ReleaseHardware(WDFDEVICE,WDFCMRESLIST);
     static void SurpriseRemoval(WDFDEVICE);
+    static NTSTATUS D0Entry(WDFDEVICE,WDF_POWER_DEVICE_STATE);
+    static NTSTATUS D0EntryPostInterruptsEnabled(WDFDEVICE,WDF_POWER_DEVICE_STATE);
+    static NTSTATUS D0ExitPreInterruptsDisabled(WDFDEVICE,WDF_POWER_DEVICE_STATE);
+    static NTSTATUS D0Exit(WDFDEVICE,WDF_POWER_DEVICE_STATE);
 };
 
 } }

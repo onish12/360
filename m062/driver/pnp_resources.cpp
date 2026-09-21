@@ -15,6 +15,10 @@ NTSTATUS PnpResources::Configure(PWDFDEVICE_INIT init,WDF_OBJECT_ATTRIBUTES* att
     callbacks.EvtDevicePrepareHardware=PrepareHardware;
     callbacks.EvtDeviceReleaseHardware=ReleaseHardware;
     callbacks.EvtDeviceSurpriseRemoval=SurpriseRemoval;
+    callbacks.EvtDeviceD0Entry=D0Entry;
+    callbacks.EvtDeviceD0EntryPostInterruptsEnabled=D0EntryPostInterruptsEnabled;
+    callbacks.EvtDeviceD0ExitPreInterruptsDisabled=D0ExitPreInterruptsDisabled;
+    callbacks.EvtDeviceD0Exit=D0Exit;
     WdfDeviceInitSetPnpPowerEventCallbacks(init,&callbacks);
     return STATUS_SUCCESS;
 }
@@ -43,6 +47,66 @@ NTSTATUS PnpResources::ReleaseHardware(WDFDEVICE device,WDFCMRESLIST translated)
     return owner->Release();
 }
 
+NTSTATUS PnpResources::D0Entry(WDFDEVICE device,WDF_POWER_DEVICE_STATE previousState) {
+    UNREFERENCED_PARAMETER(previousState);
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !device) return STATUS_INVALID_DEVICE_STATE;
+    auto* owner=GetPnpResourcesContext(device)->owner;
+    if(!owner || owner->device_!=device || owner->phase_!=PnpPowerPhase::Prepared ||
+       !owner->gate_ || !owner->gate_->Allowed() || !owner->hda_ || !owner->dsp_)
+        return STATUS_INVALID_DEVICE_STATE;
+    // Skeleton only: no MMIO, firmware, DMA or IRQ action.
+    owner->phase_=PnpPowerPhase::D0Entered;
+    // If surprise removal won after the first gate check, report failed entry.
+    // KMDF will not call D0Exit for a failed D0Entry.
+    if(!owner->gate_->Allowed()) {
+        owner->phase_=PnpPowerPhase::Prepared;
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS PnpResources::D0EntryPostInterruptsEnabled(
+    WDFDEVICE device,WDF_POWER_DEVICE_STATE previousState) {
+    UNREFERENCED_PARAMETER(previousState);
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !device) return STATUS_INVALID_DEVICE_STATE;
+    auto* owner=GetPnpResourcesContext(device)->owner;
+    if(!owner || owner->device_!=device || owner->phase_!=PnpPowerPhase::D0Entered ||
+       !owner->gate_ || !owner->gate_->Allowed())
+        return STATUS_INVALID_DEVICE_STATE;
+    // Future ColdPower post-enable arming belongs here. This milestone only
+    // records the framework ordering and performs no hardware operation.
+    owner->phase_=PnpPowerPhase::Operational;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS PnpResources::D0ExitPreInterruptsDisabled(
+    WDFDEVICE device,WDF_POWER_DEVICE_STATE targetState) {
+    UNREFERENCED_PARAMETER(targetState);
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !device) return STATUS_INVALID_DEVICE_STATE;
+    auto* owner=GetPnpResourcesContext(device)->owner;
+    if(!owner || owner->device_!=device ||
+       (owner->phase_!=PnpPowerPhase::Operational &&
+        owner->phase_!=PnpPowerPhase::D0Entered))
+        return STATUS_INVALID_DEVICE_STATE;
+    // Must remain callable after SurpriseRemoval; therefore no Allowed() check.
+    // Future guarded shutdown will be composed here before interrupt disable.
+    owner->phase_=PnpPowerPhase::PreInterruptsDisabled;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS PnpResources::D0Exit(WDFDEVICE device,WDF_POWER_DEVICE_STATE targetState) {
+    UNREFERENCED_PARAMETER(targetState);
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !device) return STATUS_INVALID_DEVICE_STATE;
+    auto* owner=GetPnpResourcesContext(device)->owner;
+    if(!owner || owner->device_!=device ||
+       owner->phase_!=PnpPowerPhase::PreInterruptsDisabled)
+        return STATUS_INVALID_DEVICE_STATE;
+    // Framework interrupt-disable occurs before this callback. No hardware work
+    // is performed in this skeleton.
+    owner->phase_=PnpPowerPhase::Prepared;
+    return STATUS_SUCCESS;
+}
+
 void PnpResources::SurpriseRemoval(WDFDEVICE device) {
     // KMDF invokes this at PASSIVE_LEVEL but does not synchronize it with the
     // other PnP/power callbacks. Touch only the immutable owner/gate relation;
@@ -53,7 +117,8 @@ void PnpResources::SurpriseRemoval(WDFDEVICE device) {
 }
 
 NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcept {
-    if(!gate_ || gate_->Removed() || hda_ || dsp_) return STATUS_INVALID_DEVICE_STATE;
+    if(!gate_ || gate_->Removed() || hda_ || dsp_ ||
+       phase_!=PnpPowerPhase::NoResources) return STATUS_INVALID_DEVICE_STATE;
     if(!raw || !translated) return STATUS_DEVICE_CONFIGURATION_ERROR;
 
     const ULONG rawCount=WdfCmResourceListGetCount(raw);
@@ -134,11 +199,17 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
         (void)Release();
         return STATUS_INVALID_DEVICE_STATE;
     }
+    phase_=PnpPowerPhase::Prepared;
     return STATUS_SUCCESS;
 }
 
 NTSTATUS PnpResources::Release() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !gate_) return STATUS_INVALID_DEVICE_STATE;
+    // Never unmap a resource bundle while the framework skeleton still says D0.
+    // A failed D0Entry leaves phase Prepared and is therefore releasable without
+    // a synthetic D0Exit, matching KMDF's documented failure semantics.
+    if(phase_!=PnpPowerPhase::NoResources && phase_!=PnpPowerPhase::Prepared)
+        return STATUS_INVALID_DEVICE_STATE;
 
     // Atomic with respect to SurpriseRemove: Open becomes Closed, Closed stays
     // Closed, and terminal Removed is accepted without being rewritten.
@@ -147,6 +218,7 @@ NTSTATUS PnpResources::Release() noexcept {
     view_={};
     if(dsp_) { MmUnmapIoSpace(dsp_,0x100000); dsp_=nullptr; }
     if(hda_) { MmUnmapIoSpace(hda_,0x4000); hda_=nullptr; }
+    phase_=PnpPowerPhase::NoResources;
     return STATUS_SUCCESS;
 }
 
