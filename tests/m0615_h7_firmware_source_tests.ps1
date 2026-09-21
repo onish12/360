@@ -78,17 +78,31 @@ if($project.IndexOf('<ConfigurationType>StaticLibrary</ConfigurationType>',
     throw 'H7_PROJECT_MUST_REMAIN_STATIC_LIBRARY'
 }
 
-# Firmware bytes/provider are generated only in runner temp; they must not exist
-# as committed .ri/bin or generated embedded source in the repository.
-$forbiddenFiles=@(
-    Get-ChildItem -LiteralPath $root -Recurse -File |
-    Where-Object {
-        $_.Extension -in @('.ri','.bin') -or
-        $_.Name -match 'embedded[_-]firmware[_-]generated\.(cpp|c|h)$'
+# Firmware bytes/provider are generated only in runner temp. Check only
+# repository-tracked paths so CMake/compiler scratch .bin files cannot create a
+# false positive.
+$tracked=@(& git -C $root ls-files)
+if($LASTEXITCODE -ne 0) { throw 'H7_GIT_LS_FILES_FAILED' }
+$forbiddenTracked=@(
+    $tracked | Where-Object {
+        $_ -match '(?i)\.(ri|bin)if($workflow.IndexOf('INSTALLABLE=FALSE',[StringComparison]::Ordinal) -lt 0 -or
+   $workflow.IndexOf('AUDIO_PLAYBACK=NOT_IMPLEMENTED',[StringComparison]::Ordinal) -lt 0) {
+    throw 'H7_WORKFLOW_SAFETY_MARKERS_MISSING'
+}
+
+Write-Host 'H7_FIRMWARE_SOURCE_STATIC_TESTS=PASS; build_time_embedded=YES; runtime_file_io=NO; arbitrary_buffer_api=NO; deviceadd_autostage=NO; firmware_bytes_committed=NO; installable=NO; playback=NO'
+ -or
+        $_ -match '(?i)embedded[_-]firmware[_-]generated\.(cpp|c|h)if($workflow.IndexOf('INSTALLABLE=FALSE',[StringComparison]::Ordinal) -lt 0 -or
+   $workflow.IndexOf('AUDIO_PLAYBACK=NOT_IMPLEMENTED',[StringComparison]::Ordinal) -lt 0) {
+    throw 'H7_WORKFLOW_SAFETY_MARKERS_MISSING'
+}
+
+Write-Host 'H7_FIRMWARE_SOURCE_STATIC_TESTS=PASS; build_time_embedded=YES; runtime_file_io=NO; arbitrary_buffer_api=NO; deviceadd_autostage=NO; firmware_bytes_committed=NO; installable=NO; playback=NO'
+
     }
 )
-if($forbiddenFiles.Count -ne 0) {
-    throw ('H7_FIRMWARE_BYTES_COMMITTED: ' + (($forbiddenFiles.FullName) -join ', '))
+if($forbiddenTracked.Count -ne 0) {
+    throw ('H7_FIRMWARE_BYTES_COMMITTED: ' + ($forbiddenTracked -join ', '))
 }
 if($workflow.IndexOf('INSTALLABLE=FALSE',[StringComparison]::Ordinal) -lt 0 -or
    $workflow.IndexOf('AUDIO_PLAYBACK=NOT_IMPLEMENTED',[StringComparison]::Ordinal) -lt 0) {
