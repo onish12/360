@@ -233,7 +233,7 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
     // surprise removal won the race after OpenForPrepare, unwind resource-only
     // mappings and report a failed start; Removed remains terminal.
     if(!gate_->Allowed()) {
-        view_={};
+        view_=PnpResourceView{};
         (void)Release();
         return STATUS_INVALID_DEVICE_STATE;
     }
@@ -253,7 +253,7 @@ NTSTATUS PnpResources::Release() noexcept {
     // Closed, and terminal Removed is accepted without being rewritten.
     if(!gate_->CloseForRelease()) return STATUS_INVALID_DEVICE_STATE;
 
-    view_={};
+    view_=PnpResourceView{};
     if(dsp_) { MmUnmapIoSpace(dsp_,0x100000); dsp_=nullptr; }
     if(hda_) { MmUnmapIoSpace(hda_,0x4000); hda_=nullptr; }
     phase_=PnpPowerPhase::NoResources;
@@ -262,7 +262,7 @@ NTSTATUS PnpResources::Release() noexcept {
 
 bool PnpResources::CopyPreparedView(PnpResourceView* out) const noexcept {
     if(!out) return false;
-    *out={};
+    *out=PnpResourceView{};
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !Prepared()) return false;
     const auto snapshot=view_;
     if(!gate_->Allowed()) return false;
