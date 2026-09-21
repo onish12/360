@@ -266,8 +266,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Adds reproducible linker mode and requires two clean links from the same
   pinned inputs to produce identical byte count and SHA-256. Both temporary
   images must independently contain IMAGE_DEBUG_TYPE_REPRO as parsed directly
-  from the PE debug directory. The SYS is still deleted before upload; no INF,
-  signing/install package, physical execution or audio path is added.
+  from the PE debug directory. Final H10 source `a8ba65e8` produces two
+  byte-identical 338,944-byte SYS images with SHA-256
+  `7e533950c3014be6a0572cee738181fc0e9a3f50d18764a7bde9056caf9570da`;
+  both contain IMAGE_DEBUG_TYPE_REPRO. The SYS is still deleted before upload;
+  no INF, signing/install package, physical execution or audio path is added.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
