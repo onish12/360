@@ -159,8 +159,9 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 - **M0.6.15F3:** corrects the Win10 allocated-resource parser and adds real-WDK
   compile-time ABI assertions for descriptor size/offsets plus an independent
   Pack=4 PowerShell self-test. Only Type/ShareDisposition/Flags and the MESSAGE
-  discriminator are interpreted; the union is retained as raw hex. F3 must pass
-  CI before any replacement package is run on the Lenovo.
+  discriminator are interpreted; the union is retained as raw hex. Source
+  `49d44ab3` passes real WDK compilation, 10/10 selected host tests and all
+  collector guards; this is the cleared read-only package for Windows 10 21H2.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

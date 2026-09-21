@@ -200,3 +200,33 @@ assumptions.
 
 F3 remains read-only and still does not select an IRQ, create a WDF interrupt,
 write MMIO, boot the DSP, program either codec/amplifier or produce audio.
+
+
+## F3 verified CI evidence (2026-09-21)
+
+Implementation commit: `49d44ab3dcf3825f97f33cb071378595ac03b478`.
+Tree: `f03d1caab753432643d1fcd927fdd696aa676aed`.
+
+- Workflow run `35576846207`, WDK job `106260501932`: real WDK/KMDF
+  compilation passes with the compile-time CM resource ABI assertions enabled.
+- All 10 selected kernel/host regression tests pass. PnP remains
+  `SOF_PNP_RESOURCES_TESTS=360 PASS; irq_inventory=LINE_AND_MESSAGE;
+  irq_selection=DEFERRED; power_skeleton=REGISTERED;
+  surprise_callback=REGISTERED; paired_raw_translated=YES;
+  hardware=NOT_TOUCHED`.
+- Collector self-test reports
+  `IRQ_CAPTURE_SELFTEST=PASS; cm_pack4=PASS; descriptor20=PASS;
+  readonly_setupapi=YES; readonly_pnputil=YES; line_and_message=PASS;
+  mutation_commands=REJECTED`.
+- Static guards report
+  `IRQ_CAPTURE_STATIC_TESTS=PASS; syntax=PASS; launcher_pause=YES;
+  pnputil_wrapped=YES; setupapi_readonly=YES; cm_pack4_guard=YES;
+  win10_path=YES`.
+- Development artifact
+  `PHASER360_M0615F3_PACK4_VERIFIED_READONLY_IRQ_CAPTURE`: ID
+  `10628423518`, 297,160 bytes. GitHub reports archive SHA-256
+  `6d676b3eec7db5b1ecbed3712a753280347777383c92e796256b17473d1b62e7`.
+
+F3 is cleared only for the read-only live evidence capture on the Windows 10
+21H2 target. It still does not authorize IRQ binding, WdfInterruptCreate, DSP
+boot, codec/amplifier programming or playback.
