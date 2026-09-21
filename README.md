@@ -283,6 +283,14 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   (`516 PASS`) and the integrated boot/IRQ model (`327112 PASS`); the
   query-only guard confirms no hardware read/write, D0 trigger, SYS upload,
   INF or playback.
+- **M0.6.15H12:** [M1 preflight and recovery contract](docs/M0615_M1_PREFLIGHT_RECOVERY.md).
+  Adds a read-only preflight for the first physical M1 and fixes that first
+  target to Windows build 19044 plus the exact DEV_3198/SUBSYS_00000000/REV_06
+  hardware/IRQ/NHLT/firmware evidence already captured. WinRE is a hard gate;
+  unknown or disabled recovery status fails closed. The artifact contains only
+  preflight/recovery material and explicitly rejects SYS, INF, CAT, firmware
+  and certificate/private-key payloads. H12 performs no install, bind/unbind,
+  restart, registry/BCD write, MMIO, DSP boot or playback.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
