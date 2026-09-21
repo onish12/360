@@ -73,6 +73,10 @@ public:
     // from the PrepareHardware lists and expire at ReleaseHardware. Consumers
     // must independently honor the same HardwareAccessGate on every access.
     bool CopyPreparedView(PnpResourceView*) const noexcept;
+    // M0.6.15G: copy the only interrupt pair that is admissible for this
+    // DEV_3198 hardware contract. Does not create/enable a WDF interrupt.
+    // LINE is accepted. MESSAGE is accepted only for exactly one raw message.
+    bool CopySingleInterruptForCreate(PnpInterruptResource*) const noexcept;
 
 private:
     WDFDEVICE device_=nullptr;

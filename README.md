@@ -167,6 +167,13 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   deliberately UNDETERMINED, so IRQ selection and WdfInterruptCreate remain
   blocked pending sufficient evidence. Source `5d36b8ac` passes real WDK
   compilation, 10/10 selected host tests and all CfgMgr read-only/static guards.
+  The live F4 capture is recorded in
+  [M0615F4_LIVE_CAPTURE_20260921.md](docs/M0615F4_LIVE_CAPTURE_20260921.md).
+- **M0.6.15G:** [single IRQ admission](docs/M0615_SINGLE_IRQ_ADMISSION.md).
+  Accepts exactly one PnP interrupt pair. LINE is allowed; MESSAGE is allowed
+  only when MessageCount=1, matching the live DEV_3198 PCI capability. Multiple
+  pairs and multi-message assignments fail closed. This still does not call
+  WdfInterruptCreate, touch MMIO, boot the DSP or produce audio.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

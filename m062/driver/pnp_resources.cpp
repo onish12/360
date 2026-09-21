@@ -271,3 +271,39 @@ bool PnpResources::CopyPreparedView(PnpResourceView* out) const noexcept {
 }
 
 } }
+
+bool phaser360::windows::PnpResources::CopySingleInterruptForCreate(
+    PnpInterruptResource* out) const noexcept {
+    if(!out) return false;
+    *out=PnpInterruptResource{};
+
+    PnpResourceView snapshot{};
+    if(!CopyPreparedView(&snapshot) || snapshot.interruptCount!=1) return false;
+
+    const auto& irq=snapshot.interrupts[0];
+    if(!irq.raw || !irq.translated ||
+       irq.raw->Type!=CmResourceTypeInterrupt ||
+       irq.translated->Type!=CmResourceTypeInterrupt)
+        return false;
+
+    const bool rawMessage=(irq.rawFlags & CM_RESOURCE_INTERRUPT_MESSAGE)!=0;
+    const bool translatedMessage=(irq.translatedFlags & CM_RESOURCE_INTERRUPT_MESSAGE)!=0;
+    if(rawMessage!=translatedMessage) return false;
+
+    if(irq.kind==PnpInterruptKind::MessageSignaled) {
+        // Live PCI capability evidence reports InterruptMessageMaximum=1.
+        // Do not silently accept a multi-message MSI/MSI-X shape.
+        if(!rawMessage || irq.messageCount!=1) return false;
+    } else {
+        if(rawMessage || irq.messageCount!=0) return false;
+    }
+
+    *out=irq;
+    // The descriptors are borrowed from PrepareHardware. Refuse to return a
+    // usable pair if surprise removal closed the resource lifetime meanwhile.
+    if(!gate_ || !gate_->Allowed()) {
+        *out=PnpInterruptResource{};
+        return false;
+    }
+    return true;
+}

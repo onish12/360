@@ -234,12 +234,19 @@ int main() {
         check(irq.rawLevel==3 && irq.rawVector==0x11 && irq.rawAffinity==0x03);
         check(irq.translatedLevel==5 && irq.translatedVector==0x51 &&
               irq.translatedAffinity==0x0f);
+        PnpInterruptResource selected{};
+        check(owner.CopySingleInterruptForCreate(&selected));
+        check(selected.raw==irq.raw && selected.translated==irq.translated &&
+              selected.kind==PnpInterruptKind::LineBased && selected.messageCount==0);
         check(!NT_SUCCESS(prepare(&device,&raw,&translated)) && mapCalls==2 && live.size()==2);
         irql=2; check(!NT_SUCCESS(release(&device,nullptr)) && live.size()==2); irql=0;
         check(NT_SUCCESS(release(&device,nullptr)));
         check(!owner.Prepared() && !gate.Allowed() && live.empty());
         view.hda=reinterpret_cast<UCHAR*>(1); view.dsp=reinterpret_cast<UCHAR*>(1);
         check(!owner.CopyPreparedView(&view) && view.hda==nullptr && view.dsp==nullptr && view.interruptCount==0);
+        PnpInterruptResource releasedSelected{};
+        releasedSelected.raw=reinterpret_cast<PCM_PARTIAL_RESOURCE_DESCRIPTOR>(1);
+        check(!owner.CopySingleInterruptForCreate(&releasedSelected) && releasedSelected.raw==nullptr);
         check(unmaps==std::vector<SIZE_T>({0x100000,0x4000}));
         check(NT_SUCCESS(release(&device,nullptr)) && unmaps.size()==2);
     }
@@ -268,6 +275,43 @@ int main() {
               (irq.translatedFlags & CM_RESOURCE_INTERRUPT_MESSAGE)!=0);
         check((irq.rawFlags & CM_RESOURCE_INTERRUPT_WAKE_HINT)!=0 &&
               (irq.translatedFlags & CM_RESOURCE_INTERRUPT_WAKE_HINT)!=0);
+        PnpInterruptResource selected{};
+        selected.raw=reinterpret_cast<PCM_PARTIAL_RESOURCE_DESCRIPTOR>(1);
+        check(!owner.CopySingleInterruptForCreate(&selected) && selected.raw==nullptr);
+    }
+    check(NT_SUCCESS(release(&device,nullptr)) && live.empty());
+
+    // Live PCI capability reports InterruptMessageMaximum=1. A single-message
+    // descriptor is admissible without hard-coding vector/level/affinity.
+    expectedAddresses={0x190004000LL,0x190100000LL};
+    translated=validTranslated(); raw=validRaw(); mapCalls=0; unmaps.clear();
+    raw.entries[1]=messageRaw(1,0x31,0x01);
+    translated.entries[1]=messageTranslated(9,0x81,0x02);
+    check(NT_SUCCESS(prepare(&device,&raw,&translated)));
+    {
+        PnpInterruptResource selected{};
+        check(owner.CopySingleInterruptForCreate(&selected));
+        check(selected.kind==PnpInterruptKind::MessageSignaled &&
+              selected.messageCount==1 &&
+              selected.raw==&raw.entries[1] &&
+              selected.translated==&translated.entries[1]);
+    }
+    check(NT_SUCCESS(release(&device,nullptr)) && live.empty());
+
+    // More than one assigned interrupt pair remains inventory data only. The
+    // DEV_3198 admission policy refuses to guess which pair should be created.
+    expectedAddresses={0x1A0004000LL,0x1A0100000LL};
+    raw={{memory(0x10000,0x4000),lineInterrupt(3,0x11,0x03),
+          lineInterrupt(4,0x12,0x04),memory(0x200000,0x100000)},-1};
+    translated={{memory(expectedAddresses[0],0x4000),lineInterrupt(5,0x51,0x0f),
+                 lineInterrupt(6,0x52,0x10),memory(expectedAddresses[1],0x100000)},-1};
+    mapCalls=0; unmaps.clear();
+    check(NT_SUCCESS(prepare(&device,&raw,&translated)));
+    {
+        PnpResourceView view{};
+        check(owner.CopyPreparedView(&view) && view.interruptCount==2);
+        PnpInterruptResource selected{};
+        check(!owner.CopySingleInterruptForCreate(&selected) && selected.raw==nullptr);
     }
     check(NT_SUCCESS(release(&device,nullptr)) && live.empty());
 
@@ -327,5 +371,5 @@ int main() {
     check(entryFailGate.Removed() && entryFailOwner.PowerPhase()==PnpPowerPhase::NoResources);
 
     std::cout<<"SOF_PNP_RESOURCES_TESTS="<<checks
-             <<" PASS; irq_inventory=LINE_AND_MESSAGE; irq_selection=DEFERRED; power_skeleton=REGISTERED; surprise_callback=REGISTERED; paired_raw_translated=YES; hardware=NOT_TOUCHED\n";
+             <<" PASS; irq_inventory=LINE_AND_MESSAGE; irq_admission=SINGLE_PAIR_LINE_OR_ONE_MESSAGE; wdf_interrupt_create=NO; power_skeleton=REGISTERED; surprise_callback=REGISTERED; paired_raw_translated=YES; hardware=NOT_TOUCHED\n";
 }
