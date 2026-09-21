@@ -384,7 +384,7 @@ jobs:
           if (Test-Path -LiteralPath $sys) { throw 'H13_SYS_DELETE_FAILED' }
           Remove-Item -LiteralPath $generated -Force
           Remove-Item -LiteralPath $fixture -Force
-          if (Test-Path -LiteralPath $generated -or Test-Path -LiteralPath $fixture) {
+          if ((Test-Path -LiteralPath $generated) -or (Test-Path -LiteralPath $fixture)) {
             throw 'H13_TEMP_INPUT_DELETE_FAILED'
           }
 
