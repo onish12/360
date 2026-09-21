@@ -86,3 +86,34 @@ regression must pass for the exact source before M0.6.15E is closed.
 
 No physical Lenovo execution, WdfInterruptCreate, DSP boot, codec/amplifier
 programming or playback is authorized by M0.6.15E.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final implementation commit: `e8678d81eb9be8d285ae18502b707eb34114a75c`.
+Tree: `d578e2f5339843e2f74e0e5eca7d0e91c04da5da`.
+
+- WDK/KMDF run `35573123679`, job `106248861373`: real WDK
+  compilation passes, followed by all 10 selected host tests.
+- Windows/Linux run `35573123785`: Windows job `106248862269` passes
+  all 14 tests; Linux job `106248862157` passes all 12 tests with ASan/UBSan.
+- PnP reports `SOF_PNP_RESOURCES_TESTS=360 PASS;
+  irq_inventory=LINE_AND_MESSAGE; irq_selection=DEFERRED;
+  power_skeleton=REGISTERED; surprise_callback=REGISTERED;
+  paired_raw_translated=YES; hardware=NOT_TOUCHED`.
+- The integrated boot/IRQ model remains
+  `SOF_GLK_BOOT_TESTS=265876 PASS; hardware=NONE`.
+- Windows also reports the existing real-CNG checks:
+  `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`.
+- Development artifact `PHASER360_M0615E_WDK_IRQ_INVENTORY`: ID
+  `10626427860`, 279,933 bytes. GitHub reports archive SHA-256
+  `db493ef41aace2215f8854f210eea71adf237c1732434aa4ec290372c596bd8f`.
+
+The first E implementation attempt failed Linux compilation because aggregate
+assignment with bare `{}` no longer matched the expanded PnpResourceView.
+The final implementation uses explicit `PnpResourceView{}` value resets and
+all evidence above is for that corrected exact source.
+
+No physical Lenovo execution, WdfInterruptCreate, DSP boot, codec/amplifier
+programming or playback is claimed by M0.6.15E.
