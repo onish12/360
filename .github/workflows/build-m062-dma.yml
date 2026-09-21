@@ -266,6 +266,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & .\tests\m0615_h11_telemetry_tests.ps1
           if (-not $?) { throw 'H11_READONLY_TELEMETRY_STATIC_TESTS_FAILED' }
+          Write-Host 'H11_READONLY_TELEMETRY_STATIC_TESTS=PASS'
 
       - name: Stage development library
         shell: pwsh
