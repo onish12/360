@@ -91,4 +91,4 @@ foreach($source in @('device_owner.cpp','driver_entry.cpp')) {
     }
 }
 
-Write-Host 'H6_DEVICE_OWNER_STATIC_TESTS=PASS; driverentry=YES; deviceadd_order=YES; multi_context=YES; firmware_autoload=NO; arbitrary_buffer_api=NO; file_io=NO; playback=NO; installable=NO'
+Write-Host 'H6_DEVICE_OWNER_STATIC_TESTS=PASS; driverentry=YES; deviceadd_order=YES; multi_context=YES; driverentry_firmware_io=NO; arbitrary_buffer_api=NO; file_io=NO; playback=NO; installable=NO'

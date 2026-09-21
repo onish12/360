@@ -42,7 +42,7 @@ if($ownerC.IndexOf('GetEmbeddedFirmwareSource',[StringComparison]::Ordinal) -lt 
     throw 'H7_OWNER_NOT_BOUND_TO_EMBEDDED_PROVIDER_CONTRACT'
 }
 if($entry -match '(?i)StageEmbeddedFirmware\s*\(') {
-    throw 'H7_DEVICEADD_AUTOSTAGE_FORBIDDEN'
+    throw 'H7_DRIVERENTRY_DIRECT_STAGE_FORBIDDEN'
 }
 
 foreach($forbidden in @(
@@ -107,4 +107,4 @@ if($workflow.IndexOf('INSTALLABLE=FALSE',[StringComparison]::Ordinal) -lt 0 -or
     throw 'H7_WORKFLOW_SAFETY_MARKERS_MISSING'
 }
 
-Write-Host 'H7_FIRMWARE_SOURCE_STATIC_TESTS=PASS; build_time_embedded=YES; runtime_file_io=NO; arbitrary_buffer_api=NO; deviceadd_autostage=NO; firmware_bytes_committed=NO; installable=NO; playback=NO'
+Write-Host 'H7_FIRMWARE_SOURCE_STATIC_TESTS=PASS; build_time_embedded=YES; runtime_file_io=NO; arbitrary_buffer_api=NO; driverentry_direct_stage=NO; firmware_bytes_committed=NO; installable=NO; playback=NO'

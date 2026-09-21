@@ -56,12 +56,15 @@ NTSTATUS DeviceOwner::Initialize() noexcept {
     if(!pnp_.InstallLifecycle(lifecycle_.Ops()))
         return STATUS_DEVICE_CONFIGURATION_ERROR;
 
+    // H8 connects only the H7 build-time embedded provider. This performs no
+    // runtime file I/O and PinnedFirmware hashes its owned copy before the
+    // framework can ever reach PrepareHardware/D0Entry.
+    status=StageEmbeddedFirmware();
+    if(!NT_SUCCESS(status)) return status;
+
     status=lifecycle_.CreateInterruptShell(device_);
     if(!NT_SUCCESS(status)) return status;
 
-    // H6 deliberately does not locate/open/read a firmware file. Until a later
-    // reviewed source calls StageFirmware, D0Entry fails closed in
-    // PinnedFirmware::Enter before any DSP boot is attempted.
     return STATUS_SUCCESS;
 }
 

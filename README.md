@@ -241,6 +241,13 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   `6702caa5` passes real WDK compilation, 10 WDK host tests, 14 Windows
   tests and 12 Linux tests; the official generated-provider path adds
   `19 PASS` with real Windows CNG and rejects a one-bit firmware mutation.
+- **M0.6.15H8:** [link-only KMDF boot driver](docs/M0615_LINK_ONLY_DRIVER.md).
+  Connects only the exact H7 embedded provider during DeviceAdd and adds a
+  separate real KMDF Driver project so CI can expose final-link/import problems.
+  CI verifies the generated SYS as a PE image and records its SHA-256, then
+  deletes the SYS, generated provider and firmware fixture before artifact
+  staging. The artifact recursively rejects .sys and .ri files. There is no
+  INF, installer, physical execution or audio path.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
