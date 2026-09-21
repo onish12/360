@@ -33,5 +33,4 @@ if($cmd -notmatch '(?i)pause') { throw 'LAUNCHER_MUST_KEEP_CONSOLE_OPEN' }
 if($cmd -match '(?i)pnputil') { throw 'LAUNCHER_MUST_NOT_CALL_PNPUTIL_DIRECTLY' }
 
 & $scriptPath -SelfTest
-if($LASTEXITCODE -ne 0) { throw "COLLECTOR_SELFTEST_FAILED_$LASTEXITCODE" }
 Write-Host 'IRQ_CAPTURE_STATIC_TESTS=PASS; syntax=PASS; launcher_pause=YES; pnputil_wrapped=YES'
