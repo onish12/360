@@ -262,6 +262,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   regressions, 14 Windows tests and 12 Linux tests. The temporary 338,944-byte
   SYS is x64/Native, retains all required BCrypt imports, and has no user-mode
   DLL or Windows audio-stack import; it is deleted before upload.
+- **M0.6.15H10:** [reproducible KMDF binary audit](docs/M0615_REPRODUCIBLE_DRIVER.md).
+  Adds reproducible linker mode and requires two clean links from the same
+  pinned inputs to produce identical byte count and SHA-256. Both temporary
+  images must independently contain IMAGE_DEBUG_TYPE_REPRO as parsed directly
+  from the PE debug directory. The SYS is still deleted before upload; no INF,
+  signing/install package, physical execution or audio path is added.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
