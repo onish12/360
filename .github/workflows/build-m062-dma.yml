@@ -1,4 +1,4 @@
-name: M0.6.15H14 ephemeral signing gate - NOT INSTALLABLE
+name: M0.6.15H14.1 deterministic signing gate - NOT INSTALLABLE
 on:
   workflow_dispatch:
   push:
@@ -462,6 +462,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'H14_SYS_SIGN_FAILED' }
           Write-Host 'H14_SYS_SIGN_END'
 
+          Write-Host 'H14_INF2CAT_BEGIN'
           & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
           if ($LASTEXITCODE -ne 0) { throw 'H14_INF2CAT_FAILED' }
           Write-Host 'H14_INF2CAT_END'
@@ -512,6 +513,7 @@ jobs:
 
           Write-Host "H14_SIGNING=PASS; private_key_exported=FALSE; target_trust_modified=FALSE; package_uploaded=FALSE; install_executed=FALSE; playback=NO"
 
+          Write-Host 'H14_CLEANUP_BEGIN'
           Remove-Item -LiteralPath $package -Recurse -Force
           Remove-Item -LiteralPath $sys -Force
           Remove-Item -LiteralPath $generated -Force

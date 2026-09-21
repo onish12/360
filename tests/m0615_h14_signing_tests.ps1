@@ -60,9 +60,9 @@ foreach($forbidden in @(
 }
 
 if($workflow.IndexOf("Microsoft.Windows.WDK.x64.10.0.28000.2526",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-   $workflow.IndexOf("c\\bin\\10.0.28000.0",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-   $workflow.IndexOf("x64\\signtool.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-   $workflow.IndexOf("x86\\Inf2Cat.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+   $workflow.IndexOf("c\bin\10.0.28000.0",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $workflow.IndexOf("x64\signtool.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $workflow.IndexOf("x86\Inf2Cat.exe",[StringComparison]::OrdinalIgnoreCase) -lt 0) {
     throw 'H14_PINNED_WDK_TOOL_PATHS_MISSING'
 }
 
