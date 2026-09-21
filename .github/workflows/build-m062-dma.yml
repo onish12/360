@@ -60,8 +60,9 @@ jobs:
       - name: Verify read-only live IRQ collector
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           & .\tests\m0615_live_irq_tests.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'IRQ_CAPTURE_STATIC_TESTS_FAILED' }
+          if (-not $?) { throw 'IRQ_CAPTURE_STATIC_TESTS_FAILED' }
       - name: Stage development library
         shell: pwsh
         run: |
