@@ -66,7 +66,9 @@ foreach($required in @(
 }
 
 # No workflow command may copy the linked SYS into the development artifact.
-if($workflow -match '(?im)Copy-Item[^\r\n]*phaser360_m1_boot\.sys') {
+# H13 may copy the SYS into an ephemeral package directory for Inf2Cat.
+if($workflow -match '(?im)Copy-Item[^\r\n]*phaser360_m1_boot\.sys[^\r\n]*_artifact_m062' -or
+   $workflow -match '(?im)Copy-Item[^\r\n]*_artifact_m062[^\r\n]*phaser360_m1_boot\.sys') {
     throw 'H8_SYS_COPY_TO_ARTIFACT_FORBIDDEN'
 }
 
