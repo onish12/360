@@ -12,6 +12,7 @@ public:
     PinnedFirmware& operator=(const PinnedFirmware&)=delete;
     NTSTATUS Load(WDFDEVICE,const UCHAR* kernelBytes,SIZE_T bytes) noexcept;
     NTSTATUS Enter(ColdPower&,WDFDEVICE,UCHAR* hda,ULONG hdaLength,UCHAR* dsp,ULONG dspLength) noexcept;
+    bool Loaded() const noexcept { return memory_!=nullptr && device_!=nullptr && image_!=nullptr; }
     bool Release() noexcept;
 private:
     WDFMEMORY memory_=nullptr;

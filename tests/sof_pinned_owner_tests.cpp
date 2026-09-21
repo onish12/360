@@ -34,6 +34,7 @@ int main() {
     std::vector<UCHAR> input(kPinnedImageBytes,0x55); caller=input.data();
     HardwareAccessGate gate; CHECK(gate.OpenForPrepare());
     GlkBoot boot; IpcInterrupt irq; ColdPower power(boot,irq,gate); PinnedFirmware image; current=&image;
+    CHECK(!image.Loaded());
     CHECK(image.Enter(power,&checks,nullptr,0,nullptr,0)==STATUS_INVALID_DEVICE_STATE && bootCalls==0);
     CHECK(image.Load(&checks,input.data(),input.size()-1)==STATUS_INVALID_PARAMETER && live==0);
     irql=2; CHECK(image.Load(&checks,input.data(),input.size())==STATUS_INVALID_DEVICE_STATE); irql=0;
@@ -42,6 +43,7 @@ int main() {
     pinMatch=false; CHECK(image.Load(&checks,input.data(),input.size())==STATUS_INVALID_IMAGE_HASH && live==0);
     CHECK(image.Enter(power,&checks,nullptr,0,nullptr,0)==STATUS_INVALID_DEVICE_STATE && bootCalls==0);
     pinMatch=true; CHECK(image.Load(&checks,input.data(),input.size())==STATUS_SUCCESS && live==1);
+    CHECK(image.Loaded());
     CHECK(image.Load(&checks,input.data(),input.size())==STATUS_INVALID_DEVICE_STATE);
     input.assign(input.size(),0xcc); // changing the original cannot change authorized bytes
     CHECK(image.Enter(power,&live,nullptr,0,nullptr,0)==STATUS_INVALID_DEVICE_STATE && bootCalls==0);
@@ -49,6 +51,7 @@ int main() {
     CHECK(image.Enter(power,&checks,nullptr,0,nullptr,0)==STATUS_DEVICE_CONFIGURATION_ERROR && bootCalls==2);
     irql=2; CHECK(!image.Release()); irql=0;
     CHECK(image.Release() && live==0 && image.Release());
+    CHECK(!image.Loaded());
     CHECK(image.Enter(power,&checks,nullptr,0,nullptr,0)==STATUS_INVALID_DEVICE_STATE && bootCalls==2);
     std::printf("SOF_PINNED_OWNER_TESTS=%u PASS; hash=SIMULATED; hardware=NONE\n",checks);
 }

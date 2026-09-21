@@ -219,6 +219,14 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   source `be18501b` passes real WDK compilation, 10 WDK host tests,
   14 Windows tests and 12 Linux tests; the integrated repeated-D0 model reports
   327,105 assertions. Still non-installable and not executed on Lenovo.
+- **M0.6.15H6:** [KMDF DriverEntry / DeviceAdd owner](docs/M0615_DEVICEADD_OWNER.md).
+  Adds real DriverEntry/WdfDriverCreate and EvtDriverDeviceAdd ordering, plus a
+  second typed WDFDEVICE context that owns the composed C++ device state through
+  device cleanup. PnP/H5 lifecycle and the dormant IRQ shell are connected at
+  device creation, but firmware acquisition remains deliberately unconnected:
+  DeviceAdd never calls StageFirmware, so D0 boot remains fail-closed until a
+  later reviewed source supplies the pinned image. The project remains a static
+  library with no INF/SYS package and no physical Lenovo execution.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
