@@ -398,6 +398,7 @@ jobs:
           if (-not $?) { throw 'H13_PACKAGE_STATIC_TESTS_FAILED' }
 
       - name: H14 ephemeral sign and verify package then destroy all signing material
+        timeout-minutes: 3
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
