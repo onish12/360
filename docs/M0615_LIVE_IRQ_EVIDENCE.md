@@ -20,6 +20,11 @@ The collector does not call add-driver, install, delete-driver, restart-device,
 disable-device, enable-device, remove-device, scan-devices, SetupAPI binding,
 registry writes, MMIO, WdfInterruptCreate, DSP boot or audio playback.
 
+Microsoft's PnPUtil guidance uses an elevated command prompt. The live collector
+therefore refuses the real capture unless the current PowerShell token is an
+Administrator. Its `-SelfTest` path runs before that guard so CI can verify the
+allow-list without touching a device.
+
 The launcher deliberately ends with `pause` so failures remain visible.
 
 ## Captured files

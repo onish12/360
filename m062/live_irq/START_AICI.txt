@@ -2,7 +2,7 @@ PHASER360 M0.6.15F - CAPTURA IRQ READ-ONLY
 
 1. Extrage integral artifactul/pachetul.
 2. Intra in folderul live_irq.
-3. Ruleaza COLLECT_IRQ_EVIDENCE.cmd.
+3. Click dreapta pe COLLECT_IRQ_EVIDENCE.cmd si alege Run as administrator.
 4. Fereastra ramane deschisa la final.
 5. Trimite fisierul RESULT_IRQ_READONLY_*.zip creat in acelasi folder.
 

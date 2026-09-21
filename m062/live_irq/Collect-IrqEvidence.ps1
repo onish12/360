@@ -84,6 +84,12 @@ function Test-StableState($Before,$After) {
     return $true
 }
 
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 function Write-Hashes([string]$Directory) {
     $sum = Join-Path $Directory 'SHA256SUMS.txt'
     Get-ChildItem -LiteralPath $Directory -File |
@@ -115,6 +121,7 @@ if ($SelfTest) {
     return
 }
 
+if (-not (Test-IsAdministrator)) { throw 'ADMINISTRATOR_REQUIRED_FOR_PNPUTIL_ENUMERATION' }
 if (-not [Environment]::Is64BitProcess) { throw 'WINDOWS_X64_PROCESS_REQUIRED' }
 if ([Environment]::OSVersion.Version.Build -lt 22621) {
     throw "WINDOWS_11_22H2_OR_NEWER_REQUIRED: build=$([Environment]::OSVersion.Version.Build)"

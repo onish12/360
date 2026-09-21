@@ -14,7 +14,8 @@ $text=Get-Content -LiteralPath $scriptPath -Raw
 $cmd=Get-Content -LiteralPath $cmdPath -Raw
 foreach($required in @("'/enum-devices'","'/instanceid'","'/resources'","PCI\VEN_8086&DEV_3198",
     'MODE=READ_ONLY_ENUMERATION','WDF_INTERRUPT_CREATE=NO','IRQ_SELECTION=DEFERRED',
-    'AUDIO_PLAYBACK=NO','Test-StableState','SHA256SUMS.txt')) {
+    'AUDIO_PLAYBACK=NO','Test-StableState','SHA256SUMS.txt',
+    'ADMINISTRATOR_REQUIRED_FOR_PNPUTIL_ENUMERATION')) {
     if($text.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "REQUIRED_GUARD_MISSING: $required"
     }
