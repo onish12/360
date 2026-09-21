@@ -206,7 +206,10 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   pre-disable failure fallback and terminal surprise-removal abandonment are
   separated and fail closed. H4 intentionally permits only one GlkBoot/D0
   attempt per composite; repeated D0 ownership remains the next milestone.
-  Still a non-installable model and not executed on Lenovo.
+  Still a non-installable model and not executed on Lenovo. Final H4 source
+  `144362ab` passes real WDK compilation, 10 WDK host tests, 14 Windows
+  tests and 12 Linux tests; PnP lifecycle validation reports 516 assertions
+  and the integrated boot/IRQ model 270,201.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

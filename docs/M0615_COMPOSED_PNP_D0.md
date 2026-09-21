@@ -167,3 +167,36 @@ H4 also does not provide DriverEntry, DeviceAdd implementation, INF, firmware
 file acquisition, codec programming, amplifier control or any audio endpoint.
 
 No physical Lenovo execution or playback is authorized by this milestone.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final H4 source commit: `144362ab5e8a2f8a639c2aee81044d400c2ad220`.
+Tree: `9cab44ad18ec6f5747418b940885f22e06e7ce76`.
+
+The preceding H4 commit `b9ba409b` exposed a test-scenario error only: the
+test injected a mask failure immediately after ISR delivery, although the ISR
+had already masked the source. The corrected test first runs the deferred
+worker so the source is rearmed, then injects the mask failure. Production H4
+code did not change in that correction.
+
+- WDK/KMDF run `35612582810`, job `106375148083`: real WDK
+  compilation passes and all 10 selected host tests pass.
+- PnP reports `SOF_PNP_RESOURCES_TESTS=516 PASS;
+  lifecycle_hooks=ORDERED_FAIL_CLOSED; hardware=NOT_TOUCHED`.
+- Integrated boot/IRQ model reports
+  `SOF_GLK_BOOT_TESTS=270201 PASS; windows_api=SIMULATED; hardware=NONE`.
+- Windows/Linux run `35612582791`: Windows job `106375149134`
+  passes all 14 tests and Linux job `106375149302` passes all 12 tests.
+- Windows official firmware identity checks remain
+  `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`.
+- F4 collector self/static guards remain green:
+  `cfgmgr_readonly=YES`, `mutation_commands=REJECTED`,
+  `mutation_api_guard=YES`.
+- Development artifact `PHASER360_M0615H4_COMPOSED_SINGLE_D0`: ID
+  `10644468761`, 349,201 bytes. GitHub reports archive SHA-256
+  `3ea65ced0d5e843c403c124bd6a8fd6ce3617eeeb99345f812bdb6752b3a07dd`.
+
+H4 remains non-installable and was not executed on the physical Lenovo. No
+codec/amplifier programming, stream playback or audio endpoint is present.
