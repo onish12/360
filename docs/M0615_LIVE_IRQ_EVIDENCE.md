@@ -138,3 +138,31 @@ Primary contracts rechecked:
 
 No driver install/bind, device restart, MMIO, DSP boot, codec/amplifier action
 or playback is authorized by F2.
+
+
+## F2 verified CI evidence (2026-09-21)
+
+Implementation commit: `fa7e9c0da683d021aee5974f1e0f4499dc7a6f77`.
+Tree: `b9cb0165790522c28fcd8a56e7472832470436f3`.
+
+- Workflow run `35576054605`, WDK job `106258057260`: real WDK/KMDF
+  compilation passes.
+- All 10 selected kernel/host regression tests pass. PnP remains
+  `SOF_PNP_RESOURCES_TESTS=360 PASS; irq_inventory=LINE_AND_MESSAGE;
+  irq_selection=DEFERRED; power_skeleton=REGISTERED;
+  surprise_callback=REGISTERED; paired_raw_translated=YES;
+  hardware=NOT_TOUCHED`.
+- The dual-path collector self-test reports
+  `IRQ_CAPTURE_SELFTEST=PASS; readonly_setupapi=YES; readonly_pnputil=YES;
+  line_and_message=PASS; mutation_commands=REJECTED`.
+- Static checks report
+  `IRQ_CAPTURE_STATIC_TESTS=PASS; syntax=PASS; launcher_pause=YES;
+  pnputil_wrapped=YES; setupapi_readonly=YES; win10_path=YES`.
+- Development artifact
+  `PHASER360_M0615F2_WIN10_WIN11_READONLY_IRQ_CAPTURE`: ID
+  `10627996546`, 291,836 bytes. GitHub reports archive SHA-256
+  `f4cbbc520bf68cadec4a29d7c71c06a803faf27d40497db530a176ff9f2b1e2f`.
+
+F2 is cleared for the documented read-only capture on the target's Windows 10
+21H2 build 19044. This does not authorize IRQ binding, WdfInterruptCreate, DSP
+boot, MAX98357A/DA7219 programming or playback.
