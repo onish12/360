@@ -225,8 +225,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   device cleanup. PnP/H5 lifecycle and the dormant IRQ shell are connected at
   device creation, but firmware acquisition remains deliberately unconnected:
   DeviceAdd never calls StageFirmware, so D0 boot remains fail-closed until a
-  later reviewed source supplies the pinned image. The project remains a static
-  library with no INF/SYS package and no physical Lenovo execution.
+  later reviewed source supplies the pinned image. Final H6 source
+  `94d126f3` passes real WDK compilation, 10 WDK host tests, 14 Windows
+  tests and 12 Linux tests; the dedicated owner guard confirms no firmware
+  autoload, file I/O, playback or installable package. The project remains a
+  static library with no INF/SYS package and no physical Lenovo execution.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

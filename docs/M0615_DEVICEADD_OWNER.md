@@ -133,3 +133,38 @@ H6 does not provide:
 
 The next milestone must solve the controlled firmware source and its deployment
 contract before any physical DSP boot package is produced.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final H6 source commit:
+`94d126f353bf1ba624bc272c6e8109ef24bfdda0`.
+Tree: `b0b47c0c6ce4dec18986fde91a34be5b92cfdb71`.
+
+- WDK/KMDF run `35618492193`, job `106395288779`: real WDK
+  compilation passes with DriverEntry, EvtDriverDeviceAdd,
+  WdfObjectAllocateContext and the additional device-owner context enabled.
+- All 10 selected WDK host tests pass.
+- PnP remains `SOF_PNP_RESOURCES_TESTS=516 PASS;
+  lifecycle_hooks=ORDERED_FAIL_CLOSED; hardware=NOT_TOUCHED`.
+- Repeated-D0 integration remains
+  `SOF_GLK_BOOT_TESTS=327105 PASS; windows_api=SIMULATED; hardware=NONE`.
+- Pinned firmware ownership now reports `SOF_PINNED_OWNER_TESTS=34 PASS`,
+  including Loaded() false/true/false transitions.
+- H6 structural guard reports
+  `H6_DEVICE_OWNER_STATIC_TESTS=PASS; driverentry=YES;
+  deviceadd_order=YES; multi_context=YES; firmware_autoload=NO;
+  file_io=NO; playback=NO; installable=NO`.
+- F4 collector self/static guards remain green.
+- Windows/Linux offline run `35618498236`: Windows job
+  `106395309845` passes all 14 tests and Linux job `106395310199`
+  passes all 12 tests.
+- Windows official firmware identity checks remain
+  `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`.
+- Development artifact `PHASER360_M0615H6_KMDF_DEVICEADD_OWNER`: ID
+  `10647657244`, 447,927 bytes. GitHub reports archive SHA-256
+  `2a0eed5066adfaccb9b8b5bf501e5180b564fe0909787458be04970b229e8ff9`.
+
+H6 remains a static-library milestone. No INF, SYS package, firmware source,
+physical Lenovo execution, codec/amplifier operation or playback is present.
