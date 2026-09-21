@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 #include "d0_session.h"
-#include <new>
+
+// Kernel-safe placement construction: storage is allocated by WdfMemoryCreate.
+// Do not include <new>; the WDK kernel CRT's exception declarations are invalid
+// under /kernel.
+inline void* operator new(SIZE_T,void* place) noexcept { return place; }
+inline void operator delete(void*,void*) noexcept {}
 
 namespace phaser360 { namespace windows {
 
