@@ -4,6 +4,7 @@
 #include "../m062/driver/ipc_interrupt.h"
 #include "../m062/driver/cold_power.h"
 #include "../m062/driver/device_lifecycle.h"
+#include "../m062/driver/repeated_device_lifecycle.h"
 #include <vector>
 #include "sof_ipc_fixture.h"
 #include <cstdio>
@@ -20,6 +21,7 @@ static WDFWORKITEM workHandle=nullptr;
 static WDF_DPC_CONFIG dpcConfig={};
 static WDF_WORKITEM_CONFIG workConfig={};
 static unsigned createFailure=0;
+static unsigned sessionMemoryCreates=0;
 static bool connected=false,forbidMmio=false;
 static unsigned synchronizeCalls=0;
 static HardwareAccessGate accessGate;
@@ -115,6 +117,15 @@ NTSTATUS WdfCommonBufferCreateWithConfig(WDFDMAENABLER,size_t n,WDF_COMMON_BUFFE
 PHYSICAL_ADDRESS WdfCommonBufferGetAlignedLogicalAddress(WDFCOMMONBUFFER b) { return {int64_t(b->id)*0x100000}; }
 void* WdfCommonBufferGetAlignedVirtualAddress(WDFCOMMONBUFFER b) { return b->bytes.data(); }
 void WdfObjectDelete(FakeObject* b) { CHECK(live>0); --live; delete b; }
+NTSTATUS WdfMemoryCreate(WDF_OBJECT_ATTRIBUTES* a,unsigned pool,ULONG tag,SIZE_T n,
+                         WDFMEMORY* out,void** storage) {
+    CHECK(irql==0 && a && a->ParentObject && pool==NonPagedPoolNx &&
+          tag==0x35534850u && n>0 && out && storage);
+    if(createFailure==5) return STATUS_INSUFFICIENT_RESOURCES;
+    *out=new FakeObject{++sequence,std::vector<UCHAR>(n)};
+    *storage=(*out)->bytes.data(); ++live; ++sessionMemoryCreates;
+    return STATUS_SUCCESS;
+}
 void* FakeWdfContext(WDFINTERRUPT h) { return h->bytes.data(); }
 NTSTATUS WdfWaitLockCreate(WDF_OBJECT_ATTRIBUTES* a,WDFWAITLOCK* out) {
     CHECK(irql==0 && a->ParentObject);
@@ -196,6 +207,12 @@ static void Notify() {
     IpcPut(dsp,0x81000,24); IpcPut(dsp,0x81004,0x90020000); IpcPut(dsp,0x81008,0);
     IpcPut(dsp,0x40,0x90020000); IpcPut(dsp,0xc,1);
 }
+static void ResetColdRegisters() {
+    for(auto& v:hda) v=0;
+    for(auto& v:dsp) v=0;
+    Put(hda,0,2,0x6701); Put(hda,8,4,1); Put(hda,0x14,4,0x500);
+    Put(hda,0x500,4,0x10030700); Put(hda,0x700,4,0x10040000); Put(hda,0x504,4,0x40000000);
+}
 static void Reset() {
     CHECK(accessGate.CloseForRelease());
     CHECK(accessGate.OpenForPrepare());
@@ -203,11 +220,10 @@ static void Reset() {
     connected=false; forbidMmio=false; synchronizeCalls=0; unmapped=false; dropIrqUnmask=false; dropIrqMask=false; createFailure=0; queued=false;
     irqCreatedWithAssignedDescriptors=false;
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
-    dspWrites=0; irql=0; sequence=0; ticks=100000;
+    dspWrites=0; irql=0; sequence=0; ticks=100000; sessionMemoryCreates=0;
     stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
     rejectPinnedEnter=false; removeDuringPinnedEnter=nullptr;
-    Put(hda,0,2,0x6701); Put(hda,8,4,1); Put(hda,0x14,4,0x500);
-    Put(hda,0x500,4,0x10030700); Put(hda,0x700,4,0x10040000); Put(hda,0x504,4,0x40000000);
+    ResetColdRegisters();
 }
 static NTSTATUS Prepare(GlkBoot& boot) {
     CHECK(boot.BindAccessGate(&accessGate));
@@ -871,6 +887,172 @@ int main() {
         CHECK(!lifecycle.Bound() && lifecycle.D0Consumed());
         CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore && !queued);
         forbidMmio=false;
+        FrameworkDeleteChildren();
+    }
+
+    // M0.6.15H5: fresh GlkBoot+ColdPower ownership for every D0 attempt.
+    // Successful D0 #1, failed D0 #2, and successful D0 #3 use three fresh
+    // WDF-owned sessions while preserving one device-lifetime IRQ shell.
+    Reset(); {
+        IpcInterrupt bridge; PinnedFirmware firmware;
+        RepeatedDeviceLifecycle lifecycle(bridge,firmware,accessGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops();
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        raw.Flags=CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        translated.Flags=CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000; view.interruptCount=1;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&accessGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        binding.kind=PnpInterruptKind::LineBased; binding.messageCount=0;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        CHECK(lifecycle.PreparedResources() && !lifecycle.ActiveD0());
+
+        CHECK(NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(lifecycle.SessionGeneration()==1 && lifecycle.ActiveD0());
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
+        Notify(); CHECK(Interrupt() && queued); RunWork(); CHECK(!queued);
+        CHECK(NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
+        CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
+        CHECK(!lifecycle.ActiveD0() && lifecycle.CompletedD0()==1 &&
+              lifecycle.FailedD0()==0 && live==4);
+
+        ResetColdRegisters(); missingReady=true;
+        CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(lifecycle.SessionGeneration()==2 && !lifecycle.ActiveD0() &&
+              lifecycle.CompletedD0()==1 && lifecycle.FailedD0()==1 && live==4);
+        missingReady=false;
+
+        ResetColdRegisters();
+        CHECK(NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(lifecycle.SessionGeneration()==3 && lifecycle.ActiveD0());
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
+        Notify(); CHECK(Interrupt() && queued); RunWork(); CHECK(!queued);
+        CHECK(NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
+        CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
+        CHECK(!lifecycle.ActiveD0() && lifecycle.CompletedD0()==2 &&
+              lifecycle.FailedD0()==1 && sessionMemoryCreates==3 && live==4);
+
+        CHECK(NT_SUCCESS(ops.release(ops.context)));
+        CHECK(!lifecycle.PreparedResources());
+        std::vector<UCHAR> nextHda(0x4000),nextDsp(0x100000);
+        PnpResourceView nextView=view;
+        nextView.hda=nextHda.data(); nextView.dsp=nextDsp.data();
+        auto nextBinding=binding; nextBinding.dsp=nextDsp.data();
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,nextView,nextBinding)));
+        CHECK(lifecycle.PreparedResources());
+        CHECK(NT_SUCCESS(ops.release(ops.context)));
+        FrameworkDeleteChildren();
+    }
+
+    // Per-D0 allocation failure is retryable and cannot leave an IRQ binding.
+    Reset(); {
+        IpcInterrupt bridge; PinnedFirmware firmware;
+        RepeatedDeviceLifecycle lifecycle(bridge,firmware,accessGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops();
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&accessGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        createFailure=5;
+        CHECK(ops.d0Entry(ops.context,&checks,view)==STATUS_INSUFFICIENT_RESOURCES);
+        CHECK(!lifecycle.ActiveD0() && lifecycle.SessionGeneration()==0 &&
+              sessionMemoryCreates==0 && live==4);
+        createFailure=0;
+        CHECK(NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(lifecycle.SessionGeneration()==1 && sessionMemoryCreates==1);
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
+        CHECK(NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
+        CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(NT_SUCCESS(ops.d0Exit(ops.context)) && live==4);
+        CHECK(NT_SUCCESS(ops.release(ops.context)));
+        FrameworkDeleteChildren();
+    }
+
+    // Terminal removal after an earlier clean D0. Generation #2 is abandoned
+    // only after framework disconnect; no register access is allowed afterward.
+    Reset(); {
+        HardwareAccessGate terminalGate; CHECK(terminalGate.OpenForPrepare());
+        IpcInterrupt bridge; PinnedFirmware firmware;
+        RepeatedDeviceLifecycle lifecycle(bridge,firmware,terminalGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops();
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&terminalGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+
+        CHECK(NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
+        CHECK(NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
+        CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
+        CHECK(lifecycle.CompletedD0()==1 && lifecycle.SessionGeneration()==1);
+        ResetColdRegisters();
+
+        CHECK(NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
+        Notify(); CHECK(Interrupt() && queued);
+        terminalGate.SurpriseRemove(); ops.surpriseRemoval(ops.context);
+        const auto writesBefore=dspWrites, syncBefore=synchronizeCalls;
+        forbidMmio=true;
+        CHECK(NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
+        CHECK(!NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
+        CHECK(!lifecycle.ActiveD0() && lifecycle.Removed() &&
+              lifecycle.SessionGeneration()==2 && sessionMemoryCreates==2);
+        CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore && !queued);
+        CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(NT_SUCCESS(ops.release(ops.context)));
+        forbidMmio=false;
+        FrameworkDeleteChildren();
+    }
+
+    // Terminal race after commandReady but before framework Enable: the fresh
+    // session is abandoned inside failed D0Entry, with no later D0Exit required.
+    Reset(); {
+        HardwareAccessGate terminalGate; CHECK(terminalGate.OpenForPrepare());
+        IpcInterrupt bridge; PinnedFirmware firmware;
+        RepeatedDeviceLifecycle lifecycle(bridge,firmware,terminalGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops();
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&terminalGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        removeDuringPinnedEnter=&terminalGate;
+        CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(lifecycle.Removed() && !lifecycle.ActiveD0() &&
+              lifecycle.SessionGeneration()==1 && live==4);
+        CHECK(NT_SUCCESS(ops.release(ops.context)));
+        removeDuringPinnedEnter=nullptr;
         FrameworkDeleteChildren();
     }
 
