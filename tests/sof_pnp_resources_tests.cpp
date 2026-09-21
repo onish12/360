@@ -10,6 +10,7 @@ using phaser360::windows::PnpResources;
 using phaser360::windows::PnpResourceView;
 using phaser360::windows::PnpPowerPhase;
 using phaser360::windows::PnpInterruptKind;
+using phaser360::windows::PnpInterruptResource;
 
 static unsigned checks=0,irql=0,mapCalls=0,failMap=0;
 static void check(bool ok) { ++checks; if(!ok) { std::cerr<<"PNP check failed: "<<checks<<'\n'; std::exit(1); } }
