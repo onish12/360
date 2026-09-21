@@ -59,6 +59,19 @@ struct PnpDormantInterruptBinding {
     USHORT messageCount=0;
 };
 
+// Optional composition seam used by the non-installable H4 owner. PnP remains
+// the sole owner of mappings; hooks receive copied resource metadata only.
+struct PnpLifecycleOps {
+    void* context=nullptr;
+    NTSTATUS(*prepared)(void*,const PnpResourceView&,const PnpDormantInterruptBinding&) noexcept=nullptr;
+    NTSTATUS(*d0Entry)(void*,WDFDEVICE,const PnpResourceView&) noexcept=nullptr;
+    NTSTATUS(*postInterruptsEnabled)(void*) noexcept=nullptr;
+    NTSTATUS(*preInterruptsDisabled)(void*) noexcept=nullptr;
+    NTSTATUS(*d0Exit)(void*) noexcept=nullptr;
+    NTSTATUS(*release)(void*) noexcept=nullptr;
+    void(*surpriseRemoval)(void*) noexcept=nullptr;
+};
+
 // Resource-lifetime PnP adapter. Still not a boot/audio driver.
 //
 // PrepareHardware validates raw/translated pairing, maps the two measured GLK
@@ -77,6 +90,9 @@ public:
     static NTSTATUS Configure(PWDFDEVICE_INIT,WDF_OBJECT_ATTRIBUTES*) noexcept;
     // After WdfDeviceCreate using those attributes, before DeviceAdd returns.
     NTSTATUS Attach(WDFDEVICE) noexcept;
+    // Before PrepareHardware only. The function table is copied; its context
+    // must outlive this PnP owner.
+    bool InstallLifecycle(const PnpLifecycleOps&) noexcept;
 
     bool Prepared() const noexcept {
         return gate_ && gate_->Allowed() && hda_!=nullptr && dsp_!=nullptr;
@@ -100,6 +116,8 @@ private:
     UCHAR* hda_=nullptr;
     UCHAR* dsp_=nullptr;
     PnpResourceView view_={};
+    PnpLifecycleOps lifecycle_={};
+    bool lifecyclePrepared_=false;
     PnpPowerPhase phase_=PnpPowerPhase::NoResources;
 
     NTSTATUS Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcept;

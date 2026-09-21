@@ -136,6 +136,29 @@ bool IpcInterrupt::ResetDormantClosedSession() noexcept {
     return result;
 }
 
+bool IpcInterrupt::ResetDormantRemovedSession() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !deviceLifetimeShell_)
+        return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    const bool removed=boot_ && boot_->AccessGate() && boot_->AccessGate()->Removed();
+    const bool frameworkDone=!enabled_ && (!enableSeen_ || disableSeen_);
+    const bool neverEnabled=!enableSeen_;
+    const bool softwareDrained=neverEnabled || drained_;
+    const bool result=removed && frameworkDone && admissionClosed_ && softwareDrained &&
+        !ready_ && !armed_ && InterlockedCompareExchange(&pendingWork_,0,0)==0;
+    if(result) {
+        boot_=nullptr; dsp_=nullptr;
+        bootStartAllowed_=false; hardwareEnableAllowed_=false;
+        admissionClosed_=false; closed_=false; disconnectedSeen_=false;
+        enableFailed_=false; disableMasked_=false; drained_=false;
+        enableSeen_=false; disableSeen_=false;
+        armed_=false; enabled_=false; ready_=false; fault_=false; stopped_=false;
+        everArmed_=false;
+    }
+    WdfWaitLockRelease(serial_);
+    return result;
+}
+
 NTSTATUS IpcInterrupt::Create(WDFDEVICE device,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
                               PCM_PARTIAL_RESOURCE_DESCRIPTOR translated,GlkBoot* boot,
                               UCHAR* dsp,ULONG length) noexcept {

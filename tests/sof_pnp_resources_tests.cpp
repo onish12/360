@@ -12,6 +12,7 @@ using phaser360::windows::PnpPowerPhase;
 using phaser360::windows::PnpInterruptKind;
 using phaser360::windows::PnpInterruptResource;
 using phaser360::windows::PnpDormantInterruptBinding;
+using phaser360::windows::PnpLifecycleOps;
 
 static unsigned checks=0,irql=0,mapCalls=0,failMap=0;
 static void check(bool ok) { ++checks; if(!ok) { std::cerr<<"PNP check failed: "<<checks<<'\n'; std::exit(1); } }
@@ -28,6 +29,48 @@ static HardwareAccessGate* activeGate=nullptr;
 static void(*surpriseCallback)(WDFDEVICE)=nullptr;
 static WDFDEVICE surpriseDevice=nullptr;
 static unsigned surpriseMapAt=0;
+
+struct HookTrace {
+    std::vector<unsigned> sequence;
+    bool failPrepared=false;
+    bool failPre=false;
+    HardwareAccessGate* removeAfterEntry=nullptr;
+};
+static NTSTATUS HookPrepared(void* p,const PnpResourceView& view,
+                             const PnpDormantInterruptBinding& binding) noexcept {
+    auto& h=*static_cast<HookTrace*>(p); h.sequence.push_back(1);
+    check(view.hda && view.dsp && view.hdaLength==0x4000 && view.dspLength==0x100000);
+    check(binding.gate && binding.dsp==view.dsp && binding.dspLength==view.dspLength);
+    return h.failPrepared?STATUS_DEVICE_CONFIGURATION_ERROR:STATUS_SUCCESS;
+}
+static NTSTATUS HookD0Entry(void* p,WDFDEVICE,const PnpResourceView& view) noexcept {
+    auto& h=*static_cast<HookTrace*>(p); h.sequence.push_back(2);
+    check(view.hda && view.dsp);
+    if(h.removeAfterEntry) h.removeAfterEntry->SurpriseRemove();
+    return STATUS_SUCCESS;
+}
+static NTSTATUS HookPost(void* p) noexcept {
+    static_cast<HookTrace*>(p)->sequence.push_back(3); return STATUS_SUCCESS;
+}
+static NTSTATUS HookPre(void* p) noexcept {
+    auto& h=*static_cast<HookTrace*>(p); h.sequence.push_back(4);
+    return h.failPre?STATUS_DEVICE_CONFIGURATION_ERROR:STATUS_SUCCESS;
+}
+static NTSTATUS HookExit(void* p) noexcept {
+    static_cast<HookTrace*>(p)->sequence.push_back(5); return STATUS_SUCCESS;
+}
+static NTSTATUS HookRelease(void* p) noexcept {
+    static_cast<HookTrace*>(p)->sequence.push_back(6); return STATUS_SUCCESS;
+}
+static void HookSurprise(void* p) noexcept {
+    static_cast<HookTrace*>(p)->sequence.push_back(7);
+}
+static PnpLifecycleOps MakeHooks(HookTrace& h) {
+    PnpLifecycleOps ops{}; ops.context=&h; ops.prepared=HookPrepared;
+    ops.d0Entry=HookD0Entry; ops.postInterruptsEnabled=HookPost;
+    ops.preInterruptsDisabled=HookPre; ops.d0Exit=HookExit;
+    ops.release=HookRelease; ops.surpriseRemoval=HookSurprise; return ops;
+}
 
 unsigned KeGetCurrentIrql() { return irql; }
 void* FakeWdfContext(WDFINTERRUPT object) { return &object->owner; }
@@ -398,6 +441,75 @@ int main() {
     check(NT_SUCCESS(release(&entryFailDevice,nullptr)) && live.empty());
     check(entryFailGate.Removed() && entryFailOwner.PowerPhase()==PnpPowerPhase::NoResources);
 
+    // H4 callback composition seam: prove PnP invokes the consumer only at the
+    // documented lifecycle boundaries and still owns all map/unmap operations.
+    {
+        HardwareAccessGate hookGate; PnpResources hookOwner(hookGate); FakeObject hookDevice;
+        HookTrace trace; auto hooks=MakeHooks(trace); activeGate=&hookGate;
+        check(hookOwner.InstallLifecycle(hooks));
+        check(!hookOwner.InstallLifecycle(hooks));
+        check(NT_SUCCESS(hookOwner.Attach(&hookDevice)));
+        expectedAddresses={0x500004000LL,0x500100000LL};
+        auto hookTranslated=validTranslated(); auto hookRaw=validRaw();
+        mapCalls=0; unmaps.clear();
+        check(NT_SUCCESS(prepare(&hookDevice,&hookRaw,&hookTranslated)));
+        check(trace.sequence==std::vector<unsigned>({1}));
+        check(NT_SUCCESS(d0Entry(&hookDevice,WdfPowerDeviceD3Final)));
+        check(NT_SUCCESS(postEnable(&hookDevice,WdfPowerDeviceD3Final)));
+        trace.failPre=true;
+        check(!NT_SUCCESS(preDisable(&hookDevice,WdfPowerDeviceD3Final)));
+        check(hookOwner.PowerPhase()==PnpPowerPhase::PreInterruptsDisabled);
+        check(NT_SUCCESS(d0Exit(&hookDevice,WdfPowerDeviceD3Final)));
+        check(NT_SUCCESS(release(&hookDevice,nullptr)));
+        check(trace.sequence==std::vector<unsigned>({1,2,3,4,5,6}));
+        check(live.empty() && unmaps==std::vector<SIZE_T>({0x100000,0x4000}));
+
+        // Re-prepared resources may be surprise-removed. Gate closes first, then
+        // the consumer receives only its software fence notification.
+        trace.failPre=false; trace.sequence.clear();
+        expectedAddresses={0x510004000LL,0x510100000LL};
+        hookTranslated=validTranslated(); hookRaw=validRaw(); mapCalls=0; unmaps.clear();
+        check(NT_SUCCESS(prepare(&hookDevice,&hookRaw,&hookTranslated)));
+        surprise(&hookDevice);
+        check(hookGate.Removed() && trace.sequence==std::vector<unsigned>({1,7}));
+        check(NT_SUCCESS(release(&hookDevice,nullptr)));
+        check(trace.sequence==std::vector<unsigned>({1,7,6}) && live.empty());
+    }
+
+    // SurpriseRemoval may win at the tail of a successful consumer D0Entry.
+    // Because KMDF supplies no D0Exit after failed D0Entry, PnP compensates
+    // immediately with terminal fence + exit hook before returning failure.
+    {
+        HardwareAccessGate raceEntryGate; PnpResources raceEntryOwner(raceEntryGate);
+        FakeObject raceEntryDevice; HookTrace trace; trace.removeAfterEntry=&raceEntryGate;
+        activeGate=&raceEntryGate;
+        check(raceEntryOwner.InstallLifecycle(MakeHooks(trace)));
+        check(NT_SUCCESS(raceEntryOwner.Attach(&raceEntryDevice)));
+        expectedAddresses={0x515004000LL,0x515100000LL};
+        auto rt=validTranslated(); auto rr=validRaw(); mapCalls=0; unmaps.clear();
+        check(NT_SUCCESS(prepare(&raceEntryDevice,&rr,&rt)));
+        check(d0Entry(&raceEntryDevice,WdfPowerDeviceD3Final)==STATUS_INVALID_DEVICE_STATE);
+        check(raceEntryGate.Removed() &&
+              raceEntryOwner.PowerPhase()==PnpPowerPhase::Prepared);
+        check(trace.sequence==std::vector<unsigned>({1,2,7,5}));
+        check(NT_SUCCESS(release(&raceEntryDevice,nullptr)));
+        check(trace.sequence==std::vector<unsigned>({1,2,7,5,6}) && live.empty());
+    }
+
+    // A consumer that rejects Prepared must not leave mappings or an open gate.
+    {
+        HardwareAccessGate failGate; PnpResources failOwner(failGate); FakeObject failDevice;
+        HookTrace trace; trace.failPrepared=true; activeGate=&failGate;
+        check(failOwner.InstallLifecycle(MakeHooks(trace)));
+        check(NT_SUCCESS(failOwner.Attach(&failDevice)));
+        expectedAddresses={0x520004000LL,0x520100000LL};
+        auto ft=validTranslated(); auto fr=validRaw(); mapCalls=0; unmaps.clear();
+        check(prepare(&failDevice,&fr,&ft)==STATUS_DEVICE_CONFIGURATION_ERROR);
+        check(trace.sequence==std::vector<unsigned>({1}));
+        check(live.empty() && !failGate.Allowed() &&
+              failOwner.PowerPhase()==PnpPowerPhase::NoResources);
+    }
+
     std::cout<<"SOF_PNP_RESOURCES_TESTS="<<checks
-             <<" PASS; irq_inventory=LINE_AND_MESSAGE; irq_admission=SINGLE_PAIR_LINE_OR_ONE_MESSAGE; dormant_binding=PNP_TO_IRQ_SHELL_SOFTWARE_ONLY; wdf_interrupt_create=NO; power_skeleton=REGISTERED; surprise_callback=REGISTERED; paired_raw_translated=YES; hardware=NOT_TOUCHED\n";
+             <<" PASS; irq_inventory=LINE_AND_MESSAGE; irq_admission=SINGLE_PAIR_LINE_OR_ONE_MESSAGE; dormant_binding=PNP_TO_IRQ_SHELL_SOFTWARE_ONLY; lifecycle_hooks=ORDERED_FAIL_CLOSED; wdf_interrupt_create=NO; power_skeleton=REGISTERED; surprise_callback=REGISTERED; paired_raw_translated=YES; hardware=NOT_TOUCHED\n";
 }

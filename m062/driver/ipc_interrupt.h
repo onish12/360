@@ -27,6 +27,10 @@ public:
     // After confirmed ColdPower shutdown/cancel and framework disconnect (if it
     // ever connected), return a DeviceAdd shell to pristine dormant state.
     bool ResetDormantClosedSession() noexcept;
+    // Terminal surprise-removal only, after framework disconnect/Disable and
+    // software queue drain. Clears pointers/grants without MMIO and without
+    // claiming hardware mask/DSP shutdown.
+    bool ResetDormantRemovedSession() noexcept;
     // Legacy/precomposed test entry: creates with explicit assigned descriptors.
     NTSTATUS Create(WDFDEVICE,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
                     PCM_PARTIAL_RESOURCE_DESCRIPTOR translated,GlkBoot*,UCHAR* dsp,ULONG length) noexcept;

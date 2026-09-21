@@ -200,6 +200,13 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   executed on hardware. Source `0f7313dd` passes real WDK compilation,
   10 WDK host tests, 14 Windows tests and 12 Linux tests; the integrated
   boot/IRQ model reports 267,115 assertions.
+- **M0.6.15H4:** [composed single-D0 PnP lifecycle](docs/M0615_COMPOSED_PNP_D0.md).
+  Connects the real PnP callback ordering to the admitted dormant IRQ shell,
+  PinnedFirmware, GlkBoot and ColdPower. Normal shutdown, failed D0Entry,
+  pre-disable failure fallback and terminal surprise-removal abandonment are
+  separated and fail closed. H4 intentionally permits only one GlkBoot/D0
+  attempt per composite; repeated D0 ownership remains the next milestone.
+  Still a non-installable model and not executed on Lenovo.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

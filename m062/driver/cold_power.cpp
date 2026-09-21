@@ -34,6 +34,14 @@ bool ColdPower::RetryEarlyCleanup() noexcept {
     if(!irq_.CancelBeforeEnable() || !boot_->Shutdown()) return false;
     state_=State::Closed; return true;
 }
+bool ColdPower::AbortBeforeInterruptsEnabled() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
+    if(state_==State::Closed) return true;
+    if(!valid_ || !access_ || !access_->Allowed() || state_!=State::Booted)
+        return false;
+    if(!irq_.CancelBeforeEnable() || !boot_->Shutdown()) return false;
+    state_=State::Closed; return true;
+}
 NTSTATUS ColdPower::AfterInterruptsEnabled() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !valid_ || !access_ || !access_->Allowed() ||
        state_!=State::Booted) return STATUS_INVALID_DEVICE_STATE;

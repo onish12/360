@@ -25,7 +25,10 @@ public:
     // hardware present/accessible. This is a caller obligation, not a status flag.
     // Not callable from ReleaseHardware or surprise-removal cleanup.
     bool AfterInterruptsDisconnected() noexcept;
-    bool RetryEarlyCleanup() noexcept; // only before any framework Enable
+    bool RetryEarlyCleanup() noexcept; // failed boot before any framework Enable
+    // Successful boot but a later software admission/grant failed before the
+    // framework called EvtInterruptEnable.
+    bool AbortBeforeInterruptsEnabled() noexcept;
     bool CanReleaseMappings() const noexcept { return state_==State::Closed; }
     TransferResult TransferEvidence() const noexcept { return transfer_; }
 private:

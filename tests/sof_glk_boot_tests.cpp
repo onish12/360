@@ -3,6 +3,7 @@
 #include "../m062/driver/glk_boot.h"
 #include "../m062/driver/ipc_interrupt.h"
 #include "../m062/driver/cold_power.h"
+#include "../m062/driver/device_lifecycle.h"
 #include <vector>
 #include "sof_ipc_fixture.h"
 #include <cstdio>
@@ -28,6 +29,8 @@ static WDFINTERRUPT irqHandle=nullptr;
 static WDFWAITLOCK serialHandle=nullptr;
 static std::vector<UCHAR> hda(0x4000),dsp(0x100000);
 static bool stuckRun=false,noRun=false,power=true,halt=false,missingReady=false,badReady=false,commandTimeout=false;
+static bool rejectPinnedEnter=false;
+static HardwareAccessGate* removeDuringPinnedEnter=nullptr;
 #define CHECK(x) do { ++checks; if(!(x)) { std::fprintf(stderr,"line %d: %s\n",__LINE__,#x); std::exit(1); } } while(0)
 static ULONG Get(const std::vector<UCHAR>& b,size_t o,unsigned w) {
     CHECK(o+w<=b.size()); ULONG v=0;
@@ -202,6 +205,7 @@ static void Reset() {
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
     dspWrites=0; irql=0; sequence=0; ticks=100000;
     stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
+    rejectPinnedEnter=false; removeDuringPinnedEnter=nullptr;
     Put(hda,0,2,0x6701); Put(hda,8,4,1); Put(hda,0x14,4,0x500);
     Put(hda,0x500,4,0x10030700); Put(hda,0x700,4,0x10040000); Put(hda,0x504,4,0x40000000);
 }
@@ -211,6 +215,23 @@ static NTSTATUS Prepare(GlkBoot& boot) {
     auto x=IpcXman();
     return boot.Prepare(&checks,hda.data(),0x4000,dsp.data(),0x100000,image.data(),image.size(),x.data(),x.size(),20);
 }
+
+namespace phaser360 { namespace windows {
+// H4 composition test seam: ownership/hash behavior is tested independently in
+// sof_pinned_owner and real CNG tests. Here Enter must exercise the production
+// ColdPower path without duplicating a 287488-byte fixture.
+NTSTATUS PinnedFirmware::Enter(ColdPower& powerOwner,WDFDEVICE device,UCHAR* mappedHda,
+                               ULONG hdaLength,UCHAR* mappedDsp,ULONG dspLength) noexcept {
+    if(rejectPinnedEnter) return STATUS_INVALID_IMAGE_HASH;
+    static std::vector<UCHAR> payload(286720,0xaa);
+    auto x=IpcXman();
+    const auto status=powerOwner.Enter(device,mappedHda,hdaLength,mappedDsp,dspLength,
+                                       payload.data(),payload.size(),x.data(),x.size(),20);
+    if(NT_SUCCESS(status) && removeDuringPinnedEnter)
+        removeDuringPinnedEnter->SurpriseRemove();
+    return status;
+}
+} }
 int main() {
     Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); CHECK(live==3);
         auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && r.ipcReady && r.commandReady && live==0);
@@ -704,6 +725,154 @@ int main() {
         // Test-fixture teardown, not a production recovery path.
         forbidMmio=false; CHECK(boot.Shutdown()); FrameworkDeleteChildren();
     }
+    // M0.6.15H4: composed callback consumer, normal start/stop including
+    // a failed pre-disable Stop recovered only after framework disconnect.
+    Reset(); {
+        GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
+        DeviceLifecycle lifecycle(bridge,boot,firmware,accessGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops(); CHECK(ops.context==&lifecycle);
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000;
+        view.interruptCount=1;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&accessGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        CHECK(lifecycle.Bound() && !lifecycle.D0Consumed());
+        CHECK(NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
+        Notify(); CHECK(Interrupt() && queued);
+
+        dropIrqMask=true;
+        CHECK(!NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
+        dropIrqMask=false;
+        CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
+        CHECK(!lifecycle.Bound() && lifecycle.D0Consumed());
+        CHECK(NT_SUCCESS(ops.release(ops.context)));
+        // One GlkBoot is one attempt; H4 deliberately rejects a second D0.
+        CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(!queued && live==4);
+        FrameworkDeleteChildren();
+    }
+
+    // D0Entry failure after ColdPower starts must clean/reset without a
+    // synthetic D0Exit, because KMDF does not provide one for failed entry.
+    Reset(); {
+        GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
+        DeviceLifecycle lifecycle(bridge,boot,firmware,accessGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops();
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&accessGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        Put(hda,8,4,0);
+        CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(!lifecycle.Bound() && lifecycle.D0Consumed());
+        CHECK(NT_SUCCESS(ops.release(ops.context)));
+        CHECK(live==4 && dspWrites==0);
+        FrameworkDeleteChildren();
+    }
+
+    // Firmware admission can fail before ColdPower is entered. In that case H4
+    // must unbind the still-dormant resource lifetime directly.
+    Reset(); {
+        GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
+        DeviceLifecycle lifecycle(bridge,boot,firmware,accessGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops();
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&accessGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        rejectPinnedEnter=true;
+        const auto writesBefore=dspWrites;
+        CHECK(ops.d0Entry(ops.context,&checks,view)==STATUS_INVALID_IMAGE_HASH);
+        CHECK(!lifecycle.Bound() && lifecycle.D0Consumed());
+        CHECK(NT_SUCCESS(ops.release(ops.context)) && dspWrites==writesBefore);
+        FrameworkDeleteChildren();
+    }
+
+    // SurpriseRemoval can win after command-ready boot but before framework
+    // Enable. H4 must abandon the terminal session inside D0Entry itself.
+    Reset(); {
+        HardwareAccessGate terminalGate; CHECK(terminalGate.OpenForPrepare());
+        GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
+        DeviceLifecycle lifecycle(bridge,boot,firmware,terminalGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops();
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&terminalGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        removeDuringPinnedEnter=&terminalGate;
+        CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(terminalGate.Removed() && lifecycle.Removed());
+        CHECK(!lifecycle.Bound() && lifecycle.D0Consumed());
+        CHECK(NT_SUCCESS(ops.release(ops.context)));
+        removeDuringPinnedEnter=nullptr;
+        CHECK(live==4);
+        FrameworkDeleteChildren();
+    }
+
+    // Terminal surprise removal: after the gate closes, all remaining teardown
+    // is software-only. Disable may report failure because no hardware mask can
+    // be confirmed; D0Exit drains and abandons stale pointers without MMIO.
+    Reset(); {
+        HardwareAccessGate terminalGate; CHECK(terminalGate.OpenForPrepare());
+        GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
+        DeviceLifecycle lifecycle(bridge,boot,firmware,terminalGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops();
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&terminalGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        CHECK(NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
+        Notify(); CHECK(Interrupt() && queued);
+
+        terminalGate.SurpriseRemove(); ops.surpriseRemoval(ops.context);
+        CHECK(lifecycle.Removed() && terminalGate.Removed());
+        const auto writesBefore=dspWrites, syncBefore=synchronizeCalls;
+        forbidMmio=true;
+        CHECK(NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
+        CHECK(!NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
+        CHECK(NT_SUCCESS(ops.release(ops.context)));
+        CHECK(!lifecycle.Bound() && lifecycle.D0Consumed());
+        CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore && !queued);
+        forbidMmio=false;
+        FrameworkDeleteChildren();
+    }
+
     // M0.6.15A: surprise-removal is terminal for hardware access.
     Reset(); {
         GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge;

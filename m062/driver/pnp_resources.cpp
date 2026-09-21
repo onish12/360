@@ -30,6 +30,14 @@ NTSTATUS PnpResources::Attach(WDFDEVICE device) noexcept {
     device_=device; context->owner=this; return STATUS_SUCCESS;
 }
 
+bool PnpResources::InstallLifecycle(const PnpLifecycleOps& ops) noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || phase_!=PnpPowerPhase::NoResources ||
+       hda_ || dsp_ || lifecycle_.context || !ops.context)
+        return false;
+    lifecycle_=ops;
+    return true;
+}
+
 NTSTATUS PnpResources::PrepareHardware(WDFDEVICE device,WDFCMRESLIST raw,WDFCMRESLIST translated) {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return STATUS_INVALID_DEVICE_STATE;
     auto* owner=GetPnpResourcesContext(device)->owner;
@@ -54,11 +62,24 @@ NTSTATUS PnpResources::D0Entry(WDFDEVICE device,WDF_POWER_DEVICE_STATE previousS
     if(!owner || owner->device_!=device || owner->phase_!=PnpPowerPhase::Prepared ||
        !owner->gate_ || !owner->gate_->Allowed() || !owner->hda_ || !owner->dsp_)
         return STATUS_INVALID_DEVICE_STATE;
-    // Skeleton only: no MMIO, firmware, DMA or IRQ action.
+    if(owner->lifecycle_.d0Entry) {
+        PnpResourceView snapshot{};
+        if(!owner->CopyPreparedView(&snapshot)) return STATUS_INVALID_DEVICE_STATE;
+        const auto status=owner->lifecycle_.d0Entry(owner->lifecycle_.context,device,snapshot);
+        if(!NT_SUCCESS(status)) return status; // failed entry gets no D0Exit
+    }
     owner->phase_=PnpPowerPhase::D0Entered;
-    // If surprise removal won after the first gate check, report failed entry.
-    // KMDF will not call D0Exit for a failed D0Entry.
     if(!owner->gate_->Allowed()) {
+        // SurpriseRemoval can race the tail of D0Entry. A failed D0Entry gets
+        // no framework D0Exit, so compensate here after closing the terminal
+        // software fence. No interrupt Enable has occurred yet.
+        if(owner->lifecycle_.surpriseRemoval)
+            owner->lifecycle_.surpriseRemoval(owner->lifecycle_.context);
+        if(owner->lifecycle_.d0Exit &&
+           !NT_SUCCESS(owner->lifecycle_.d0Exit(owner->lifecycle_.context))) {
+            owner->phase_=PnpPowerPhase::Prepared;
+            return STATUS_DEVICE_CONFIGURATION_ERROR;
+        }
         owner->phase_=PnpPowerPhase::Prepared;
         return STATUS_INVALID_DEVICE_STATE;
     }
@@ -73,8 +94,10 @@ NTSTATUS PnpResources::D0EntryPostInterruptsEnabled(
     if(!owner || owner->device_!=device || owner->phase_!=PnpPowerPhase::D0Entered ||
        !owner->gate_ || !owner->gate_->Allowed())
         return STATUS_INVALID_DEVICE_STATE;
-    // Future ColdPower post-enable arming belongs here. This milestone only
-    // records the framework ordering and performs no hardware operation.
+    if(owner->lifecycle_.postInterruptsEnabled) {
+        const auto status=owner->lifecycle_.postInterruptsEnabled(owner->lifecycle_.context);
+        if(!NT_SUCCESS(status)) return status;
+    }
     owner->phase_=PnpPowerPhase::Operational;
     return STATUS_SUCCESS;
 }
@@ -89,9 +112,12 @@ NTSTATUS PnpResources::D0ExitPreInterruptsDisabled(
         owner->phase_!=PnpPowerPhase::D0Entered))
         return STATUS_INVALID_DEVICE_STATE;
     // Must remain callable after SurpriseRemoval; therefore no Allowed() check.
-    // Future guarded shutdown will be composed here before interrupt disable.
+    const auto status=owner->lifecycle_.preInterruptsDisabled
+        ? owner->lifecycle_.preInterruptsDisabled(owner->lifecycle_.context)
+        : STATUS_SUCCESS;
+    // Even failure must permit the post-framework-disconnect D0Exit fallback.
     owner->phase_=PnpPowerPhase::PreInterruptsDisabled;
-    return STATUS_SUCCESS;
+    return status;
 }
 
 NTSTATUS PnpResources::D0Exit(WDFDEVICE device,WDF_POWER_DEVICE_STATE targetState) {
@@ -101,8 +127,11 @@ NTSTATUS PnpResources::D0Exit(WDFDEVICE device,WDF_POWER_DEVICE_STATE targetStat
     if(!owner || owner->device_!=device ||
        owner->phase_!=PnpPowerPhase::PreInterruptsDisabled)
         return STATUS_INVALID_DEVICE_STATE;
-    // Framework interrupt-disable occurs before this callback. No hardware work
-    // is performed in this skeleton.
+    // Framework interrupt-disable/disconnect occurs before this callback.
+    if(owner->lifecycle_.d0Exit) {
+        const auto status=owner->lifecycle_.d0Exit(owner->lifecycle_.context);
+        if(!NT_SUCCESS(status)) return status;
+    }
     owner->phase_=PnpPowerPhase::Prepared;
     return STATUS_SUCCESS;
 }
@@ -113,7 +142,11 @@ void PnpResources::SurpriseRemoval(WDFDEVICE device) {
     // do not inspect or unmap resource pointers here.
     if(!device) return;
     auto* owner=GetPnpResourcesContext(device)->owner;
-    if(owner && owner->gate_) owner->gate_->SurpriseRemove();
+    if(owner && owner->gate_) {
+        owner->gate_->SurpriseRemove();
+        if(owner->lifecycle_.surpriseRemoval)
+            owner->lifecycle_.surpriseRemoval(owner->lifecycle_.context);
+    }
 }
 
 NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcept {
@@ -238,6 +271,21 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
         return STATUS_INVALID_DEVICE_STATE;
     }
     phase_=PnpPowerPhase::Prepared;
+    if(lifecycle_.prepared) {
+        PnpDormantInterruptBinding binding{};
+        if(!CopyDormantInterruptBinding(&binding)) {
+            phase_=PnpPowerPhase::Prepared;
+            (void)Release();
+            return STATUS_DEVICE_CONFIGURATION_ERROR;
+        }
+        const auto status=lifecycle_.prepared(lifecycle_.context,view_,binding);
+        if(!NT_SUCCESS(status)) {
+            phase_=PnpPowerPhase::Prepared;
+            (void)Release();
+            return status;
+        }
+        lifecyclePrepared_=true;
+    }
     return STATUS_SUCCESS;
 }
 
@@ -249,6 +297,11 @@ NTSTATUS PnpResources::Release() noexcept {
     if(phase_!=PnpPowerPhase::NoResources && phase_!=PnpPowerPhase::Prepared)
         return STATUS_INVALID_DEVICE_STATE;
 
+    if(lifecyclePrepared_ && lifecycle_.release) {
+        const auto status=lifecycle_.release(lifecycle_.context);
+        if(!NT_SUCCESS(status)) return status;
+        lifecyclePrepared_=false;
+    }
     // Atomic with respect to SurpriseRemove: Open becomes Closed, Closed stays
     // Closed, and terminal Removed is accepted without being rewritten.
     if(!gate_->CloseForRelease()) return STATUS_INVALID_DEVICE_STATE;
