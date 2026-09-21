@@ -31,13 +31,16 @@ NTSTATUS IpcInterrupt::CreateDormant(WDFDEVICE device) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || created_) return STATUS_INVALID_DEVICE_STATE;
     if(!device) return STATUS_INVALID_PARAMETER;
     created_=true;
+    deviceLifetimeShell_=true;
+    bootStartAllowed_=false;
     hardwareEnableAllowed_=false;
     return CreateObjects(device,nullptr,nullptr);
 }
 bool IpcInterrupt::BindDormant(const PnpDormantInterruptBinding& binding,
                                GlkBoot* boot) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !created_ ||
-       hardwareEnableAllowed_ || !boot || !binding.gate || !binding.gate->Allowed() ||
+       !deviceLifetimeShell_ || bootStartAllowed_ || hardwareEnableAllowed_ ||
+       !boot || !binding.gate || !binding.gate->Allowed() ||
        !binding.dsp || (reinterpret_cast<ULONG_PTR>(binding.dsp)&3) ||
        binding.dspLength!=0x100000 || !binding.raw || !binding.translated ||
        binding.raw->Type!=CmResourceTypeInterrupt ||
@@ -68,7 +71,7 @@ bool IpcInterrupt::BindDormant(const PnpDormantInterruptBinding& binding,
 
 bool IpcInterrupt::UnbindDormant() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !created_ ||
-       hardwareEnableAllowed_)
+       !deviceLifetimeShell_ || hardwareEnableAllowed_)
         return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
     const bool disconnected=!enabled_ && (!enableSeen_ || disableSeen_);
@@ -76,10 +79,58 @@ bool IpcInterrupt::UnbindDormant() noexcept {
         !ready_ && InterlockedCompareExchange(&pendingWork_,0,0)==0;
     if(result) {
         boot_=nullptr; dsp_=nullptr;
+        bootStartAllowed_=false;
         admissionClosed_=false; closed_=false; disconnectedSeen_=false;
         enableFailed_=false; disableMasked_=false; drained_=false;
         enableSeen_=false; disableSeen_=false;
         armed_=false; enabled_=false; ready_=false; fault_=false; stopped_=false;
+    }
+    WdfWaitLockRelease(serial_);
+    return result;
+}
+
+bool IpcInterrupt::GrantBootStart() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !deviceLifetimeShell_)
+        return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    const bool result=boot_ && dsp_ && boot_->Fresh() && boot_->AccessAllowed() &&
+        !bootStartAllowed_ && !hardwareEnableAllowed_ && !enableSeen_ &&
+        !enabled_ && !everArmed_ && !stopped_ && !fault_ && !admissionClosed_;
+    if(result) bootStartAllowed_=true;
+    WdfWaitLockRelease(serial_);
+    return result;
+}
+
+bool IpcInterrupt::GrantFrameworkEnableAfterBoot() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !deviceLifetimeShell_)
+        return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    const bool result=bootStartAllowed_ && !hardwareEnableAllowed_ &&
+        boot_ && dsp_ && boot_->AccessAllowed() && boot_->CommandUsable() &&
+        !enableSeen_ && !enabled_ && !everArmed_ && !stopped_ &&
+        !fault_ && !admissionClosed_;
+    if(result) hardwareEnableAllowed_=true;
+    WdfWaitLockRelease(serial_);
+    return result;
+}
+
+bool IpcInterrupt::ResetDormantClosedSession() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !deviceLifetimeShell_)
+        return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    const bool frameworkDone=!enabled_ && (!enableSeen_ || disableSeen_);
+    const bool result=boot_ && bootStartAllowed_ && frameworkDone &&
+        closed_ && drained_ && stopped_ && !ready_ && !armed_ && !dsp_ &&
+        !boot_->CommandUsable() &&
+        InterlockedCompareExchange(&pendingWork_,0,0)==0;
+    if(result) {
+        boot_=nullptr; dsp_=nullptr;
+        bootStartAllowed_=false; hardwareEnableAllowed_=false;
+        admissionClosed_=false; closed_=false; disconnectedSeen_=false;
+        enableFailed_=false; disableMasked_=false; drained_=false;
+        enableSeen_=false; disableSeen_=false;
+        armed_=false; enabled_=false; ready_=false; fault_=false; stopped_=false;
+        everArmed_=false;
     }
     WdfWaitLockRelease(serial_);
     return result;
@@ -92,7 +143,8 @@ NTSTATUS IpcInterrupt::Create(WDFDEVICE device,PCM_PARTIAL_RESOURCE_DESCRIPTOR r
     if(!device || !raw || !translated || raw->Type!=CmResourceTypeInterrupt ||
        translated->Type!=CmResourceTypeInterrupt || !boot || !boot->AccessAllowed() || !dsp ||
        (reinterpret_cast<ULONG_PTR>(dsp)&3) || length<0x54 || length>0x100000) return STATUS_INVALID_PARAMETER;
-    created_=true; boot_=boot; dsp_=dsp; hardwareEnableAllowed_=true;
+    created_=true; deviceLifetimeShell_=false; boot_=boot; dsp_=dsp;
+    bootStartAllowed_=true; hardwareEnableAllowed_=true;
     return CreateObjects(device,raw,translated);
 }
 NTSTATUS IpcInterrupt::CreateObjects(WDFDEVICE device,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
@@ -162,7 +214,7 @@ bool IpcInterrupt::Sync(Operation operation) noexcept {
 bool IpcInterrupt::CanStartBeforeEnable() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=hardwareEnableAllowed_ && boot_ && boot_->AccessAllowed() &&
+    const bool result=bootStartAllowed_ && boot_ && boot_->AccessAllowed() &&
         !enableSeen_ && !admissionClosed_;
     WdfWaitLockRelease(serial_); return result;
 }
@@ -175,7 +227,8 @@ bool IpcInterrupt::CancelBeforeEnable() noexcept {
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept {
-    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || !boot || !boot->AccessAllowed() || !dsp ||
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_ || deviceLifetimeShell_ ||
+       !boot || !boot->AccessAllowed() || !dsp ||
        (reinterpret_cast<ULONG_PTR>(dsp)&3) || length<0x54 || length>0x100000) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
     // PnP caller serializes against Enable/Disable. No IRQ lock/synchronization
@@ -183,7 +236,7 @@ bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept
     const bool result=closed_ && drained_ && disableSeen_ &&
         InterlockedCompareExchange(&pendingWork_,0,0)==0;
     if(result) {
-        boot_=boot; dsp_=dsp; hardwareEnableAllowed_=true;
+        boot_=boot; dsp_=dsp; bootStartAllowed_=true; hardwareEnableAllowed_=true;
         admissionClosed_=false; closed_=false; drained_=false; stopped_=false; ready_=false;
         armed_=false; enabled_=false; fault_=false; enableSeen_=false; disableSeen_=false;
         disableMasked_=false; everArmed_=false; enableFailed_=false; disconnectedSeen_=false;

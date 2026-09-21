@@ -355,6 +355,99 @@ int main() {
         forbidMmio=false;
         FrameworkDeleteChildren();
     }
+    // M0.6.15H3: two-stage permission for a DeviceAdd shell. Boot start is
+    // granted first; framework IRQ MMIO is granted only after commandReady.
+    Reset(); {
+        GlkBoot boot,second;
+        IpcInterrupt bridge;
+        CHECK(NT_SUCCESS(bridge.CreateDormant(&checks)));
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={};
+        CM_PARTIAL_RESOURCE_DESCRIPTOR translated={};
+        raw.Type=CmResourceTypeInterrupt;
+        translated.Type=CmResourceTypeInterrupt;
+        raw.Flags=CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        translated.Flags=CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&accessGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        binding.kind=PnpInterruptKind::LineBased; binding.messageCount=0;
+        CHECK(bridge.BindDormant(binding,&boot));
+        CHECK(!bridge.CanStartBeforeEnable());
+
+        const auto preGrantWrites=dspWrites;
+        const auto preGrantSync=synchronizeCalls;
+        forbidMmio=true;
+        CHECK(!bridge.GrantFrameworkEnableAfterBoot());
+        CHECK(bridge.GrantBootStart());
+        CHECK(!bridge.GrantBootStart());
+        CHECK(bridge.CanStartBeforeEnable());
+        CHECK(!bridge.GrantFrameworkEnableAfterBoot());
+        CHECK(dspWrites==preGrantWrites && synchronizeCalls==preGrantSync);
+        forbidMmio=false;
+
+        ColdPower session(boot,bridge,accessGate);
+        std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
+        CHECK(NT_SUCCESS(session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
+                                      image.data(),image.size(),x.data(),x.size(),20)));
+        CHECK(session.TransferEvidence().commandReady);
+        const auto postBootWrites=dspWrites;
+        const auto postBootSync=synchronizeCalls;
+        forbidMmio=true;
+        CHECK(bridge.GrantFrameworkEnableAfterBoot());
+        CHECK(!bridge.GrantFrameworkEnableAfterBoot());
+        CHECK(dspWrites==postBootWrites && synchronizeCalls==postBootSync);
+        forbidMmio=false;
+
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(NT_SUCCESS(session.AfterInterruptsEnabled()));
+        Notify(); CHECK(Interrupt() && queued);
+        CHECK(session.BeforeInterruptsDisabled() && session.CanReleaseMappings());
+        CHECK(!bridge.ResetDormantClosedSession()); // framework still connected
+        CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        const auto closedWrites=dspWrites;
+        const auto closedSync=synchronizeCalls;
+        forbidMmio=true;
+        CHECK(bridge.ResetDormantClosedSession());
+        CHECK(!bridge.CanStartBeforeEnable());
+        CHECK(dspWrites==closedWrites && synchronizeCalls==closedSync);
+        // A new prepared/D0 lifetime needs a fresh GlkBoot and fresh grants.
+        CHECK(bridge.BindDormant(binding,&second));
+        CHECK(!bridge.CanStartBeforeEnable());
+        CHECK(bridge.UnbindDormant());
+        forbidMmio=false;
+        FrameworkDeleteChildren();
+    }
+
+    // Failed D0Entry cleanup must also clear a granted boot-start lifetime
+    // before ReleaseHardware can later retire/reassign the mapped BAR.
+    Reset(); {
+        GlkBoot boot;
+        IpcInterrupt bridge;
+        CHECK(NT_SUCCESS(bridge.CreateDormant(&checks)));
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={};
+        CM_PARTIAL_RESOURCE_DESCRIPTOR translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&accessGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        binding.kind=PnpInterruptKind::LineBased;
+        CHECK(bridge.BindDormant(binding,&boot));
+        CHECK(bridge.GrantBootStart() && bridge.CanStartBeforeEnable());
+        ColdPower session(boot,bridge,accessGate);
+        std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
+        Put(hda,8,4,0); // deterministic HDA failure before framework Enable
+        CHECK(!NT_SUCCESS(session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
+                                       image.data(),image.size(),x.data(),x.size(),20)));
+        CHECK(session.CanReleaseMappings());
+        const auto writesAfterCleanup=dspWrites;
+        const auto syncAfterCleanup=synchronizeCalls;
+        forbidMmio=true;
+        CHECK(bridge.ResetDormantClosedSession());
+        CHECK(!bridge.CanStartBeforeEnable());
+        CHECK(dspWrites==writesAfterCleanup && synchronizeCalls==syncAfterCleanup);
+        forbidMmio=false;
+        FrameworkDeleteChildren();
+    }
     Reset(); { GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt},translated=raw;
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&translated,&boot,dsp.data(),0x100000)));
         CHECK(!bridge.Arm()); CHECK(NT_SUCCESS(FrameworkEnable(true)));

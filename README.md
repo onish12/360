@@ -192,6 +192,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   no MMIO grant exists yet. Source `f877688c` passes real WDK compilation,
   10 WDK host tests, 14 Windows tests and 12 Linux tests; PnP binding reports
   420 assertions and the integrated boot/IRQ model 265,984.
+- **M0.6.15H3:** [two-stage dormant IRQ permission](docs/M0615_TWO_STAGE_IRQ_PERMISSION.md).
+  Separates permission for ColdPower boot from permission for framework IRQ MMIO.
+  The second grant is available only after the existing boot owner reports
+  command-ready firmware. A closed-session reset removes both grants and the old
+  GlkBoot/BAR lifetime before reuse. Still not wired into PnP callbacks and not
+  executed on hardware.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

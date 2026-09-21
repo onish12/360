@@ -19,6 +19,14 @@ public:
     // hardware-inert: this does not grant MMIO in Enable/ISR/Sync paths.
     bool BindDormant(const PnpDormantInterruptBinding&,GlkBoot*) noexcept;
     bool UnbindDormant() noexcept;
+    // H3 two-stage permission. Both calls are software-only.
+    // GrantBootStart permits ColdPower::Enter but not framework IRQ MMIO.
+    bool GrantBootStart() noexcept;
+    // Only after ColdPower::Enter established command-ready firmware.
+    bool GrantFrameworkEnableAfterBoot() noexcept;
+    // After confirmed ColdPower shutdown/cancel and framework disconnect (if it
+    // ever connected), return a DeviceAdd shell to pristine dormant state.
+    bool ResetDormantClosedSession() noexcept;
     // Legacy/precomposed test entry: creates with explicit assigned descriptors.
     NTSTATUS Create(WDFDEVICE,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
                     PCM_PARTIAL_RESOURCE_DESCRIPTOR translated,GlkBoot*,UCHAR* dsp,ULONG length) noexcept;
@@ -58,7 +66,9 @@ private:
     volatile LONG pendingWork_=0;
     bool disableSeen_=false;
     bool enableSeen_=false;
-    bool hardwareEnableAllowed_=false; // false for DeviceAdd dormant shell
+    bool deviceLifetimeShell_=false;
+    bool bootStartAllowed_=false;      // permits ColdPower::Enter only
+    bool hardwareEnableAllowed_=false; // permits Enable/Sync MMIO only after boot
     bool created_=false,armed_=false,enabled_=false,ready_=false,fault_=false,stopped_=false;
     NTSTATUS CreateObjects(WDFDEVICE,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
                            PCM_PARTIAL_RESOURCE_DESCRIPTOR translated) noexcept;
