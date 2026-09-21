@@ -747,6 +747,7 @@ int main() {
         CHECK(NT_SUCCESS(FrameworkEnable(true)));
         CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
         Notify(); CHECK(Interrupt() && queued);
+        RunWork(); CHECK(!queued); // notification consumed and IRQ rearmed
 
         dropIrqMask=true;
         CHECK(!NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
