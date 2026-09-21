@@ -297,8 +297,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Retargets both real WDK projects and every active CI link from KMDF 1.33 to
   KMDF 1.31 because the physical target is Windows 10 21H2 build 19044. The
   complete H8-H12 link/import/reproducibility/telemetry/preflight chain is rerun
-  against 1.31, and a static guard forbids 1.33 from reappearing. No INF/SYS is
-  distributed and physical execution remains unauthorized.
+  against 1.31, and a static guard forbids 1.33 from reappearing. Final H12.1
+  source `220bc530` passes real WDK compilation and two bit-identical real
+  KMDF 1.31 driver links; the temporary driver is 342,016 bytes with SHA-256
+  `8f69789c237a7f997320c17c8297ce860bebb8fb698de084ca3334c22bc0d8b4`.
+  No INF/SYS is distributed and physical execution remains unauthorized.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

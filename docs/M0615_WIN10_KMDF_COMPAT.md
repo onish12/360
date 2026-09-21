@@ -78,3 +78,45 @@ It authorizes no:
 
 INF/package design may begin only after the H8-H12 chain is green when linked
 against KMDF 1.31.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final H12.1 source commit:
+`220bc5306d410fa093424722402052916d35090f`.
+Tree: `01a3a1441e69365e8d0231831dc9f0282882bfd8`.
+
+- H12.1 WDK/KMDF run `35637458760`, job `106458266308`: PASS.
+- Real WDK component library compile with KMDF 1.31:
+  `WDK_DMA_LIBRARY=PASS`.
+- PnP/resource regression remains
+  `SOF_PNP_RESOURCES_TESTS=516 PASS; hardware=NOT_TOUCHED`.
+- H11 telemetry mirror remains
+  `H11_TELEMETRY_STATE_TESTS=14 PASS; hardware=NONE`.
+- Integrated repeated-D0/IRQ model remains
+  `SOF_GLK_BOOT_TESTS=327112 PASS; hardware=NONE`.
+- H8 real temporary driver linked with KMDF 1.31:
+  342,016 bytes, SHA-256
+  `8f69789c237a7f997320c17c8297ce860bebb8fb698de084ca3334c22bc0d8b4`.
+  The SYS was deleted before artifact upload.
+- H9 x64/Native PE/import audit: PASS; CNG imports present, user-mode/audio
+  imports absent.
+- H10 reproducibility audit: PASS; both clean KMDF 1.31 rebuilds are
+  bit-identical with SHA-256
+  `8f69789c237a7f997320c17c8297ce860bebb8fb698de084ca3334c22bc0d8b4`
+  and contain IMAGE_DEBUG_TYPE_REPRO.
+- H11 read-only telemetry guard: PASS.
+- H12 exact-target/WinRE preflight self/static guards: PASS.
+- H12.1 compatibility guard reports
+  `H12_1_WIN10_KMDF_COMPAT=PASS; target_build=19044;
+  kmdf_target=1.31; kmdf_1_33=FORBIDDEN;
+  real_wdk_links=ALL_1_31; sys_upload=NO; inf=ABSENT;
+  physical_execution=NO; playback=NO`.
+- Windows/Linux offline run `35637467388`: both jobs PASS.
+- Development artifact
+  `PHASER360_M0615H12_1_WIN10_KMDF31_COMPAT`: ID
+  `10656329773`, 527,154 bytes; GitHub archive SHA-256
+  `9fa25387d060b87575cce82606952ce83f18ab100e420da9f7b441e52c49dc32`.
+
+H12.1 distributes no SYS/INF/CAT/firmware/certificate package and authorizes
+no physical hardware execution or playback.
