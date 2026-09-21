@@ -63,20 +63,22 @@ if($modelLines.Count -ne 1 -or $modelLines[0].IndexOf($exact,[StringComparison]:
 }
 
 # TargetOSVersion BuildNumber is a minimum. Keep exactly two model decorations:
-# 19044 contains the exact device, while the more-specific 19045 section is
-# intentionally empty so build 19045 and later cannot fall back to 19044.
+# 19044 contains the exact device; 19045 is intentionally empty so later
+# builds select the empty section instead of falling back to the 19044 model.
 $manufacturerLine=@($inf -split "\r?\n" | Where-Object {
     $_ -match '(?i)^\s*%ProviderName%\s*=\s*Phaser360M1\.Models,'
 })
 $expectedManufacturer='%ProviderName%=Phaser360M1.Models,NTamd64.10.0...19045,NTamd64.10.0...19044'
-if($manufacturerLine.Count -ne 1 -or
-   $manufacturerLine[0].Trim() -cne $expectedManufacturer) {
+if($manufacturerLine.Count -ne 1 -or $manufacturerLine[0].Trim() -cne $expectedManufacturer){
     throw 'H13_TARGETOS_MANUFACTURER_DECORATIONS_INVALID'
 }
 
-$sectionMatches=[regex]::Matches(
-    $inf,
-    '(?im)^\[Phaser360M1\.Models\.NTamd64\.10\.0\.\.\.(\d+)\]\s*
+$infLines=@($inf -split "\r?\n")
+$sectionBuilds=New-Object System.Collections.Generic.List[int]
+$sectionBodies=@{}
+$currentBuild=$null
+foreach($line in $infLines){
+    if($line -match '(?i)^\[Phaser360M1\.Models\.NTamd64\.10\.0\.\.\.(\d+)\]\s*
 foreach($required in @(
     'EXACT_WINDOWS_BUILD_19044_REQUIRED',
     'PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
@@ -132,14 +134,21 @@ if($artifactPackageCopies.Count -ne 0) {
 }
 
 Write-Host 'H13_PACKAGE_STATIC_TESTS=PASS; exact_hwid=YES; exact_os_build=19044; build_19045_plus=BLOCKED_BY_EMPTY_SECTION; kmdf=1.31; service_start=DEMAND; filters=NONE; endpoints=NONE; baseline_export=READ_ONLY_SYSTEM; install=NO; package_upload=NO; playback=NO'
-)
-$sectionBuilds=@($sectionMatches | ForEach-Object {[int]$_.Groups[1].Value})
-if($sectionBuilds.Count -ne 2 -or
-   ($sectionBuilds | Sort-Object) -join ',' -cne '19044,19045') {
-    throw ('H13_TARGETOS_SECTIONS_INVALID: '+(($sectionBuilds | Sort-Object) -join ','))
+){
+        $currentBuild=[int]$Matches[1]
+        $sectionBuilds.Add($currentBuild)
+        $sectionBodies[$currentBuild]=New-Object System.Collections.Generic.List[string]
+        continue
+    }
+    if($line -match '^\['){$currentBuild=$null}
+    if($null -ne $currentBuild){$sectionBodies[$currentBuild].Add($line)}
+}
+$sortedBuilds=@($sectionBuilds | Sort-Object)
+if($sortedBuilds.Count -ne 2 -or ($sortedBuilds -join ',') -cne '19044,19045'){
+    throw ('H13_TARGETOS_SECTIONS_INVALID: '+($sortedBuilds -join ','))
 }
 
-function Resolve-H13ModelBuild([int]$Build) {
+function Resolve-H13ModelBuild([int]$Build){
     $eligible=@($sectionBuilds | Where-Object {$_ -le $Build} | Sort-Object -Descending)
     if($eligible.Count -eq 0){return $null}
     return [int]$eligible[0]
@@ -149,20 +158,12 @@ if((Resolve-H13ModelBuild 19044) -ne 19044){throw 'H13_BUILD_19044_MUST_SELECT_1
 if((Resolve-H13ModelBuild 19045) -ne 19045){throw 'H13_BUILD_19045_MUST_SELECT_EMPTY_BLOCK'}
 if((Resolve-H13ModelBuild 22621) -ne 19045){throw 'H13_LATER_BUILD_MUST_SELECT_EMPTY_BLOCK'}
 
-$emptySection=[regex]::Match(
-    $inf,
-    '(?ims)^\[Phaser360M1\.Models\.NTamd64\.10\.0\.\.\.19045\]\s*(?<body>.*?)(?=^\[|\z)')
-if(-not $emptySection.Success){throw 'H13_BUILD_19045_EMPTY_SECTION_MISSING'}
-$nonComment=@($emptySection.Groups['body'].Value -split "\r?\n" | Where-Object {
+$blockedBody=@($sectionBodies[19045] | Where-Object {
     -not [string]::IsNullOrWhiteSpace($_) -and $_ -notmatch '^\s*;'
 })
-if($nonComment.Count -ne 0){throw 'H13_BUILD_19045_SECTION_NOT_EMPTY'}
-
-$allowedSection=[regex]::Match(
-    $inf,
-    '(?ims)^\[Phaser360M1\.Models\.NTamd64\.10\.0\.\.\.19044\]\s*(?<body>.*?)(?=^\[|\z)')
-if(-not $allowedSection.Success -or
-   $allowedSection.Groups['body'].Value.IndexOf($exact,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+if($blockedBody.Count -ne 0){throw 'H13_BUILD_19045_SECTION_NOT_EMPTY'}
+$allowedBody=($sectionBodies[19044] -join "`n")
+if($allowedBody.IndexOf($exact,[StringComparison]::OrdinalIgnoreCase) -lt 0){
     throw 'H13_BUILD_19044_EXACT_MODEL_MISSING'
 }
 
