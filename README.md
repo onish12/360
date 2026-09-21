@@ -189,7 +189,9 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   a short-lived software binding and attaches it to the device-lifetime IRQ
   shell. Explicit unbind prevents a BAR pointer from surviving
   ReleaseHardware. ColdPower, Sync and hardware Enable remain blocked because
-  no MMIO grant exists yet.
+  no MMIO grant exists yet. Source `f877688c` passes real WDK compilation,
+  10 WDK host tests, 14 Windows tests and 12 Linux tests; PnP binding reports
+  420 assertions and the integrated boot/IRQ model 265,984.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

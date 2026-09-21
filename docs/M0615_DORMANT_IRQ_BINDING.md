@@ -94,3 +94,29 @@ The IRQ/boot wrapper verifies:
 
 No ColdPower entry, firmware transfer, DMA publication, interrupt-source mask,
 codec/amplifier operation or playback is authorized by H2.
+
+
+## Verified CI evidence (2026-09-21)
+
+Implementation commit: `f877688cbe55c847355f2bc2f8dba17f8616f61a`.
+Tree: `e72e75ab4b6f84ab66890a31eee579df2dcad1fc`.
+
+- WDK/KMDF run `35608439766`, job `106361242890`: real WDK
+  compilation passes and all 10 selected host tests pass.
+- PnP reports `SOF_PNP_RESOURCES_TESTS=420 PASS;
+  dormant_binding=PNP_TO_IRQ_SHELL_SOFTWARE_ONLY;
+  hardware=NOT_TOUCHED`.
+- Integrated boot/IRQ regression reports
+  `SOF_GLK_BOOT_TESTS=265984 PASS; windows_api=SIMULATED; hardware=NONE`.
+- Windows/Linux run `35608439619`: Windows job `106361243073`
+  passes all 14 tests and Linux job `106361242967` passes all 12 tests.
+- Windows official firmware identity checks remain
+  `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`.
+- F4 read-only collector self/static guards remain green.
+- Development artifact `PHASER360_M0615H2_DORMANT_IRQ_BINDING`: ID
+  `10642854464`, 313,098 bytes. GitHub reports archive SHA-256
+  `3c5b839729be90a8b611de9748ea83a9458f2c4ed440f820c05839b96f7ae516`.
+
+No hardware-enable grant, ColdPower entry, MMIO, DSP boot, codec/amplifier
+operation or playback is performed or authorized by H2.
