@@ -1,4 +1,4 @@
-PHASER360 M0.6.15F - CAPTURA IRQ READ-ONLY
+PHASER360 M0.6.15F2 - CAPTURA IRQ READ-ONLY (Windows 10/11)
 
 1. Extrage integral artifactul/pachetul.
 2. Intra in folderul live_irq.
@@ -6,14 +6,24 @@ PHASER360 M0.6.15F - CAPTURA IRQ READ-ONLY
 4. Fereastra ramane deschisa la final.
 5. Trimite fisierul RESULT_IRQ_READONLY_*.zip creat in acelasi folder.
 
+Windows 10 21H2/22H2:
+- foloseste SetupAPI numai pentru citirea SPDRP_ALLOC_CONFIG;
+- salveaza setupapi_alloc_config.bin si setupapi_alloc_config.json;
+- nu modifica registry/PnP.
+
+Windows 11 22H2+:
+- poate folosi PnPUtil /enum-devices /resources, tot read-only.
+
 Aceasta etapa:
 - NU instaleaza drivere;
 - NU leaga/dezleaga drivere;
 - NU dezactiveaza sau reporneste dispozitivul;
+- NU scrie registry;
 - NU face MMIO;
 - NU porneste DSP-ul;
 - NU creeaza intreruperea KMDF;
+- NU selecteaza IRQ-ul;
 - NU reda sunet.
 
-Daca apare CAPTURE_PARTIAL sau o eroare de acces, nu modifica nimic manual.
+Daca apare CAPTURE_PARTIAL sau o eroare, nu modifica nimic manual.
 Trimite exact mesajul afisat si orice ZIP creat.

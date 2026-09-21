@@ -143,8 +143,15 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   and SHA-256 sums. No driver install/bind, restart, MMIO, DSP boot,
   WdfInterruptCreate, IRQ selection or playback is performed. Source
   `905ea62a` passes real WDK compilation, 10/10 selected host tests and the
-  collector's read-only/self-test guards; the live Lenovo capture is now the
-  required next evidence step.
+  collector's read-only/self-test guards. The Lenovo was then confirmed to run
+  Windows 10 21H2 build 19044, so the original PnPUtil /resources path correctly
+  refused to run.
+- **M0.6.15F2:** Windows 10/11 dual read-only IRQ capture extends F without
+  weakening it. Build 19044+ below Windows 11 22H2 reads only
+  `SPDRP_ALLOC_CONFIG` through SetupAPI and records the returned
+  `CM_RESOURCE_LIST`; Windows 11 22H2+ retains the PnPUtil /resources route.
+  MESSAGE vs LINE is classified only from `CM_RESOURCE_INTERRUPT_MESSAGE`.
+  IRQ selection, WdfInterruptCreate, DSP boot and playback remain disabled.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

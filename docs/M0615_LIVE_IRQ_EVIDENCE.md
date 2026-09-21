@@ -92,3 +92,49 @@ and terminating errors for that script step.
 M0.6.15F is therefore cleared only for the documented read-only evidence
 capture. It does not authorize IRQ binding, WdfInterruptCreate, DSP boot,
 codec/amplifier programming or playback.
+
+
+## M0.6.15F2 — Windows 10 21H2 compatibility
+
+The Lenovo currently runs Windows 10 21H2 build 19044. The original F live
+collector intentionally refused that build because Microsoft's PnPUtil
+`/enum-devices /resources` switch is available only beginning with Windows 11
+22H2. F2 preserves the Windows 11 path and adds a Windows 10 read-only path.
+
+For builds 19044 through 22620, the collector uses SetupAPI only to read
+`SPDRP_ALLOC_CONFIG` for the exact present DEV_3198 instance. That property is
+returned as a `CM_RESOURCE_LIST`. The collector stores the original binary and
+a parsed JSON inventory. It does not call a SetupAPI set/install/class-installer
+operation and does not write the registry.
+
+The x64 parser treats each `CM_PARTIAL_RESOURCE_DESCRIPTOR` as 32 bytes and
+classifies only `CmResourceTypeInterrupt` descriptors. The Windows-defined
+`CM_RESOURCE_INTERRUPT_MESSAGE` bit (0x0002) is the sole discriminator:
+
+- flag clear -> LINE;
+- flag set -> MESSAGE.
+
+F2 deliberately does not call a one-descriptor MESSAGE result "MSI" or "MSI-X".
+MSI can use one descriptor for multiple messages while MSI-X normally supplies
+one descriptor per message, so the user-mode allocated list is evidence for the
+message-vs-line shape, not authorization to choose a WDF interrupt object.
+
+The Windows 10 path records:
+- `setupapi_alloc_config.bin`: untouched `CM_RESOURCE_LIST` bytes;
+- `setupapi_alloc_config.json`: bounded parse, descriptor flags and IRQ kinds;
+- the same before/after device binding/problem state and SHA-256 manifest as F.
+
+The self-test compiles the read-only SetupAPI interop type but does not enumerate
+a real device. It parses a synthetic x64 resource list containing one LINE and
+one MESSAGE interrupt and requires both classifications to match. Static tests
+also reject known mutating PnP/SetupAPI/ConfigMgr commands.
+
+Primary contracts rechecked:
+- PnPUtil `/resources` requires Windows 11 22H2 or newer.
+- `CM_RESOURCE_LIST` is the Windows structure containing assigned resources.
+- `CM_PARTIAL_RESOURCE_DESCRIPTOR.Flags & CM_RESOURCE_INTERRUPT_MESSAGE`
+  distinguishes message-signaled from line-based interrupt resources.
+- No IRQ descriptor is selected and `WdfInterruptCreate` remains prohibited.
+
+No driver install/bind, device restart, MMIO, DSP boot, codec/amplifier action
+or playback is authorized by F2.

@@ -48,6 +48,246 @@ function Invoke-PnpReadOnly([string]$PnPUtil,[string[]]$Arguments,[string]$Desti
     return [pscustomobject]@{ ExitCode=$code; Output=$text }
 }
 
+function Initialize-SetupApiReader {
+    if ('Phaser360.ReadOnlySetupApi' -as [type]) { return }
+    $source = @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace Phaser360 {
+    public static class ReadOnlySetupApi {
+        private const uint DIGCF_PRESENT = 0x00000002;
+        private const uint DIGCF_ALLCLASSES = 0x00000004;
+        public const uint SPDRP_ALLOC_CONFIG = 0x00000003;
+        private const int ERROR_NO_MORE_ITEMS = 259;
+        private const int ERROR_INSUFFICIENT_BUFFER = 122;
+        private static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SP_DEVINFO_DATA {
+            public uint cbSize;
+            public Guid ClassGuid;
+            public uint DevInst;
+            public IntPtr Reserved;
+        }
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr SetupDiGetClassDevsW(
+            IntPtr ClassGuid, string Enumerator, IntPtr hwndParent, uint Flags);
+
+        [DllImport("setupapi.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetupDiEnumDeviceInfo(
+            IntPtr DeviceInfoSet, uint MemberIndex, ref SP_DEVINFO_DATA DeviceInfoData);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetupDiGetDeviceInstanceIdW(
+            IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData,
+            StringBuilder DeviceInstanceId, uint DeviceInstanceIdSize, out uint RequiredSize);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetupDiGetDeviceRegistryPropertyW(
+            IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData, uint Property,
+            out uint PropertyRegDataType, byte[] PropertyBuffer, uint PropertyBufferSize,
+            out uint RequiredSize);
+
+        [DllImport("setupapi.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetupDiDestroyDeviceInfoList(IntPtr DeviceInfoSet);
+
+        public static byte[] ReadAllocatedConfig(string instanceId, out uint regType) {
+            if (IntPtr.Size != 8) throw new InvalidOperationException("SETUPAPI_X64_PROCESS_REQUIRED");
+            IntPtr set = SetupDiGetClassDevsW(IntPtr.Zero, null, IntPtr.Zero,
+                                              DIGCF_PRESENT | DIGCF_ALLCLASSES);
+            if (set == INVALID_HANDLE_VALUE)
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "SetupDiGetClassDevsW");
+
+            try {
+                for (uint index = 0; ; ++index) {
+                    SP_DEVINFO_DATA data = new SP_DEVINFO_DATA();
+                    data.cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA));
+                    if (!SetupDiEnumDeviceInfo(set, index, ref data)) {
+                        int error = Marshal.GetLastWin32Error();
+                        if (error == ERROR_NO_MORE_ITEMS) break;
+                        throw new Win32Exception(error, "SetupDiEnumDeviceInfo");
+                    }
+
+                    StringBuilder id = new StringBuilder(512);
+                    uint needed;
+                    if (!SetupDiGetDeviceInstanceIdW(set, ref data, id, (uint)id.Capacity, out needed))
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "SetupDiGetDeviceInstanceIdW");
+
+                    if (!String.Equals(id.ToString(), instanceId, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    uint required;
+                    uint type;
+                    bool first = SetupDiGetDeviceRegistryPropertyW(
+                        set, ref data, SPDRP_ALLOC_CONFIG, out type, null, 0, out required);
+                    int firstError = Marshal.GetLastWin32Error();
+                    if (first || required == 0 || firstError != ERROR_INSUFFICIENT_BUFFER)
+                        throw new Win32Exception(firstError, "SPDRP_ALLOC_CONFIG size query");
+
+                    byte[] buffer = new byte[required];
+                    if (!SetupDiGetDeviceRegistryPropertyW(
+                            set, ref data, SPDRP_ALLOC_CONFIG, out type,
+                            buffer, (uint)buffer.Length, out required))
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "SPDRP_ALLOC_CONFIG read");
+
+                    regType = type;
+                    return buffer;
+                }
+                throw new InvalidOperationException("SETUPAPI_TARGET_DEV3198_NOT_FOUND");
+            }
+            finally {
+                SetupDiDestroyDeviceInfoList(set);
+            }
+        }
+    }
+}
+'@
+    Add-Type -TypeDefinition $source -Language CSharp -ErrorAction Stop
+}
+
+function Assert-Range([byte[]]$Bytes,[int]$Offset,[int]$Length,[string]$Label) {
+    if ($Offset -lt 0 -or $Length -lt 0 -or $Offset -gt $Bytes.Length -or
+        $Length -gt ($Bytes.Length - $Offset)) {
+        throw "CM_RESOURCE_LIST_TRUNCATED: $Label offset=$Offset length=$Length bytes=$($Bytes.Length)"
+    }
+}
+
+function Read-U16([byte[]]$Bytes,[int]$Offset) {
+    Assert-Range $Bytes $Offset 2 'u16'
+    return [BitConverter]::ToUInt16($Bytes,$Offset)
+}
+function Read-U32([byte[]]$Bytes,[int]$Offset) {
+    Assert-Range $Bytes $Offset 4 'u32'
+    return [BitConverter]::ToUInt32($Bytes,$Offset)
+}
+function Read-U64([byte[]]$Bytes,[int]$Offset) {
+    Assert-Range $Bytes $Offset 8 'u64'
+    return [BitConverter]::ToUInt64($Bytes,$Offset)
+}
+function Get-HexSlice([byte[]]$Bytes,[int]$Offset,[int]$Length) {
+    Assert-Range $Bytes $Offset $Length 'hex'
+    return [BitConverter]::ToString($Bytes,$Offset,$Length).Replace('-','')
+}
+
+function Convert-CmResourceList([byte[]]$Bytes) {
+    if ($null -eq $Bytes -or $Bytes.Length -lt 20) { throw 'CM_RESOURCE_LIST_TOO_SMALL' }
+    if (-not [Environment]::Is64BitProcess) { throw 'CM_RESOURCE_LIST_X64_PROCESS_REQUIRED' }
+
+    $fullCount = [int](Read-U32 $Bytes 0)
+    if ($fullCount -lt 1 -or $fullCount -gt 8) {
+        throw "CM_RESOURCE_LIST_FULL_COUNT_INVALID: $fullCount"
+    }
+
+    $offset = 4
+    $all = @()
+    $interrupts = @()
+    for ($fullIndex=0; $fullIndex -lt $fullCount; $fullIndex++) {
+        Assert-Range $Bytes $offset 16 "full[$fullIndex]"
+        $interfaceType = [int](Read-U32 $Bytes $offset)
+        $busNumber = [uint32](Read-U32 $Bytes ($offset+4))
+        $version = [uint16](Read-U16 $Bytes ($offset+8))
+        $revision = [uint16](Read-U16 $Bytes ($offset+10))
+        $partialCount = [int](Read-U32 $Bytes ($offset+12))
+        if ($partialCount -lt 0 -or $partialCount -gt 64) {
+            throw "CM_RESOURCE_LIST_PARTIAL_COUNT_INVALID: $partialCount"
+        }
+
+        $descriptorOffset = $offset + 16
+        $lastDeviceSpecificBytes = 0
+        for ($i=0; $i -lt $partialCount; $i++) {
+            # x64 Windows CM_PARTIAL_RESOURCE_DESCRIPTOR is 32 bytes.
+            Assert-Range $Bytes $descriptorOffset 32 "descriptor[$fullIndex][$i]"
+            $type = [byte]$Bytes[$descriptorOffset]
+            $share = [byte]$Bytes[$descriptorOffset+1]
+            $flags = [uint16](Read-U16 $Bytes ($descriptorOffset+2))
+            $entry = [ordered]@{
+                FullIndex = $fullIndex
+                Index = $i
+                Type = [int]$type
+                ShareDisposition = [int]$share
+                Flags = ('0x{0:X4}' -f $flags)
+                RawDescriptorHex = Get-HexSlice $Bytes $descriptorOffset 32
+            }
+
+            if ($type -eq 2) {
+                $message = (($flags -band 0x0002) -ne 0) # CM_RESOURCE_INTERRUPT_MESSAGE
+                $irq = [ordered]@{
+                    FullIndex = $fullIndex
+                    Index = $i
+                    Kind = $(if ($message) { 'MESSAGE' } else { 'LINE' })
+                    ShareDisposition = [int]$share
+                    Flags = ('0x{0:X4}' -f $flags)
+                    MessageFlagSet = $message
+                    UnionHex = Get-HexSlice $Bytes ($descriptorOffset+8) 24
+                }
+                if (-not $message) {
+                    $irq.Level = [uint16](Read-U16 $Bytes ($descriptorOffset+8))
+                    $irq.Group = [uint16](Read-U16 $Bytes ($descriptorOffset+10))
+                    $irq.Vector = [uint32](Read-U32 $Bytes ($descriptorOffset+12))
+                    $irq.Affinity = ('0x{0:X16}' -f (Read-U64 $Bytes ($descriptorOffset+16)))
+                }
+                $interrupts += [pscustomobject]$irq
+                $entry.InterruptKind = $irq.Kind
+            }
+
+            # Device-specific data follows the descriptor array. We do not parse
+            # it, but must include its size when stepping to another full list.
+            if ($type -eq 5) {
+                $lastDeviceSpecificBytes = [int](Read-U32 $Bytes ($descriptorOffset+8))
+            }
+            $all += [pscustomobject]$entry
+            $descriptorOffset += 32
+        }
+
+        $all += [pscustomobject][ordered]@{
+            FullIndex = $fullIndex
+            InterfaceType = $interfaceType
+            BusNumber = $busNumber
+            Version = $version
+            Revision = $revision
+            PartialCount = $partialCount
+            Header = $true
+        }
+        $offset = $descriptorOffset + $lastDeviceSpecificBytes
+        if ($offset -gt $Bytes.Length) { throw 'CM_RESOURCE_LIST_DEVICE_SPECIFIC_OVERFLOW' }
+    }
+
+    [pscustomobject]@{
+        Source = 'SPDRP_ALLOC_CONFIG'
+        Architecture = 'x64'
+        DescriptorBytes = 32
+        FullDescriptorCount = $fullCount
+        InterruptCount = @($interrupts).Count
+        InterruptKinds = @($interrupts | ForEach-Object Kind)
+        Interrupts = @($interrupts)
+        Records = @($all)
+        BufferBytes = $Bytes.Length
+    }
+}
+
+function Get-Win10AllocatedResourceEvidence([string]$InstanceId,[string]$RunDir) {
+    Initialize-SetupApiReader
+    [uint32]$regType = 0
+    $bytes = [Phaser360.ReadOnlySetupApi]::ReadAllocatedConfig($InstanceId,[ref]$regType)
+    if ($null -eq $bytes -or $bytes.Length -eq 0) { throw 'SPDRP_ALLOC_CONFIG_EMPTY' }
+    # REG_RESOURCE_LIST is 8. Reject another registry type rather than guessing.
+    if ($regType -ne 8) { throw "SPDRP_ALLOC_CONFIG_REGTYPE_UNEXPECTED: $regType" }
+
+    [IO.File]::WriteAllBytes((Join-Path $RunDir 'setupapi_alloc_config.bin'),$bytes)
+    $parsed = Convert-CmResourceList $bytes
+    $parsed | ConvertTo-Json -Depth 10 |
+        Set-Content -LiteralPath (Join-Path $RunDir 'setupapi_alloc_config.json') -Encoding UTF8
+    return $parsed
+}
+
 function Get-PhaserTargetState {
     $devices = @(Get-PnpDevice -PresentOnly -ErrorAction Stop |
         Where-Object { $_.InstanceId -like 'PCI\VEN_8086&DEV_3198*' })
@@ -102,6 +342,11 @@ function Write-Hashes([string]$Directory) {
 }
 
 if ($SelfTest) {
+    Initialize-SetupApiReader
+    if ([Phaser360.ReadOnlySetupApi]::SPDRP_ALLOC_CONFIG -ne 3) {
+        throw 'SELFTEST_SPDRP_ALLOC_CONFIG_CONSTANT'
+    }
+
     $fixture = 'PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06\FIXTURE'
     Assert-PnpReadOnlyArguments @('/enum-devices','/instanceid',$fixture,'/resources')
     Assert-PnpReadOnlyArguments @('/enum-devices','/instanceid',$fixture,
@@ -117,18 +362,40 @@ if ($SelfTest) {
         catch { $rejected++ }
     }
     if ($rejected -ne 4) { throw "SELFTEST_REJECTION_COUNT=$rejected" }
-    Write-Host 'IRQ_CAPTURE_SELFTEST=PASS; readonly_enum_only=YES; mutation_commands=REJECTED'
+
+    # Synthetic x64 CM_RESOURCE_LIST: one full descriptor with one line IRQ and
+    # one message IRQ. No native device enumeration is performed in SelfTest.
+    [byte[]]$cm = New-Object byte[] 84
+    [BitConverter]::GetBytes([uint32]1).CopyTo($cm,0)
+    [BitConverter]::GetBytes([uint32]5).CopyTo($cm,4)
+    [BitConverter]::GetBytes([uint32]0).CopyTo($cm,8)
+    [BitConverter]::GetBytes([uint16]1).CopyTo($cm,12)
+    [BitConverter]::GetBytes([uint16]1).CopyTo($cm,14)
+    [BitConverter]::GetBytes([uint32]2).CopyTo($cm,16)
+    $cm[20]=2; $cm[21]=3
+    [BitConverter]::GetBytes([uint16]0).CopyTo($cm,22)
+    [BitConverter]::GetBytes([uint16]11).CopyTo($cm,28)
+    [BitConverter]::GetBytes([uint16]0).CopyTo($cm,30)
+    [BitConverter]::GetBytes([uint32]0x45).CopyTo($cm,32)
+    [BitConverter]::GetBytes([uint64]1).CopyTo($cm,36)
+    $cm[52]=2; $cm[53]=3
+    [BitConverter]::GetBytes([uint16]2).CopyTo($cm,54)
+    $parsed = Convert-CmResourceList $cm
+    if ($parsed.InterruptCount -ne 2 -or $parsed.InterruptKinds[0] -ne 'LINE' -or
+        $parsed.InterruptKinds[1] -ne 'MESSAGE') {
+        throw 'SELFTEST_CM_RESOURCE_LIST_CLASSIFICATION'
+    }
+
+    Write-Host 'IRQ_CAPTURE_SELFTEST=PASS; readonly_setupapi=YES; readonly_pnputil=YES; line_and_message=PASS; mutation_commands=REJECTED'
     return
 }
 
-if (-not (Test-IsAdministrator)) { throw 'ADMINISTRATOR_REQUIRED_FOR_PNPUTIL_ENUMERATION' }
+if (-not (Test-IsAdministrator)) { throw 'ADMINISTRATOR_REQUIRED_FOR_READONLY_ENUMERATION' }
 if (-not [Environment]::Is64BitProcess) { throw 'WINDOWS_X64_PROCESS_REQUIRED' }
-if ([Environment]::OSVersion.Version.Build -lt 22621) {
-    throw "WINDOWS_11_22H2_OR_NEWER_REQUIRED: build=$([Environment]::OSVersion.Version.Build)"
+$build = [Environment]::OSVersion.Version.Build
+if ($build -lt 19044) {
+    throw "WINDOWS_10_21H2_OR_NEWER_REQUIRED: build=$build"
 }
-
-$pnp = Join-Path $env:SystemRoot 'System32\pnputil.exe'
-if (-not (Test-Path -LiteralPath $pnp -PathType Leaf)) { throw 'PNPUTIL_NOT_FOUND' }
 
 $before = Get-PhaserTargetState
 $id = $before.InstanceId
@@ -152,28 +419,50 @@ $allProperties = @(Get-PnpDeviceProperty -InstanceId $id -ErrorAction Stop |
 $allProperties | ConvertTo-Json -Depth 10 |
     Set-Content -LiteralPath (Join-Path $runDir 'device_properties.json') -Encoding UTF8
 
-$resourceArgs = @('/enum-devices','/instanceid',$id,'/resources')
-$fullArgs = @('/enum-devices','/instanceid',$id,
-    '/deviceids','/services','/stack','/drivers','/properties','/resources')
+$capturePath = ''
+$captureComplete = $false
+$irqCount = 0
+$irqKinds = ''
+$resourceExit = 'NOT_RUN'
+$fullExit = 'NOT_RUN'
 
-$resource = Invoke-PnpReadOnly $pnp $resourceArgs (Join-Path $runDir 'pnputil_resources.txt')
-$full = Invoke-PnpReadOnly $pnp $fullArgs (Join-Path $runDir 'pnputil_full.txt')
+if ($build -ge 22621) {
+    $capturePath = 'PNPUTIL_RESOURCES'
+    $pnp = Join-Path $env:SystemRoot 'System32\pnputil.exe'
+    if (-not (Test-Path -LiteralPath $pnp -PathType Leaf)) { throw 'PNPUTIL_NOT_FOUND' }
+
+    $resourceArgs = @('/enum-devices','/instanceid',$id,'/resources')
+    $fullArgs = @('/enum-devices','/instanceid',$id,
+        '/deviceids','/services','/stack','/drivers','/properties','/resources')
+    $resource = Invoke-PnpReadOnly $pnp $resourceArgs (Join-Path $runDir 'pnputil_resources.txt')
+    $full = Invoke-PnpReadOnly $pnp $fullArgs (Join-Path $runDir 'pnputil_full.txt')
+    $resourceExit = [string]$resource.ExitCode
+    $fullExit = [string]$full.ExitCode
+    $captureComplete = ($resource.ExitCode -eq 0 -and $full.ExitCode -eq 0 -and
+        -not [string]::IsNullOrWhiteSpace($resource.Output) -and
+        -not [string]::IsNullOrWhiteSpace($full.Output))
+}
+else {
+    $capturePath = 'SETUPAPI_SPDRP_ALLOC_CONFIG'
+    $allocated = Get-Win10AllocatedResourceEvidence $id $runDir
+    $irqCount = [int]$allocated.InterruptCount
+    $irqKinds = (@($allocated.InterruptKinds) -join ',')
+    $captureComplete = ($allocated.BufferBytes -gt 0 -and $irqCount -gt 0)
+}
 
 $after = Get-PhaserTargetState
 $after | ConvertTo-Json -Depth 6 |
     Set-Content -LiteralPath (Join-Path $runDir 'target_after.json') -Encoding UTF8
 
 $stable = Test-StableState $before $after
-$complete = ($resource.ExitCode -eq 0 -and $full.ExitCode -eq 0 -and
-             -not [string]::IsNullOrWhiteSpace($resource.Output) -and
-             -not [string]::IsNullOrWhiteSpace($full.Output))
-$status = if ($complete -and $stable) { 'CAPTURE_COMPLETE_STABLE' }
+$status = if ($captureComplete -and $stable) { 'CAPTURE_COMPLETE_STABLE' }
           elseif (-not $stable) { 'STATE_CHANGED_DURING_CAPTURE' }
           else { 'CAPTURE_PARTIAL' }
 
 @(
     "STATUS=$status"
-    "WINDOWS_BUILD=$([Environment]::OSVersion.Version.Build)"
+    "WINDOWS_BUILD=$build"
+    "CAPTURE_PATH=$capturePath"
     "TARGET_INSTANCE=$id"
     "TARGET_PROBLEM_BEFORE=$($before.ProblemCode)"
     "TARGET_PROBLEM_AFTER=$($after.ProblemCode)"
@@ -181,14 +470,18 @@ $status = if ($complete -and $stable) { 'CAPTURE_COMPLETE_STABLE' }
     "TARGET_SERVICE_AFTER=$($after.Service)"
     "TARGET_INF_BEFORE=$($before.DriverInfPath)"
     "TARGET_INF_AFTER=$($after.DriverInfPath)"
-    "PNPUTIL_RESOURCES_EXIT=$($resource.ExitCode)"
-    "PNPUTIL_FULL_EXIT=$($full.ExitCode)"
+    "PNPUTIL_RESOURCES_EXIT=$resourceExit"
+    "PNPUTIL_FULL_EXIT=$fullExit"
+    "ALLOC_CONFIG_INTERRUPT_COUNT=$irqCount"
+    "ALLOC_CONFIG_INTERRUPT_KINDS=$irqKinds"
     "STATE_STABLE=$($stable.ToString().ToUpperInvariant())"
     'MODE=READ_ONLY_ENUMERATION'
     'DRIVER_INSTALL=NO'
     'DRIVER_BIND_UNBIND=NO'
     'DEVICE_RESTART=NO'
     'DEVICE_ENABLE_DISABLE=NO'
+    'REGISTRY_WRITE=NO'
+    'SETUPAPI_WRITE=NO'
     'MMIO=NO'
     'DSP_BOOT=NO'
     'WDF_INTERRUPT_CREATE=NO'
@@ -201,6 +494,11 @@ Write-Hashes $runDir
 $zip = Join-Path $OutputRoot ('RESULT_IRQ_READONLY_' + $stamp + '_' + $suffix + '.zip')
 Compress-Archive -Path (Join-Path $runDir '*') -DestinationPath $zip -Force
 Write-Host "STATUS=$status"
+Write-Host "CAPTURE_PATH=$capturePath"
 Write-Host "TARGET=$id"
+if ($capturePath -eq 'SETUPAPI_SPDRP_ALLOC_CONFIG') {
+    Write-Host "IRQ_COUNT=$irqCount"
+    Write-Host "IRQ_KINDS=$irqKinds"
+}
 Write-Host "Trimite fisierul: $zip"
 if ($status -ne 'CAPTURE_COMPLETE_STABLE') { exit 2 }
