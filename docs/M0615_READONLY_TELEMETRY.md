@@ -186,3 +186,54 @@ H11 adds no:
 The next physical-package work must preserve this query-only observability and
 the project-wide no-playback hold. The first hardware milestone remains limited
 to DSP boot -> FW_READY/IPC -> clean shutdown.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final H11 source/guard commit:
+`547a34e53df2e7a7304b9a93379e399de92fdadf`.
+Tree: `81175f251413e8a53388ea21cfd3946900a35941`.
+
+The preceding H11 implementation commit `a7cf06a3` passed real WDK
+compilation, all telemetry/unit tests and the H8-H10 linked-driver audits. Its
+specific H11 workflow failed only because the static guard required the literal
+workflow marker `H11_READONLY_TELEMETRY_STATIC_TESTS=PASS`, while that marker
+was emitted by the guard script but not present in the workflow text inspected
+by the same script. Commit `547a34e5` adds that workflow marker; no driver or
+telemetry implementation code changed.
+
+Final verification:
+
+- H11 WDK/KMDF run `35635171620`, job `106450703306`: PASS.
+- Real WDK component library compile: `WDK_DMA_LIBRARY=PASS`.
+- PnP/lifecycle regression:
+  `SOF_PNP_RESOURCES_TESTS=516 PASS; hardware=NOT_TOUCHED`.
+- Telemetry mirror:
+  `H11_TELEMETRY_STATE_TESTS=14 PASS; atomic_mirror=YES; hardware=NONE`.
+- Integrated GLK/IRQ/repeated-D0 model:
+  `SOF_GLK_BOOT_TESTS=327112 PASS; windows_api=SIMULATED; hardware=NONE`.
+- F4 read-only resource collector:
+  `IRQ_CAPTURE_SELFTEST=PASS`,
+  `IRQ_CAPTURE_STATIC_TESTS=PASS`,
+  `mutation_commands=REJECTED`.
+- H8 temporary linked driver remains non-distributed:
+  342,016 bytes, SHA-256
+  `e36938ffdda9c903bf5a5205feb13832ce4c3cfed52f25e98d5daefb5eda9f0b`,
+  then deleted before upload.
+- H9 PE/import audit: PASS, x64/Native, CNG present, user-mode/audio imports
+  absent.
+- H10 reproducible rebuild: PASS; both temporary driver images are bit-identical
+  at the H11 source state and contain IMAGE_DEBUG_TYPE_REPRO.
+- H11 static query-only guard:
+  `H11_READONLY_TELEMETRY_STATIC_TESTS=PASS;
+  queue_power_managed=FALSE; method=BUFFERED; access=READ; input=NONE;
+  software_mirror=ONLY; hardware_reads=NO; hardware_writes=NO;
+  d0_trigger=NO; sys_upload=NO; inf=ABSENT; playback=NO`.
+- Windows and Linux offline-parser jobs on run `35635171587`: PASS.
+- Development artifact
+  `PHASER360_M0615H11_READONLY_TELEMETRY`: ID `10656111333`,
+  515,395 bytes; GitHub archive SHA-256
+  `5d197f31db705969a146736ee492c8bf5b24e5847589f55ec2c7fde77a62677f`.
+
+The artifact still contains no SYS or firmware RI image. H11 was not installed
+or executed on the physical Lenovo and adds no codec/amplifier/audio path.

@@ -278,7 +278,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   counters using interlocked software state only. The query path contains no
   MMIO, IRQ synchronization, DSP command or power-transition request. H8-H10
   real-link/import/reproducibility audits remain mandatory and the SYS is still
-  deleted before artifact upload.
+  deleted before artifact upload. Final H11 source/guard `547a34e5` passes
+  real WDK compilation, the telemetry mirror test (`14 PASS`), PnP
+  (`516 PASS`) and the integrated boot/IRQ model (`327112 PASS`); the
+  query-only guard confirms no hardware read/write, D0 trigger, SYS upload,
+  INF or playback.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
