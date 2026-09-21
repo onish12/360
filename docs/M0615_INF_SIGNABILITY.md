@@ -1,4 +1,4 @@
-# M0.6.15H13 exact-target INF signability and baseline backup
+# M0.6.15H13.1 exact-target INF signability and baseline backup
 
 H13 validates the first M1 PnP package metadata without distributing or
 installing a driver package.
@@ -6,7 +6,7 @@ installing a driver package.
 It adds:
 
 - an exact-target INF for the reviewed DEV_3198/SUBSYS_00000000/REV_06 device;
-- KMDF 1.31 service metadata for Windows 10 build 19044;
+- KMDF 1.31 service metadata restricted to Windows build 19044 by a 19044 model section plus an intentionally empty 19045-and-later section;
 - temporary CI package assembly and Inf2Cat validation for 10_VB_X64;
 - a baseline Intel-driver export script that performs no install/uninstall or
   device restart.
@@ -20,6 +20,8 @@ The H13 INF binds only:
 `PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06`.
 
 There is no broad DEV_3198-only hardware match and no compatible-ID fallback.
+
+TargetOSVersion `BuildNumber` is a minimum, not an exact build selector. H13.1 therefore declares both `NTamd64.10.0...19044` and a more-specific `NTamd64.10.0...19045` decoration. The 19044 section contains the exact hardware model; the 19045 section is intentionally empty. Build 19043 has no applicable section, build 19044 selects the exact model, and build 19045 or later selects the empty section instead of falling back to the 19044 model.
 
 The package uses the vendor-available MEDIA setup class and a demand-start
 kernel service:
@@ -47,7 +49,7 @@ then creates a temporary directory containing only:
 - phaser360_m1_boot.sys;
 - phaser360_m1_boot.inf.
 
-It locates the x64 WDK Inf2Cat tool and runs:
+It locates a WDK Inf2Cat tool and runs:
 
 `Inf2Cat /driver:<temp-package> /os:10_VB_X64 /uselocaltime /verbose`.
 
@@ -156,7 +158,8 @@ Final verification:
 - H13 runtime marker:
   `H13_INF2CAT=PASS; exact_hwid=YES; kmdf=1.31;
   package_uploaded=FALSE; install_executed=FALSE; playback=NO`.
-- H13 static guard:
+- H13.1 static guard additionally verifies the TargetOSVersion boundary: build 19043 unsupported, build 19044 selects the exact model, and build 19045+ selects the intentionally empty blocking section.
+- H13 static guard baseline:
   `H13_PACKAGE_STATIC_TESTS=PASS; exact_hwid=YES; kmdf=1.31;
   service_start=DEMAND; filters=NONE; endpoints=NONE;
   baseline_export=READ_ONLY_SYSTEM; install=NO; package_upload=NO; playback=NO`.
@@ -169,6 +172,5 @@ Final verification:
 - The development artifact rejects SYS, INF, CAT, firmware, certificate and
   private-key payloads.
 
-H13 therefore establishes exact-target INF/catalog signability and the
-read-only baseline-export mechanism only. It does not authorize target
+H13.1 therefore establishes exact-HWID and exact-build-19044 INF/catalog signability plus the read-only baseline-export mechanism only. It does not authorize target
 installation or physical DSP execution.

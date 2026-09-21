@@ -363,6 +363,8 @@ jobs:
             'H13_INF2CAT=PASS',
             'H13_OS_SIGNABILITY=10_VB_X64',
             'TARGET_BUILD_EXACT_GATE=19044',
+            'INF_TARGET_BUILD_ALLOW=19044_ONLY',
+            'INF_TARGET_BUILD_19045_PLUS=EMPTY_SECTION_BLOCK',
             'TARGET_HWID=PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
             'SERVICE=Phaser360M1',
             'SERVICE_START=DEMAND',
@@ -378,7 +380,7 @@ jobs:
             'FILTERS=NONE',
             'PLAYBACK=NO'
           ) | Set-Content -LiteralPath $report
-          Write-Host "H13_INF2CAT=PASS; os=10_VB_X64; exact_hwid=YES; kmdf=1.31; package_uploaded=FALSE; install_executed=FALSE; playback=NO"
+          Write-Host "H13_INF2CAT=PASS; os=10_VB_X64; exact_hwid=YES; exact_os_build=19044; build_19045_plus=BLOCKED; kmdf=1.31; package_uploaded=FALSE; install_executed=FALSE; playback=NO"
 
           Remove-Item -LiteralPath $package -Recurse -Force
           if (Test-Path -LiteralPath $package) { throw 'H13_PACKAGE_DELETE_FAILED' }

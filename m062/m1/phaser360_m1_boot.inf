@@ -1,4 +1,4 @@
-; PHASER360 M0.6.15H13
+; PHASER360 M0.6.15H13.1
 ; First-M1 exact-target package metadata. NOT FOR INSTALLATION YET.
 ; Hardware execution remains unauthorized until a later physical-deployment gate.
 
@@ -9,7 +9,7 @@ ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider=%ProviderName%
 CatalogFile=phaser360_m1_boot.cat
 PnpLockdown=1
-DriverVer=09/21/2026,0.6.15.13
+DriverVer=09/21/2026,0.6.15.131
 
 [DestinationDirs]
 DefaultDestDir=13
@@ -25,7 +25,11 @@ phaser360_m1_boot.sys=1
 ExcludeFromSelect=*
 
 [Manufacturer]
-%ProviderName%=Phaser360M1.Models,NTamd64.10.0...19044
+%ProviderName%=Phaser360M1.Models,NTamd64.10.0...19045,NTamd64.10.0...19044
+
+; TargetOSVersion BuildNumber is a minimum. The newer, intentionally empty
+; section prevents the 19044 model from being selected on build 19045 or later.
+[Phaser360M1.Models.NTamd64.10.0...19045]
 
 [Phaser360M1.Models.NTamd64.10.0...19044]
 %DeviceDesc%=Phaser360M1_Install,PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06

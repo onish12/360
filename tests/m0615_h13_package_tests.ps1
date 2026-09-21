@@ -62,6 +62,110 @@ if($modelLines.Count -ne 1 -or $modelLines[0].IndexOf($exact,[StringComparison]:
     throw 'H13_MODEL_NOT_EXACT_TARGET_ONLY'
 }
 
+# TargetOSVersion BuildNumber is a minimum. Keep exactly two model decorations:
+# 19044 contains the exact device, while the more-specific 19045 section is
+# intentionally empty so build 19045 and later cannot fall back to 19044.
+$manufacturerLine=@($inf -split "\r?\n" | Where-Object {
+    $_ -match '(?i)^\s*%ProviderName%\s*=\s*Phaser360M1\.Models,'
+})
+$expectedManufacturer='%ProviderName%=Phaser360M1.Models,NTamd64.10.0...19045,NTamd64.10.0...19044'
+if($manufacturerLine.Count -ne 1 -or
+   $manufacturerLine[0].Trim() -cne $expectedManufacturer) {
+    throw 'H13_TARGETOS_MANUFACTURER_DECORATIONS_INVALID'
+}
+
+$sectionMatches=[regex]::Matches(
+    $inf,
+    '(?im)^\[Phaser360M1\.Models\.NTamd64\.10\.0\.\.\.(\d+)\]\s*
+foreach($required in @(
+    'EXACT_WINDOWS_BUILD_19044_REQUIRED',
+    'PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
+    '/export-driver',
+    'SYSTEM_MUTATION=NONE',
+    "DriverInstall='NO'",
+    "DriverUninstall='NO'",
+    "DeviceRestart='NO'",
+    "Reboot='NO'",
+    "MMIO='NO'",
+    "DSPBoot='NO'",
+    "AudioPlayback='NO'"
+)) {
+    if($backup.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "H13_BASELINE_BACKUP_REQUIRED_MISSING: $required"
+    }
+}
+
+foreach($forbidden in @(
+    '/add-driver','/delete-driver','/install','/uninstall',
+    '/restart-device','/disable-device','/enable-device',
+    'bcdedit','reagentc /disable','dism /remove-driver',
+    'devcon','sc.exe','Set-PnpDevice'
+)) {
+    if($backup.IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        throw "H13_BASELINE_BACKUP_MUTATION_PRESENT: $forbidden"
+    }
+}
+
+foreach($required in @(
+    'Inf2Cat.exe',
+    '/os:10_VB_X64',
+    'H13_INF2CAT=PASS',
+    'phaser360_m1_boot.cat',
+    'H13_PACKAGE_UPLOADED=FALSE',
+    'H13_INSTALL_EXECUTED=FALSE',
+    'Remove-Item -LiteralPath $package -Recurse -Force'
+)) {
+    if($workflow.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "H13_WORKFLOW_REQUIRED_MISSING: $required"
+    }
+}
+
+$artifactPackageCopies=@(
+    $workflow -split "\r?\n" | Where-Object {
+        $_ -match '(?i)Copy-Item' -and
+        $_ -match '(?i)_artifact_m062' -and
+        $_ -match '(?i)(phaser360_m1_boot\.inf|phaser360_m1_boot\.cat|phaser360_m1_boot\.sys)'
+    }
+)
+if($artifactPackageCopies.Count -ne 0) {
+    throw 'H13_PACKAGE_PAYLOAD_COPY_TO_ARTIFACT_FORBIDDEN'
+}
+
+Write-Host 'H13_PACKAGE_STATIC_TESTS=PASS; exact_hwid=YES; exact_os_build=19044; build_19045_plus=BLOCKED_BY_EMPTY_SECTION; kmdf=1.31; service_start=DEMAND; filters=NONE; endpoints=NONE; baseline_export=READ_ONLY_SYSTEM; install=NO; package_upload=NO; playback=NO'
+)
+$sectionBuilds=@($sectionMatches | ForEach-Object {[int]$_.Groups[1].Value})
+if($sectionBuilds.Count -ne 2 -or
+   ($sectionBuilds | Sort-Object) -join ',' -cne '19044,19045') {
+    throw ('H13_TARGETOS_SECTIONS_INVALID: '+(($sectionBuilds | Sort-Object) -join ','))
+}
+
+function Resolve-H13ModelBuild([int]$Build) {
+    $eligible=@($sectionBuilds | Where-Object {$_ -le $Build} | Sort-Object -Descending)
+    if($eligible.Count -eq 0){return $null}
+    return [int]$eligible[0]
+}
+if($null -ne (Resolve-H13ModelBuild 19043)){throw 'H13_BUILD_19043_MUST_BE_UNSUPPORTED'}
+if((Resolve-H13ModelBuild 19044) -ne 19044){throw 'H13_BUILD_19044_MUST_SELECT_19044'}
+if((Resolve-H13ModelBuild 19045) -ne 19045){throw 'H13_BUILD_19045_MUST_SELECT_EMPTY_BLOCK'}
+if((Resolve-H13ModelBuild 22621) -ne 19045){throw 'H13_LATER_BUILD_MUST_SELECT_EMPTY_BLOCK'}
+
+$emptySection=[regex]::Match(
+    $inf,
+    '(?ims)^\[Phaser360M1\.Models\.NTamd64\.10\.0\.\.\.19045\]\s*(?<body>.*?)(?=^\[|\z)')
+if(-not $emptySection.Success){throw 'H13_BUILD_19045_EMPTY_SECTION_MISSING'}
+$nonComment=@($emptySection.Groups['body'].Value -split "\r?\n" | Where-Object {
+    -not [string]::IsNullOrWhiteSpace($_) -and $_ -notmatch '^\s*;'
+})
+if($nonComment.Count -ne 0){throw 'H13_BUILD_19045_SECTION_NOT_EMPTY'}
+
+$allowedSection=[regex]::Match(
+    $inf,
+    '(?ims)^\[Phaser360M1\.Models\.NTamd64\.10\.0\.\.\.19044\]\s*(?<body>.*?)(?=^\[|\z)')
+if(-not $allowedSection.Success -or
+   $allowedSection.Groups['body'].Value.IndexOf($exact,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    throw 'H13_BUILD_19044_EXACT_MODEL_MISSING'
+}
+
 foreach($required in @(
     'EXACT_WINDOWS_BUILD_19044_REQUIRED',
     'PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
