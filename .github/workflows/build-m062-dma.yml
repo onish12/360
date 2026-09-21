@@ -324,12 +324,23 @@ jobs:
           Copy-Item -LiteralPath $sys -Destination (Join-Path $package 'phaser360_m1_boot.sys')
           Copy-Item -LiteralPath .\m062\m1\phaser360_m1_boot.inf -Destination (Join-Path $package 'phaser360_m1_boot.inf')
 
-          $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
-          $inf2catItem = Get-ChildItem -LiteralPath $kits -Filter Inf2Cat.exe -Recurse -File |
-            Where-Object { $_.FullName -match '\\x64\\Inf2Cat\.exe$' } |
-            Sort-Object FullName -Descending |
+          $searchRoots = @(
+            (Join-Path $env:GITHUB_WORKSPACE 'm062\packages'),
+            (Join-Path $env:USERPROFILE '.nuget\packages'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin')
+          ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
+          $inf2catCandidates = @(
+            foreach($root in $searchRoots) {
+              Get-ChildItem -LiteralPath $root -Filter Inf2Cat.exe -Recurse -File -ErrorAction SilentlyContinue
+            }
+          )
+          $inf2catItem = $inf2catCandidates |
+            Sort-Object @{Expression={ if($_.FullName -match '(?i)\\x64\\'){0}else{1} }},FullName -Descending |
             Select-Object -First 1
-          if (-not $inf2catItem) { throw 'H13_INF2CAT_NOT_FOUND' }
+          if (-not $inf2catItem) {
+            Write-Host ('H13_INF2CAT_SEARCH_ROOTS=' + ($searchRoots -join ';'))
+            throw 'H13_INF2CAT_NOT_FOUND'
+          }
           $inf2cat = $inf2catItem.FullName
           Write-Host "H13_INF2CAT_PATH=$inf2cat"
 
