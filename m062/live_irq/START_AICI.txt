@@ -1,0 +1,19 @@
+PHASER360 M0.6.15F - CAPTURA IRQ READ-ONLY
+
+1. Extrage integral artifactul/pachetul.
+2. Intra in folderul live_irq.
+3. Ruleaza COLLECT_IRQ_EVIDENCE.cmd.
+4. Fereastra ramane deschisa la final.
+5. Trimite fisierul RESULT_IRQ_READONLY_*.zip creat in acelasi folder.
+
+Aceasta etapa:
+- NU instaleaza drivere;
+- NU leaga/dezleaga drivere;
+- NU dezactiveaza sau reporneste dispozitivul;
+- NU face MMIO;
+- NU porneste DSP-ul;
+- NU creeaza intreruperea KMDF;
+- NU reda sunet.
+
+Daca apare CAPTURE_PARTIAL sau o eroare de acces, nu modifica nimic manual.
+Trimite exact mesajul afisat si orice ZIP creat.

@@ -135,6 +135,13 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Source `e8678d81` passes real WDK compilation, 10 WDK host tests, 14 Windows
   tests and 12 Linux ASan/UBSan tests; IRQ inventory validation reports 360
   passing assertions.
+- **M0.6.15F:** [read-only live IRQ evidence](docs/M0615_LIVE_IRQ_EVIDENCE.md).
+  Adds a Windows 11 x64 collector that targets only the present
+  `PCI\\VEN_8086&DEV_3198` instance and permits PnPUtil only through
+  `/enum-devices` with read-only enumeration switches. It records raw
+  `/resources` output, full PnP/device properties, before/after binding state
+  and SHA-256 sums. No driver install/bind, restart, MMIO, DSP boot,
+  WdfInterruptCreate, IRQ selection or playback is performed.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
