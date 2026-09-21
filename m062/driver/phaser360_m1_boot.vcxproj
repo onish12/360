@@ -57,6 +57,7 @@
   <ItemGroup>
     <ClCompile Include="driver_entry.cpp" />
     <ClCompile Include="device_owner.cpp" />
+    <ClCompile Include="telemetry_ioctl.cpp" />
     <ClCompile Include="firmware_source.cpp" />
     <ClCompile Include="pinned_firmware.cpp" />
     <ClCompile Include="firmware_pin.cpp" />

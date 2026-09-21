@@ -4,6 +4,7 @@
 #include "repeated_device_lifecycle.h"
 #include "pinned_firmware.h"
 #include "firmware_source.h"
+#include "telemetry.h"
 
 namespace phaser360 { namespace windows {
 
@@ -12,7 +13,8 @@ namespace phaser360 { namespace windows {
 class DeviceOwner final {
 public:
     DeviceOwner(WDFDEVICE device) noexcept
-        : device_(device),pnp_(gate_),lifecycle_(irq_,firmware_,gate_) {}
+        : device_(device),pnp_(gate_),
+          lifecycle_(irq_,firmware_,gate_,&telemetry_) {}
     DeviceOwner(const DeviceOwner&)=delete;
     DeviceOwner& operator=(const DeviceOwner&)=delete;
 
@@ -21,6 +23,9 @@ public:
     // caller buffer or filesystem path is exposed by the device owner.
     NTSTATUS StageEmbeddedFirmware() noexcept;
     bool FirmwareReady() const noexcept { return firmware_.Loaded(); }
+    void QueryTelemetry(TelemetrySnapshotV1* out) const noexcept {
+        telemetry_.Snapshot(out);
+    }
 
     static NTSTATUS CreateInDeviceContext(WDFDEVICE) noexcept;
     static DeviceOwner* FromDevice(WDFDEVICE) noexcept;
@@ -31,6 +36,7 @@ private:
     PnpResources pnp_;
     IpcInterrupt irq_;
     PinnedFirmware firmware_;
+    TelemetryState telemetry_;
     RepeatedDeviceLifecycle lifecycle_;
 };
 

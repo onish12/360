@@ -3,6 +3,7 @@
 #include "d0_session.h"
 #include "pinned_firmware.h"
 #include "pnp_resources.h"
+#include "telemetry.h"
 
 namespace phaser360 { namespace windows {
 
@@ -15,8 +16,9 @@ namespace phaser360 { namespace windows {
 class RepeatedDeviceLifecycle final {
 public:
     RepeatedDeviceLifecycle(IpcInterrupt& irq,PinnedFirmware& firmware,
-                            HardwareAccessGate& gate) noexcept
-        : irq_(irq),firmware_(firmware),gate_(gate) {}
+                            HardwareAccessGate& gate,
+                            TelemetryState* telemetry=nullptr) noexcept
+        : irq_(irq),firmware_(firmware),gate_(gate),telemetry_(telemetry) {}
     RepeatedDeviceLifecycle(const RepeatedDeviceLifecycle&)=delete;
     RepeatedDeviceLifecycle& operator=(const RepeatedDeviceLifecycle&)=delete;
 
@@ -34,6 +36,7 @@ private:
     IpcInterrupt& irq_;
     PinnedFirmware& firmware_;
     HardwareAccessGate& gate_;
+    TelemetryState* telemetry_=nullptr;
     D0SessionOwner sessions_;
     PnpDormantInterruptBinding binding_={};
     bool shellCreated_=false;
@@ -57,6 +60,7 @@ private:
     bool AbandonRemovedBeforeEnable() noexcept;
     bool FinishCleanSession() noexcept;
     bool FinishRemovedSession() noexcept;
+    NTSTATUS RecordD0Status(NTSTATUS) noexcept;
 
     static NTSTATUS PreparedThunk(void*,const PnpResourceView&,
                                   const PnpDormantInterruptBinding&) noexcept;

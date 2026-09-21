@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "device_owner.h"
+#include "telemetry_ioctl.h"
 
 // Kernel-safe placement construction. No CRT allocation or exceptions.
 inline void* operator new(SIZE_T,void* place) noexcept { return place; }
@@ -61,8 +62,14 @@ NTSTATUS DeviceOwner::Initialize() noexcept {
     // framework can ever reach PrepareHardware/D0Entry.
     status=StageEmbeddedFirmware();
     if(!NT_SUCCESS(status)) return status;
+    telemetry_.SetFlag(TelemetryFirmwareLoaded,true);
 
     status=lifecycle_.CreateInterruptShell(device_);
+    if(!NT_SUCCESS(status)) return status;
+
+    // H11 is read-only software observability. Its queue is explicitly
+    // non-power-managed so a status query cannot trigger D0/boot.
+    status=CreateTelemetryEndpoint(device_);
     if(!NT_SUCCESS(status)) return status;
 
     return STATUS_SUCCESS;

@@ -58,6 +58,7 @@
     <ClCompile Include="repeated_device_lifecycle.cpp" />
     <ClCompile Include="d0_session.cpp" />
     <ClCompile Include="device_owner.cpp" />
+    <ClCompile Include="telemetry_ioctl.cpp" />
     <ClCompile Include="driver_entry.cpp" />
     <ClCompile Include="cm_resource_abi.cpp" />
     <ClCompile Include="..\..\src\sof\ipc3_command.cpp" />

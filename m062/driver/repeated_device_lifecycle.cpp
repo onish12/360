@@ -3,6 +3,11 @@
 
 namespace phaser360 { namespace windows {
 
+NTSTATUS RepeatedDeviceLifecycle::RecordD0Status(NTSTATUS status) noexcept {
+    if(telemetry_) telemetry_->SetLastD0Status(status);
+    return status;
+}
+
 NTSTATUS RepeatedDeviceLifecycle::CreateInterruptShell(WDFDEVICE device) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || shellCreated_ || !device)
         return STATUS_INVALID_DEVICE_STATE;
@@ -41,6 +46,7 @@ NTSTATUS RepeatedDeviceLifecycle::Prepared(
 
     binding_=binding;
     prepared_=true;
+    if(telemetry_) telemetry_->SetFlag(TelemetryResourcesPrepared,true);
     return STATUS_SUCCESS;
 }
 
@@ -55,6 +61,10 @@ bool RepeatedDeviceLifecycle::CleanupFailedEntry() noexcept {
         if(!irq_.ResetDormantClosedSession() || !sessions_.ReleaseClean())
             return false;
         irqBound_=false; active_=false; ++failedD0_;
+        if(telemetry_) {
+            telemetry_->SetFlag(TelemetryD0Active,false);
+            telemetry_->IncrementFailed();
+        }
         return true;
     }
 
@@ -62,6 +72,10 @@ bool RepeatedDeviceLifecycle::CleanupFailedEntry() noexcept {
         if(!irq_.UnbindDormant() || !sessions_.ReleaseUnused())
             return false;
         irqBound_=false; active_=false; ++failedD0_;
+        if(telemetry_) {
+            telemetry_->SetFlag(TelemetryD0Active,false);
+            telemetry_->IncrementFailed();
+        }
         return true;
     }
     return false;
@@ -70,10 +84,15 @@ bool RepeatedDeviceLifecycle::CleanupFailedEntry() noexcept {
 bool RepeatedDeviceLifecycle::AbandonRemovedBeforeEnable() noexcept {
     if(!active_ || !sessions_.Active()) return false;
     removed_=true;
+    if(telemetry_) telemetry_->SetFlag(TelemetryRemoved,true);
     (void)irq_.FenceForSurpriseRemoval();
     if(!irq_.ResetDormantRemovedSession() || !sessions_.AbandonRemoved(gate_))
         return false;
     irqBound_=false; active_=false; ++failedD0_;
+    if(telemetry_) {
+        telemetry_->SetFlag(TelemetryD0Active,false);
+        telemetry_->IncrementFailed();
+    }
     return true;
 }
 
@@ -82,61 +101,82 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !shellCreated_ || !prepared_ ||
        active_ || irqBound_ || sessions_.Active() || removed_ || !device ||
        !gate_.Allowed() || !SamePreparedView(view))
-        return STATUS_INVALID_DEVICE_STATE;
+        return RecordD0Status(STATUS_INVALID_DEVICE_STATE);
 
     auto status=sessions_.Begin(device,irq_,gate_);
-    if(!NT_SUCCESS(status)) return status;
+    if(!NT_SUCCESS(status)) return RecordD0Status(status);
 
     active_=true;
+    if(telemetry_) {
+        telemetry_->SetSessionGeneration(sessions_.Generation());
+        telemetry_->SetFlag(TelemetryD0Active,true);
+    }
+
     auto* boot=sessions_.Boot();
     auto* power=sessions_.Power();
     if(!boot || !power || !irq_.BindDormant(binding_,boot)) {
-        if(sessions_.ReleaseUnused()) active_=false;
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
+        if(sessions_.ReleaseUnused()) {
+            active_=false;
+            if(telemetry_) telemetry_->SetFlag(TelemetryD0Active,false);
+        }
+        return RecordD0Status(STATUS_DEVICE_CONFIGURATION_ERROR);
     }
     irqBound_=true;
 
     if(!irq_.GrantBootStart()) {
-        return CleanupFailedEntry()?STATUS_DEVICE_CONFIGURATION_ERROR
-                                   :STATUS_INVALID_DEVICE_STATE;
+        const auto result=CleanupFailedEntry()
+            ? STATUS_DEVICE_CONFIGURATION_ERROR : STATUS_INVALID_DEVICE_STATE;
+        return RecordD0Status(result);
     }
 
     status=firmware_.Enter(
         *power,device,view.hda,view.hdaLength,view.dsp,view.dspLength);
     if(!NT_SUCCESS(status)) {
         if(gate_.Removed()) {
-            return AbandonRemovedBeforeEnable()?status:STATUS_DEVICE_CONFIGURATION_ERROR;
+            const auto result=AbandonRemovedBeforeEnable()
+                ? status : STATUS_DEVICE_CONFIGURATION_ERROR;
+            return RecordD0Status(result);
         }
-        return CleanupFailedEntry()?status:STATUS_DEVICE_CONFIGURATION_ERROR;
+        const auto result=CleanupFailedEntry()
+            ? status : STATUS_DEVICE_CONFIGURATION_ERROR;
+        return RecordD0Status(result);
     }
 
     if(!gate_.Allowed()) {
-        return AbandonRemovedBeforeEnable()
+        const auto result=AbandonRemovedBeforeEnable()
             ? STATUS_INVALID_DEVICE_STATE : STATUS_DEVICE_CONFIGURATION_ERROR;
+        return RecordD0Status(result);
     }
 
     if(!irq_.GrantFrameworkEnableAfterBoot()) {
-        if(gate_.Removed())
-            return AbandonRemovedBeforeEnable()
+        if(gate_.Removed()) {
+            const auto result=AbandonRemovedBeforeEnable()
                 ? STATUS_INVALID_DEVICE_STATE : STATUS_DEVICE_CONFIGURATION_ERROR;
-        if(power->AbortBeforeInterruptsEnabled())
-            return CleanupFailedEntry()
+            return RecordD0Status(result);
+        }
+        if(power->AbortBeforeInterruptsEnabled()) {
+            const auto result=CleanupFailedEntry()
                 ? STATUS_DEVICE_CONFIGURATION_ERROR : STATUS_INVALID_DEVICE_STATE;
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
+            return RecordD0Status(result);
+        }
+        return RecordD0Status(STATUS_DEVICE_CONFIGURATION_ERROR);
     }
 
     if(!gate_.Allowed()) {
-        return AbandonRemovedBeforeEnable()
+        const auto result=AbandonRemovedBeforeEnable()
             ? STATUS_INVALID_DEVICE_STATE : STATUS_DEVICE_CONFIGURATION_ERROR;
+        return RecordD0Status(result);
     }
-    return STATUS_SUCCESS;
+    return RecordD0Status(STATUS_SUCCESS);
 }
 
 NTSTATUS RepeatedDeviceLifecycle::PostInterruptsEnabled() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !active_ || !sessions_.Active())
         return STATUS_INVALID_DEVICE_STATE;
     if(removed_ || !gate_.Allowed()) {
-        removed_=true; (void)irq_.FenceForSurpriseRemoval();
+        removed_=true;
+        if(telemetry_) telemetry_->SetFlag(TelemetryRemoved,true);
+        (void)irq_.FenceForSurpriseRemoval();
         return STATUS_INVALID_DEVICE_STATE;
     }
     auto* power=sessions_.Power();
@@ -148,6 +188,7 @@ NTSTATUS RepeatedDeviceLifecycle::PreInterruptsDisabled() noexcept {
         return STATUS_INVALID_DEVICE_STATE;
     if(removed_ || gate_.Removed()) {
         removed_=true;
+        if(telemetry_) telemetry_->SetFlag(TelemetryRemoved,true);
         return irq_.FenceForSurpriseRemoval()?STATUS_SUCCESS:STATUS_INVALID_DEVICE_STATE;
     }
     auto* power=sessions_.Power();
@@ -161,6 +202,10 @@ bool RepeatedDeviceLifecycle::FinishCleanSession() noexcept {
     if(!irq_.ResetDormantClosedSession() || !sessions_.ReleaseClean())
         return false;
     irqBound_=false; active_=false; ++completedD0_;
+    if(telemetry_) {
+        telemetry_->SetFlag(TelemetryD0Active,false);
+        telemetry_->IncrementCompleted();
+    }
     return true;
 }
 
@@ -173,6 +218,10 @@ bool RepeatedDeviceLifecycle::FinishRemovedSession() noexcept {
     }
     if(!sessions_.AbandonRemoved(gate_)) return false;
     irqBound_=false; active_=false;
+    if(telemetry_) {
+        telemetry_->SetFlag(TelemetryD0Active,false);
+        telemetry_->SetFlag(TelemetryRemoved,true);
+    }
     return true;
 }
 
@@ -198,11 +247,13 @@ NTSTATUS RepeatedDeviceLifecycle::Release() noexcept {
         return STATUS_INVALID_DEVICE_STATE;
     binding_=PnpDormantInterruptBinding{};
     prepared_=false;
+    if(telemetry_) telemetry_->SetFlag(TelemetryResourcesPrepared,false);
     return STATUS_SUCCESS;
 }
 
 void RepeatedDeviceLifecycle::SurpriseRemoval() noexcept {
     removed_=true;
+    if(telemetry_) telemetry_->SetFlag(TelemetryRemoved,true);
     if(irqBound_) (void)irq_.FenceForSurpriseRemoval();
 }
 

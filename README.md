@@ -271,6 +271,14 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   `7e533950c3014be6a0572cee738181fc0e9a3f50d18764a7bde9056caf9570da`;
   both contain IMAGE_DEBUG_TYPE_REPRO. The SYS is still deleted before upload;
   no INF, signing/install package, physical execution or audio path is added.
+- **M0.6.15H11:** [read-only software telemetry](docs/M0615_READONLY_TELEMETRY.md).
+  Adds a fixed 32-byte software status snapshot through one read-only buffered
+  IOCTL on an explicitly non-power-managed sequential queue. The snapshot
+  mirrors firmware/resource/D0/removal state and D0 generation/completed/failed
+  counters using interlocked software state only. The query path contains no
+  MMIO, IRQ synchronization, DSP command or power-transition request. H8-H10
+  real-link/import/reproducibility audits remain mandatory and the SYS is still
+  deleted before artifact upload.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

@@ -890,12 +890,12 @@ int main() {
         FrameworkDeleteChildren();
     }
 
-    // M0.6.15H5: fresh GlkBoot+ColdPower ownership for every D0 attempt.
-    // Successful D0 #1, failed D0 #2, and successful D0 #3 use three fresh
-    // WDF-owned sessions while preserving one device-lifetime IRQ shell.
+    // M0.6.15H5/H11: fresh GlkBoot+ColdPower ownership for every D0
+    // attempt, with an atomic software telemetry mirror verified against the
+    // lifecycle state transitions.
     Reset(); {
-        IpcInterrupt bridge; PinnedFirmware firmware;
-        RepeatedDeviceLifecycle lifecycle(bridge,firmware,accessGate);
+        IpcInterrupt bridge; PinnedFirmware firmware; TelemetryState telemetry;
+        RepeatedDeviceLifecycle lifecycle(bridge,firmware,accessGate,&telemetry);
         CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
         auto ops=lifecycle.Ops();
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
@@ -911,9 +911,19 @@ int main() {
         binding.kind=PnpInterruptKind::LineBased; binding.messageCount=0;
         CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
         CHECK(lifecycle.PreparedResources() && !lifecycle.ActiveD0());
+        TelemetrySnapshotV1 snapshot{};
+        telemetry.Snapshot(&snapshot);
+        CHECK((snapshot.flags & TelemetryResourcesPrepared)!=0 &&
+              (snapshot.flags & TelemetryD0Active)==0 &&
+              snapshot.sessionGeneration==0 &&
+              snapshot.completedD0==0 && snapshot.failedD0==0);
 
         CHECK(NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
         CHECK(lifecycle.SessionGeneration()==1 && lifecycle.ActiveD0());
+        telemetry.Snapshot(&snapshot);
+        CHECK((snapshot.flags & TelemetryD0Active)!=0 &&
+              snapshot.sessionGeneration==1 &&
+              snapshot.lastD0Status==STATUS_SUCCESS);
         CHECK(NT_SUCCESS(FrameworkEnable(true)));
         CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
         Notify(); CHECK(Interrupt() && queued); RunWork(); CHECK(!queued);
@@ -922,11 +932,20 @@ int main() {
         CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
         CHECK(!lifecycle.ActiveD0() && lifecycle.CompletedD0()==1 &&
               lifecycle.FailedD0()==0 && live==4);
+        telemetry.Snapshot(&snapshot);
+        CHECK((snapshot.flags & TelemetryD0Active)==0 &&
+              snapshot.sessionGeneration==1 &&
+              snapshot.completedD0==1 && snapshot.failedD0==0);
 
         ResetColdRegisters(); missingReady=true;
         CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
         CHECK(lifecycle.SessionGeneration()==2 && !lifecycle.ActiveD0() &&
               lifecycle.CompletedD0()==1 && lifecycle.FailedD0()==1 && live==4);
+        telemetry.Snapshot(&snapshot);
+        CHECK((snapshot.flags & TelemetryD0Active)==0 &&
+              snapshot.sessionGeneration==2 &&
+              snapshot.completedD0==1 && snapshot.failedD0==1 &&
+              snapshot.lastD0Status!=STATUS_SUCCESS);
         missingReady=false;
 
         ResetColdRegisters();
@@ -940,15 +959,25 @@ int main() {
         CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
         CHECK(!lifecycle.ActiveD0() && lifecycle.CompletedD0()==2 &&
               lifecycle.FailedD0()==1 && sessionMemoryCreates==3 && live==4);
+        telemetry.Snapshot(&snapshot);
+        CHECK((snapshot.flags & TelemetryD0Active)==0 &&
+              snapshot.sessionGeneration==3 &&
+              snapshot.completedD0==2 && snapshot.failedD0==1 &&
+              snapshot.lastD0Status==STATUS_SUCCESS);
 
         CHECK(NT_SUCCESS(ops.release(ops.context)));
         CHECK(!lifecycle.PreparedResources());
+        telemetry.Snapshot(&snapshot);
+        CHECK((snapshot.flags & TelemetryResourcesPrepared)==0);
+
         std::vector<UCHAR> nextHda(0x4000),nextDsp(0x100000);
         PnpResourceView nextView=view;
         nextView.hda=nextHda.data(); nextView.dsp=nextDsp.data();
         auto nextBinding=binding; nextBinding.dsp=nextDsp.data();
         CHECK(NT_SUCCESS(ops.prepared(ops.context,nextView,nextBinding)));
         CHECK(lifecycle.PreparedResources());
+        telemetry.Snapshot(&snapshot);
+        CHECK((snapshot.flags & TelemetryResourcesPrepared)!=0);
         CHECK(NT_SUCCESS(ops.release(ops.context)));
         FrameworkDeleteChildren();
     }
