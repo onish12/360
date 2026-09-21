@@ -314,6 +314,13 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   chain. Inf2Cat reports zero errors and zero warnings for `10_VB_X64`,
   generates the catalog, and the package is then deleted. The development
   artifact contains no SYS/INF/CAT/firmware/key material.
+- **M0.6.15H14:** [ephemeral signing gate](docs/M0615_EPHEMERAL_SIGNING.md).
+  Rebuilds the exact H13 package in CI, creates a one-day self-signed
+  code-signing certificate with a non-exportable private key, signs the SYS
+  before Inf2Cat, signs the resulting CAT, and verifies both with Authenticode.
+  The runner trust stores are cleaned afterward and no SYS/INF/CAT/CER/PFX is
+  uploaded. This proves signing mechanics only; target trust, driver install
+  and physical DSP execution remain unauthorized.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
