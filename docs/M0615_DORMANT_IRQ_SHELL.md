@@ -67,3 +67,27 @@ rules are framework contracts, not just shim behavior.
 
 No driver install, device binding, MMIO, DSP boot, codec/amplifier operation or
 playback is authorized by H1.
+
+
+## Verified CI evidence (2026-09-21)
+
+Implementation commit: `c7681b7d3925f04d6490b29bb707bcc1c8026fac`.
+Tree: `4797c0147b3fb4a96c126584d1101a2b89644ea5`.
+
+- WDK/KMDF run `35580962592`, job `106273485939`: real WDK
+  compilation passes and all 10 selected host tests pass.
+- The integrated wrapper model reports
+  `SOF_GLK_BOOT_TESTS=265918 PASS; windows_api=SIMULATED; hardware=NONE`.
+  The H1 increment specifically exercises a dormant framework
+  Enable/ISR/Disable interval with fake MMIO forbidden and no interrupt
+  synchronization.
+- Windows/Linux run `35580963070`: Windows job `106273489698` passes
+  all 14 tests and Linux job `106273489504` passes all 12 tests. Official
+  fixture checks remain green.
+- The F4 read-only collector guards remain green in the WDK job.
+- Development artifact `PHASER360_M0615H1_DORMANT_IRQ_SHELL`: ID
+  `10630501479`, 305,420 bytes. GitHub reports archive SHA-256
+  `4b5c2842ed8c0cb77c10b8ac368575346c20eb15872f7485ffa459929a5d639f`.
+
+No PnP resource binding to the shell, hardware-enable grant, MMIO, DSP boot,
+codec/amplifier operation or playback is performed or authorized by H1.
