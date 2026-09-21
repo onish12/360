@@ -160,3 +160,54 @@ The next stage must audit the real link result and create a separately gated
 physical M1 boot package with explicit recovery and target-identity checks.
 Even that package is limited to DSP boot -> FW_READY/IPC -> clean shutdown.
 Audio output remains prohibited.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final H8 source commit:
+`1afbbd956db09b92704d7536834a75393fd8ff84`.
+Tree: `b9b83d501c0160c3f2d8082c21664e71bcaf6c43`.
+
+The first H8 link attempt at `1b6f4c80` reached the real KMDF linker and
+failed only because the Driver project did not explicitly link `cng.lib`.
+The six unresolved symbols were the expected BCrypt SHA-256 functions.
+H8 retained the production CNG pin and fixed the real driver project by adding
+`cng.lib`; no firmware-authentication logic was weakened or replaced.
+
+Final verification:
+
+- WDK/KMDF run `35627846131`, job `106426485103`: real WDK static
+  library compilation passes and all 10 selected host regressions pass.
+- PnP remains `SOF_PNP_RESOURCES_TESTS=516 PASS`.
+- Repeated-D0 model remains `SOF_GLK_BOOT_TESTS=327105 PASS`.
+- Pinned owner remains `SOF_PINNED_OWNER_TESTS=34 PASS`.
+- H6 and H7 static safety guards both pass.
+- The H8 real KMDF Driver project links successfully with the generated,
+  hash-pinned embedded provider.
+- Temporary linked driver:
+  - bytes: `338944`;
+  - SHA-256:
+    `8dd3fa9cc0e0fb2e5c100c364808bcf16aef7200b11d011a688df7f1642f83b9`;
+  - `SYS_UPLOADED=FALSE`;
+  - `INF=ABSENT`;
+  - `HARDWARE_EXECUTION=NONE`;
+  - `AUDIO_PLAYBACK=NOT_IMPLEMENTED`.
+- H8 static guard reports
+  `H8_LINK_ONLY_STATIC_TESTS=PASS; real_kmdf_project=YES;
+  embedded_stage_before_irq=YES; runtime_file_io=NO; inf=ABSENT;
+  sys_upload=NO; audio_path=NO; playback=NO`.
+- Windows/Linux offline run `35627846154`: Windows job
+  `106426485152` passes all 14 existing tests plus
+  `H7_EMBEDDED_FIRMWARE_TESTS=19 PASS`; Linux job
+  `106426485342` passes all 12 tests.
+- Official Windows fixture validation remains
+  `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`.
+- H8 report-only artifact
+  `PHASER360_M0615H8_LINK_ONLY_REPORT`: ID `10653120057`,
+  475,659 bytes; GitHub archive SHA-256
+  `e42222cbf6dc3f14d85cf8bb52072d22525539176298f560853753327b688390`.
+
+The linked SYS, generated provider and local `.ri` fixture are deleted before
+artifact staging. H8 still distributes no installable driver and authorizes no
+physical Lenovo execution.

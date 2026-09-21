@@ -246,8 +246,13 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   separate real KMDF Driver project so CI can expose final-link/import problems.
   CI verifies the generated SYS as a PE image and records its SHA-256, then
   deletes the SYS, generated provider and firmware fixture before artifact
-  staging. The artifact recursively rejects .sys and .ri files. There is no
-  INF, installer, physical execution or audio path.
+  staging. The artifact recursively rejects .sys and .ri files. Final H8
+  source `1afbbd95` passes real WDK compilation, 10 WDK host tests,
+  14 Windows tests and 12 Linux tests. The temporary real KMDF SYS links
+  successfully at 338,944 bytes with SHA-256
+  `8dd3fa9cc0e0fb2e5c100c364808bcf16aef7200b11d011a688df7f1642f83b9`,
+  then is deleted before upload. There is no INF, installer, physical
+  execution or audio path.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
