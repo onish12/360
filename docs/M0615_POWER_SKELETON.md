@@ -93,3 +93,27 @@ must all pass for the exact source before M0.6.15D is closed.
 - PnP and Power Management Callback Sequences
 
 No physical Lenovo execution or playback is authorized by this milestone.
+
+
+## Verified CI evidence (2026-09-21)
+
+Implementation commit: `376c9a978206d38f5263e9f53aedfff910d08864`.
+Tree: `13533c2e3cf5e5ab5a304ff552cb95f41415c65d`.
+
+- WDK/KMDF run `35572367041`, job `106246514642`: real WDK
+  compilation passes, then all 10 selected host tests pass. PnP reports
+  `SOF_PNP_RESOURCES_TESTS=313 PASS; power_skeleton=REGISTERED;
+  surprise_callback=REGISTERED; paired_raw_translated=YES;
+  irq_selection=DEFERRED; hardware=NOT_TOUCHED`.
+- Windows/Linux run `35572367172`: Windows job `106246514910` passes
+  all 14 tests; Linux job `106246515245` passes all 12 tests with ASan/UBSan.
+  The integrated boot/IRQ model remains `SOF_GLK_BOOT_TESTS=265876 PASS`.
+- Windows also reports `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS` using real Windows CNG for the
+  official hash-pinned fixture checks.
+- Development artifact `PHASER360_M0615D_WDK_POWER_SKELETON`: ID
+  `10626895273`, 276,725 bytes. GitHub reports archive SHA-256
+  `6ecca4b70fb78e3ccd00b47c4db1f1a822ded748578f22af1b81e58ff81531eb`.
+
+No physical Lenovo execution, DSP boot, interrupt selection, codec/amplifier
+programming or playback is claimed by M0.6.15D.
