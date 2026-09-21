@@ -293,6 +293,12 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   restart, registry/BCD write, MMIO, DSP boot or playback. Final H12 source
   `4deeb69b` passes real WDK compilation and all H8-H11 regressions; its
   exact-target/WinRE self-test and mutation-free static guard both pass.
+- **M0.6.15H12.1:** [Windows 10 / KMDF compatibility correction](docs/M0615_WIN10_KMDF_COMPAT.md).
+  Retargets both real WDK projects and every active CI link from KMDF 1.33 to
+  KMDF 1.31 because the physical target is Windows 10 21H2 build 19044. The
+  complete H8-H12 link/import/reproducibility/telemetry/preflight chain is rerun
+  against 1.31, and a static guard forbids 1.33 from reappearing. No INF/SYS is
+  distributed and physical execution remains unauthorized.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

@@ -1,0 +1,80 @@
+# M0.6.15H12.1 Windows 10 21H2 / KMDF 1.31 compatibility correction
+
+H12.1 corrects the framework target used by the real WDK builds before any
+installable INF/package work begins.
+
+The physical Lenovo target currently runs Windows 10 21H2 build 19044.
+
+Microsoft's KMDF version history states:
+
+- KMDF 1.31 is included starting with Windows 10 version 2004 and drivers using
+  1.31 run on Windows 10 version 2004 and later;
+- KMDF 1.33 is included with Windows 11 version 21H2 / Windows Server 2022 and
+  drivers using 1.33 require those releases or later.
+
+The H8-H12 CI had still been explicitly overriding KMDF_VERSION_MINOR=33 even
+though H12's target contract was build 19044. H12.1 fixes that incompatibility.
+
+## Changes
+
+Both WDK projects are retargeted to:
+
+KMDF_VERSION_MAJOR=1
+KMDF_VERSION_MINOR=31
+
+The active workflow also passes /p:KMDF_VERSION_MINOR=31 to:
+
+1. the real WDK static-library rebuild;
+2. the first real temporary KMDF SYS link;
+3. the second clean reproducibility rebuild.
+
+KMDF 1.33 is forbidden by the H12.1 static guard in both project files and all
+active driver build commands.
+
+## Verification scope
+
+H12.1 reruns the complete safety chain under KMDF 1.31:
+
+- real WDK component compile;
+- PnP/resource/lifecycle tests;
+- telemetry mirror tests;
+- repeated D0 boot/IRQ model;
+- H6 DeviceAdd ownership guards;
+- H7 embedded firmware source/CNG guards;
+- H8 real temporary KMDF SYS link;
+- H9 x64 Native/import audit;
+- H10 two-link reproducibility and IMAGE_DEBUG_TYPE_REPRO audit;
+- H11 read-only telemetry guards;
+- H12 exact-target/WinRE preflight guards.
+
+The temporary SYS remains CI-only and is deleted before upload.
+
+## Target remains exact
+
+H12.1 does not widen H12:
+
+- Windows build remains exactly 19044;
+- hardware ID remains
+  PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06;
+- H12 WinRE preflight remains a hard gate;
+- no INF/package is created.
+
+## Safety boundary
+
+H12.1 changes only framework compatibility/build targeting.
+
+It authorizes no:
+
+- driver installation;
+- controller bind/unbind;
+- restart/reboot;
+- registry/BCD/WinRE write;
+- physical MMIO;
+- DSP boot on the Lenovo;
+- MAX98357A/DA7219 operation;
+- SSP/PDM programming;
+- WaveRT/ACX/PortCls endpoint;
+- playback.
+
+INF/package design may begin only after the H8-H12 chain is green when linked
+against KMDF 1.31.
