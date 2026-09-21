@@ -78,63 +78,7 @@ $sectionBuilds=New-Object System.Collections.Generic.List[int]
 $sectionBodies=@{}
 $currentBuild=$null
 foreach($line in $infLines){
-    if($line -match '(?i)^\[Phaser360M1\.Models\.NTamd64\.10\.0\.\.\.(\d+)\]\s*
-foreach($required in @(
-    'EXACT_WINDOWS_BUILD_19044_REQUIRED',
-    'PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
-    '/export-driver',
-    'SYSTEM_MUTATION=NONE',
-    "DriverInstall='NO'",
-    "DriverUninstall='NO'",
-    "DeviceRestart='NO'",
-    "Reboot='NO'",
-    "MMIO='NO'",
-    "DSPBoot='NO'",
-    "AudioPlayback='NO'"
-)) {
-    if($backup.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
-        throw "H13_BASELINE_BACKUP_REQUIRED_MISSING: $required"
-    }
-}
-
-foreach($forbidden in @(
-    '/add-driver','/delete-driver','/install','/uninstall',
-    '/restart-device','/disable-device','/enable-device',
-    'bcdedit','reagentc /disable','dism /remove-driver',
-    'devcon','sc.exe','Set-PnpDevice'
-)) {
-    if($backup.IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0) {
-        throw "H13_BASELINE_BACKUP_MUTATION_PRESENT: $forbidden"
-    }
-}
-
-foreach($required in @(
-    'Inf2Cat.exe',
-    '/os:10_VB_X64',
-    'H13_INF2CAT=PASS',
-    'phaser360_m1_boot.cat',
-    'H13_PACKAGE_UPLOADED=FALSE',
-    'H13_INSTALL_EXECUTED=FALSE',
-    'Remove-Item -LiteralPath $package -Recurse -Force'
-)) {
-    if($workflow.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
-        throw "H13_WORKFLOW_REQUIRED_MISSING: $required"
-    }
-}
-
-$artifactPackageCopies=@(
-    $workflow -split "\r?\n" | Where-Object {
-        $_ -match '(?i)Copy-Item' -and
-        $_ -match '(?i)_artifact_m062' -and
-        $_ -match '(?i)(phaser360_m1_boot\.inf|phaser360_m1_boot\.cat|phaser360_m1_boot\.sys)'
-    }
-)
-if($artifactPackageCopies.Count -ne 0) {
-    throw 'H13_PACKAGE_PAYLOAD_COPY_TO_ARTIFACT_FORBIDDEN'
-}
-
-Write-Host 'H13_PACKAGE_STATIC_TESTS=PASS; exact_hwid=YES; exact_os_build=19044; build_19045_plus=BLOCKED_BY_EMPTY_SECTION; kmdf=1.31; service_start=DEMAND; filters=NONE; endpoints=NONE; baseline_export=READ_ONLY_SYSTEM; install=NO; package_upload=NO; playback=NO'
-){
+    if($line -match '(?i)^\[Phaser360M1\.Models\.NTamd64\.10\.0\.\.\.(\d+)\]\s*$'){
         $currentBuild=[int]$Matches[1]
         $sectionBuilds.Add($currentBuild)
         $sectionBodies[$currentBuild]=New-Object System.Collections.Generic.List[string]
@@ -221,4 +165,4 @@ if($artifactPackageCopies.Count -ne 0) {
     throw 'H13_PACKAGE_PAYLOAD_COPY_TO_ARTIFACT_FORBIDDEN'
 }
 
-Write-Host 'H13_PACKAGE_STATIC_TESTS=PASS; exact_hwid=YES; kmdf=1.31; service_start=DEMAND; filters=NONE; endpoints=NONE; baseline_export=READ_ONLY_SYSTEM; install=NO; package_upload=NO; playback=NO'
+Write-Host 'H13_PACKAGE_STATIC_TESTS=PASS; exact_hwid=YES; exact_os_build=19044; build_19045_plus=BLOCKED_BY_EMPTY_SECTION; kmdf=1.31; service_start=DEMAND; filters=NONE; endpoints=NONE; baseline_export=READ_ONLY_SYSTEM; install=NO; package_upload=NO; playback=NO'
