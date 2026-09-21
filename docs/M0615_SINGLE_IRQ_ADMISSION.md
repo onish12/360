@@ -80,3 +80,34 @@ That step must still be tested without DSP boot first. Interrupt creation and
 framework connection are not permission to enable DSP interrupt sources.
 
 The no-playback hold remains unchanged.
+
+
+## Verified CI evidence (2026-09-21)
+
+Final implementation commit: `2abda1095a1722d82a2046b1a263c5317a60b119`.
+Tree: `93b7a34cc7d09858a9ca727b0c71762ee7b09929`.
+
+The preceding implementation commit exposed only a test namespace omission on
+Linux; production code was unchanged. The evidence below is for the corrected
+exact source.
+
+- WDK/KMDF run `35580251497`, job `106271224136`: real WDK
+  compilation passes and all 10 selected host tests pass.
+- PnP reports `SOF_PNP_RESOURCES_TESTS=406 PASS;
+  irq_inventory=LINE_AND_MESSAGE;
+  irq_admission=SINGLE_PAIR_LINE_OR_ONE_MESSAGE;
+  wdf_interrupt_create=NO; power_skeleton=REGISTERED;
+  surprise_callback=REGISTERED; paired_raw_translated=YES;
+  hardware=NOT_TOUCHED`.
+- Windows/Linux run `35580251501`: Windows job `106271224466` passes
+  all 14 tests and Linux job `106271224141` passes all 12 tests with the
+  workflow's sanitizer configuration.
+- Windows official fixture verification reports
+  `SOF_CNG_PIN_TESTS=10 PASS` and
+  `SOF_PINNED_REFERENCE_TESTS=13 PASS`; Linux reference check also passes.
+- Development artifact `PHASER360_M0615G_SINGLE_IRQ_ADMISSION`: ID
+  `10629707705`, 301,958 bytes. GitHub reports archive SHA-256
+  `0d106bbbf19461e3d42209778efab6614adcef753cdb65aa22395eae2839b30c`.
+
+No WDF interrupt object, MMIO, DSP boot, codec/amplifier operation or playback
+is performed or authorized by M0.6.15G.
