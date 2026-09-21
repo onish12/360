@@ -3,6 +3,7 @@
 #include "pnp_resources.h"
 #include "repeated_device_lifecycle.h"
 #include "pinned_firmware.h"
+#include "firmware_source.h"
 
 namespace phaser360 { namespace windows {
 
@@ -16,7 +17,9 @@ public:
     DeviceOwner& operator=(const DeviceOwner&)=delete;
 
     NTSTATUS Initialize() noexcept;
-    NTSTATUS StageFirmware(const UCHAR* kernelBytes,SIZE_T bytes) noexcept;
+    // H7 accepts only the generated embedded provider. No arbitrary runtime
+    // caller buffer or filesystem path is exposed by the device owner.
+    NTSTATUS StageEmbeddedFirmware() noexcept;
     bool FirmwareReady() const noexcept { return firmware_.Loaded(); }
 
     static NTSTATUS CreateInDeviceContext(WDFDEVICE) noexcept;

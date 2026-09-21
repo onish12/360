@@ -65,12 +65,11 @@ NTSTATUS DeviceOwner::Initialize() noexcept {
     return STATUS_SUCCESS;
 }
 
-NTSTATUS DeviceOwner::StageFirmware(
-    const UCHAR* kernelBytes,SIZE_T bytes) noexcept {
-    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !device_ || !kernelBytes || !bytes ||
-       firmware_.Loaded())
+NTSTATUS DeviceOwner::StageEmbeddedFirmware() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !device_ || firmware_.Loaded())
         return STATUS_INVALID_DEVICE_STATE;
-    return firmware_.Load(device_,kernelBytes,bytes);
+    return StagePinnedFirmwareFromSource(
+        firmware_,device_,GetEmbeddedFirmwareSource);
 }
 
 } }

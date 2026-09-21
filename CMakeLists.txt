@@ -68,6 +68,25 @@ set_tests_properties(sof_boot_protocol PROPERTIES TIMEOUT 60)
 add_test(NAME sof_parser_synthetic COMMAND phaser360_sof_tests)
 add_test(NAME m051_resource_contract COMMAND phaser360_m051_resource_tests)
 if(WIN32)
+    set(PHASER_EMBEDDED_FIRMWARE_CPP "" CACHE FILEPATH "Generated H7 embedded firmware provider translation unit")
+    if(PHASER_EMBEDDED_FIRMWARE_CPP)
+        if(NOT EXISTS "${PHASER_EMBEDDED_FIRMWARE_CPP}")
+            message(FATAL_ERROR "PHASER_EMBEDDED_FIRMWARE_CPP does not exist")
+        endif()
+        add_executable(phaser360_embedded_firmware_tests
+            tests/sof_embedded_firmware_tests.cpp
+            m062/driver/firmware_source.cpp
+            m062/driver/pinned_firmware.cpp
+            m062/driver/firmware_pin.cpp
+            "${PHASER_EMBEDDED_FIRMWARE_CPP}")
+        target_include_directories(phaser360_embedded_firmware_tests PRIVATE
+            tests/fake_wdf m062/driver)
+        target_compile_features(phaser360_embedded_firmware_tests PRIVATE cxx_std_17)
+        target_compile_options(phaser360_embedded_firmware_tests PRIVATE /W4 /WX /permissive-)
+        target_link_libraries(phaser360_embedded_firmware_tests PRIVATE bcrypt)
+        add_test(NAME h7_embedded_firmware COMMAND phaser360_embedded_firmware_tests)
+    endif()
+
     add_executable(phaser360_pinned_reference_tests tests/sof_pinned_reference_tests.cpp m062/driver/pinned_firmware.cpp m062/driver/firmware_pin.cpp)
     target_include_directories(phaser360_pinned_reference_tests PRIVATE tests/fake_wdf)
     target_compile_features(phaser360_pinned_reference_tests PRIVATE cxx_std_17)

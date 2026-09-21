@@ -11,6 +11,8 @@ on:
       - 'tests/sof*'
       - 'tests/fixtures/sof_glk_reference.json'
       - 'scripts/verify-sof-reference.py'
+      - 'scripts/generate-embedded-firmware.py'
+      - 'tests/sof_embedded_firmware_tests.cpp'
       - 'CMakeLists.txt'
       - 'docs/M06_FIRMWARE.md'
       - 'docs/M061_BOOT_PROTOCOL.md'
@@ -23,6 +25,8 @@ on:
       - 'tools/sof_inspect.cpp'
       - 'tests/**'
       - 'scripts/verify-sof-reference.py'
+      - 'scripts/generate-embedded-firmware.py'
+      - 'tests/sof_embedded_firmware_tests.cpp'
       - 'CMakeLists.txt'
       - 'docs/M06_FIRMWARE.md'
       - 'docs/M061_BOOT_PROTOCOL.md'
@@ -91,6 +95,35 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Owned firmware reference validation failed.' }
           }
 
+      - name: Generate and verify H7 embedded firmware provider
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = Join-Path $env:RUNNER_TEMP 'phaser360-m06-build'
+          $fixture = Join-Path $build 'fixtures/sof-apl.ri'
+          $generated = Join-Path $build 'generated/embedded_firmware.cpp'
+          $report = Join-Path $build 'H7_EMBEDDED_FIRMWARE_REPORT.json'
+
+          python scripts/generate-embedded-firmware.py --input $fixture --output $generated --report $report
+          if ($LASTEXITCODE -ne 0) { throw 'H7_PROVIDER_GENERATION_FAILED' }
+
+          $bad = Join-Path $build 'fixtures/sof-apl-mutated.ri'
+          [IO.File]::WriteAllBytes($bad,[IO.File]::ReadAllBytes($fixture))
+          $bytes=[IO.File]::ReadAllBytes($bad)
+          $bytes[0]=$bytes[0] -bxor 1
+          [IO.File]::WriteAllBytes($bad,$bytes)
+          python scripts/generate-embedded-firmware.py --input $bad --output "$generated.bad.cpp"
+          if ($LASTEXITCODE -eq 0) { throw 'H7_MUTATED_FIXTURE_MUST_BE_REJECTED' }
+          Remove-Item $bad -Force
+
+          cmake -S . -B $build -DPHASER_EMBEDDED_FIRMWARE_CPP="$generated"
+          if ($LASTEXITCODE -ne 0) { throw 'H7_RECONFIGURE_FAILED' }
+          cmake --build $build --config Debug --target phaser360_embedded_firmware_tests
+          if ($LASTEXITCODE -ne 0) { throw 'H7_BUILD_FAILED' }
+          ctest --test-dir $build -C Debug -R '^h7_embedded_firmware$' -V
+          if ($LASTEXITCODE -ne 0) { throw 'H7_TEST_FAILED' }
+
       - name: Stage development artifact (no firmware and no driver installer)
         shell: pwsh
         run: |
@@ -99,6 +132,9 @@ jobs:
           $stage = Join-Path $env:RUNNER_TEMP 'phaser360-m06-artifact'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           Copy-Item "$build/REFERENCE_CHECK.json", 'docs/M06_FIRMWARE.md', 'docs/M061_BOOT_PROTOCOL.md', 'LICENSE' $stage
+          if ($env:RUNNER_OS -eq 'Windows') {
+            Copy-Item "$build/H7_EMBEDDED_FIRMWARE_REPORT.json" $stage
+          }
           Copy-Item 'src/sof/boot_sequence.h', 'src/sof/ipc3_ready.h', 'src/sof/firmware_image.h', 'src/sof/hda_bdl.h' $stage
           Copy-Item 'tests/fixtures/sof_glk_reference.json' $stage
           if ($env:RUNNER_OS -eq 'Windows') {

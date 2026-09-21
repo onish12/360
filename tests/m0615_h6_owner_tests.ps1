@@ -30,7 +30,7 @@ foreach($required in @(
     'pnp_.Attach(device_)',
     'pnp_.InstallLifecycle(lifecycle_.Ops())',
     'lifecycle_.CreateInterruptShell(device_)',
-    'firmware_.Load(device_,kernelBytes,bytes)'
+    'StagePinnedFirmwareFromSource('
 )) {
     if($owner.IndexOf($required,[StringComparison]::Ordinal) -lt 0) {
         throw "DEVICE_OWNER_REQUIRED_MISSING: $required"
@@ -50,10 +50,13 @@ if($pinned.IndexOf('bool Loaded() const noexcept',[StringComparison]::Ordinal) -
     throw 'PINNED_FIRMWARE_LOADED_GUARD_MISSING'
 }
 
-# DeviceAdd must not stage firmware implicitly. The source method exists only
-# on DeviceOwner for a later reviewed source milestone.
-if($entry -match '(?i)StageFirmware\s*\(') {
-    throw 'DEVICEADD_MUST_NOT_STAGE_FIRMWARE'
+# DeviceAdd must not stage firmware implicitly. H7 narrows the owner API to
+# StageEmbeddedFirmware, but connection remains a separate later milestone.
+if($entry -match '(?i)StageEmbeddedFirmware\s*\(') {
+    throw 'DEVICEADD_MUST_NOT_STAGE_EMBEDDED_FIRMWARE'
+}
+if($owner -match 'StageFirmware\s*\(\s*const\s+UCHAR\*') {
+    throw 'ARBITRARY_FIRMWARE_BUFFER_API_MUST_NOT_RETURN'
 }
 
 foreach($forbidden in @(
@@ -88,4 +91,4 @@ foreach($source in @('device_owner.cpp','driver_entry.cpp')) {
     }
 }
 
-Write-Host 'H6_DEVICE_OWNER_STATIC_TESTS=PASS; driverentry=YES; deviceadd_order=YES; multi_context=YES; firmware_autoload=NO; file_io=NO; playback=NO; installable=NO'
+Write-Host 'H6_DEVICE_OWNER_STATIC_TESTS=PASS; driverentry=YES; deviceadd_order=YES; multi_context=YES; firmware_autoload=NO; arbitrary_buffer_api=NO; file_io=NO; playback=NO; installable=NO'
