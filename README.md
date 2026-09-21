@@ -176,6 +176,11 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   WdfInterruptCreate, touch MMIO, boot the DSP or produce audio. Source
   `2abda109` passes real WDK compilation, 10 WDK host tests, 14 Windows
   tests and 12 Linux tests; PnP/admission validation reports 406 assertions.
+- **M0.6.15H1:** [dormant WDF interrupt shell](docs/M0615_DORMANT_IRQ_SHELL.md).
+  Adds a single device-lifetime WdfInterruptCreate shell with NULL raw/translated
+  descriptors, suitable for DeviceAdd. Until a later D0 binding grants hardware
+  enable, framework Enable/Disable and ISR paths are fail-closed/no-MMIO. No
+  resource binding, ColdPower entry, DSP boot or audio is added.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

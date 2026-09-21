@@ -23,6 +23,7 @@ static bool connected=false,forbidMmio=false;
 static unsigned synchronizeCalls=0;
 static HardwareAccessGate accessGate;
 static WDF_INTERRUPT_CONFIG irqConfig={};
+static bool irqCreatedWithAssignedDescriptors=false;
 static WDFINTERRUPT irqHandle=nullptr;
 static WDFWAITLOCK serialHandle=nullptr;
 static std::vector<UCHAR> hda(0x4000),dsp(0x100000);
@@ -123,7 +124,10 @@ NTSTATUS WdfWaitLockAcquire(WDFWAITLOCK h,LONGLONG* timeout) {
 void WdfWaitLockRelease(WDFWAITLOCK h) { CHECK(h==serialHandle && irql==0 && mutexHeld); mutexHeld=false; }
 NTSTATUS WdfInterruptCreate(WDFDEVICE,WDF_INTERRUPT_CONFIG* c,WDF_OBJECT_ATTRIBUTES* a,WDFINTERRUPT* out) {
     CHECK(irql==0 && !c->PassiveHandling && !c->AutomaticSerialization && !c->EvtInterruptDpc);
-    CHECK(c->InterruptRaw && c->InterruptTranslated && !c->EvtInterruptWorkItem && a->contextSize);
+    CHECK(((c->InterruptRaw && c->InterruptTranslated) ||
+           (!c->InterruptRaw && !c->InterruptTranslated)) &&
+          !c->EvtInterruptWorkItem && a->contextSize);
+    irqCreatedWithAssignedDescriptors=(c->InterruptRaw!=nullptr);
     if(createFailure==2) return STATUS_INSUFFICIENT_RESOURCES;
     *out=new FakeObject{++sequence,std::vector<UCHAR>(a->contextSize)};
     irqHandle=*out; irqConfig=*c; ++live; return STATUS_SUCCESS;
@@ -194,6 +198,7 @@ static void Reset() {
     CHECK(accessGate.OpenForPrepare());
     dpcQueued=false; workQueued=false; finishDpcDuringCancel=false; cancelCalls=0; flushCalls=0;
     connected=false; forbidMmio=false; synchronizeCalls=0; unmapped=false; dropIrqUnmask=false; dropIrqMask=false; createFailure=0; queued=false;
+    irqCreatedWithAssignedDescriptors=false;
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
     dspWrites=0; irql=0; sequence=0; ticks=100000;
     stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
@@ -273,6 +278,28 @@ int main() {
         CHECK(dspWrites==before && reply[0]==0xa5); CHECK(boot.Shutdown()); before=dspWrites;
         CHECK(boot.Command(q.data(),8,0x10000000,reply.data(),12).status==phaser360::sof::CommandStatus::State);
         CHECK(dspWrites==before);
+    }
+    // M0.6.15H1: a DeviceAdd interrupt shell must remain hardware-inert.
+    Reset(); {
+        IpcInterrupt bridge;
+        CHECK(!NT_SUCCESS(bridge.CreateDormant(nullptr)));
+        irql=2; CHECK(!NT_SUCCESS(bridge.CreateDormant(&checks))); irql=0;
+        CHECK(NT_SUCCESS(bridge.CreateDormant(&checks)));
+        CHECK(!irqCreatedWithAssignedDescriptors);
+        CHECK(irqConfig.InterruptRaw==nullptr && irqConfig.InterruptTranslated==nullptr);
+        const auto writesBefore=dspWrites;
+        const auto syncBefore=synchronizeCalls;
+        forbidMmio=true;
+        CHECK(NT_SUCCESS(FrameworkEnable(true)));
+        CHECK(!Interrupt() && !queued);
+        CHECK(!bridge.Running() && !bridge.Arm());
+        phaser360::sof::IpcNotification event;
+        CHECK(!bridge.Pop(&event));
+        CHECK(bridge.Command(nullptr,0,0,nullptr,0).status==phaser360::sof::CommandStatus::State);
+        CHECK(NT_SUCCESS(FrameworkEnable(false)));
+        CHECK(dspWrites==writesBefore && synchronizeCalls==syncBefore && !queued);
+        forbidMmio=false;
+        FrameworkDeleteChildren();
     }
     Reset(); { GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt},translated=raw;
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&translated,&boot,dsp.data(),0x100000)));

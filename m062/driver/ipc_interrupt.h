@@ -11,6 +11,10 @@ public:
     IpcInterrupt() noexcept = default;
     IpcInterrupt(const IpcInterrupt&)=delete;
     IpcInterrupt& operator=(const IpcInterrupt&)=delete;
+    // DeviceAdd-only shell: WDF owns one device-lifetime interrupt object and
+    // receives its assigned resource later. No boot/DSP binding and no MMIO.
+    NTSTATUS CreateDormant(WDFDEVICE) noexcept;
+    // Legacy/precomposed test entry: creates with explicit assigned descriptors.
     NTSTATUS Create(WDFDEVICE,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
                     PCM_PARTIAL_RESOURCE_DESCRIPTOR translated,GlkBoot*,UCHAR* dsp,ULONG length) noexcept;
     // Only in serialized PnP startup before the first framework Enable callback.
@@ -49,7 +53,10 @@ private:
     volatile LONG pendingWork_=0;
     bool disableSeen_=false;
     bool enableSeen_=false;
+    bool hardwareEnableAllowed_=false; // false for DeviceAdd dormant shell
     bool created_=false,armed_=false,enabled_=false,ready_=false,fault_=false,stopped_=false;
+    NTSTATUS CreateObjects(WDFDEVICE,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
+                           PCM_PARTIAL_RESOURCE_DESCRIPTOR translated) noexcept;
     bool Read(ULONG,ULONG&) noexcept;
     bool Bits(ULONG,ULONG,ULONG) noexcept;
     bool Mask() noexcept;

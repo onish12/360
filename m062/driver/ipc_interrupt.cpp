@@ -27,6 +27,13 @@ bool IpcInterrupt::Unmask() noexcept {
     armed_=true;
     return true; // notifications only; DONE remains polled
 }
+NTSTATUS IpcInterrupt::CreateDormant(WDFDEVICE device) noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || created_) return STATUS_INVALID_DEVICE_STATE;
+    if(!device) return STATUS_INVALID_PARAMETER;
+    created_=true;
+    hardwareEnableAllowed_=false;
+    return CreateObjects(device,nullptr,nullptr);
+}
 NTSTATUS IpcInterrupt::Create(WDFDEVICE device,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
                               PCM_PARTIAL_RESOURCE_DESCRIPTOR translated,GlkBoot* boot,
                               UCHAR* dsp,ULONG length) noexcept {
@@ -34,7 +41,11 @@ NTSTATUS IpcInterrupt::Create(WDFDEVICE device,PCM_PARTIAL_RESOURCE_DESCRIPTOR r
     if(!device || !raw || !translated || raw->Type!=CmResourceTypeInterrupt ||
        translated->Type!=CmResourceTypeInterrupt || !boot || !boot->AccessAllowed() || !dsp ||
        (reinterpret_cast<ULONG_PTR>(dsp)&3) || length<0x54 || length>0x100000) return STATUS_INVALID_PARAMETER;
-    created_=true; boot_=boot; dsp_=dsp;
+    created_=true; boot_=boot; dsp_=dsp; hardwareEnableAllowed_=true;
+    return CreateObjects(device,raw,translated);
+}
+NTSTATUS IpcInterrupt::CreateObjects(WDFDEVICE device,PCM_PARTIAL_RESOURCE_DESCRIPTOR raw,
+                                     PCM_PARTIAL_RESOURCE_DESCRIPTOR translated) noexcept {
     WDF_OBJECT_ATTRIBUTES attributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes); attributes.ParentObject=device;
     NTSTATUS status=WdfWaitLockCreate(&attributes,&serial_);
@@ -119,7 +130,8 @@ bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept
     const bool result=closed_ && drained_ && disableSeen_ &&
         InterlockedCompareExchange(&pendingWork_,0,0)==0;
     if(result) {
-        boot_=boot; dsp_=dsp; admissionClosed_=false; closed_=false; drained_=false; stopped_=false; ready_=false;
+        boot_=boot; dsp_=dsp; hardwareEnableAllowed_=true;
+        admissionClosed_=false; closed_=false; drained_=false; stopped_=false; ready_=false;
         armed_=false; enabled_=false; fault_=false; enableSeen_=false; disableSeen_=false;
         disableMasked_=false; everArmed_=false; enableFailed_=false; disconnectedSeen_=false;
     }
@@ -128,13 +140,13 @@ bool IpcInterrupt::RebindStopped(GlkBoot* boot,UCHAR* dsp,ULONG length) noexcept
 bool IpcInterrupt::Running() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=!admissionClosed_ && boot_->CommandUsable() && Sync(Operation::Check);
+    const bool result=!admissionClosed_ && boot_ && boot_->CommandUsable() && Sync(Operation::Check);
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::Arm() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
-    const bool result=!admissionClosed_ && boot_->CommandUsable() && Sync(Operation::Arm);
+    const bool result=!admissionClosed_ && boot_ && boot_->CommandUsable() && Sync(Operation::Arm);
     WdfWaitLockRelease(serial_); return result;
 }
 bool IpcInterrupt::Stop() noexcept {
@@ -216,13 +228,18 @@ NTSTATUS IpcInterrupt::Enable(WDFINTERRUPT interrupt,WDFDEVICE) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
     self.disableSeen_=false; self.disableMasked_=false; self.enableFailed_=false; self.enableSeen_=true; self.enabled_=false; self.ready_=false;
     if(self.stopped_) return STATUS_SUCCESS;
-    if(!self.Mask()) { self.enableFailed_=true; self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
+    // DeviceAdd shell remains framework-connectable but hardware-inert until a
+    // later reviewed D0Entry binding explicitly permits register masking.
+    if(!self.hardwareEnableAllowed_) { self.enabled_=true; return STATUS_SUCCESS; }
+    if(!self.boot_ || !self.boot_->AccessAllowed() || !self.dsp_ ||
+       !self.Mask()) { self.enableFailed_=true; self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
     self.enabled_=true; return STATUS_SUCCESS;
 }
 NTSTATUS IpcInterrupt::Disable(WDFINTERRUPT interrupt,WDFDEVICE) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
     self.disableSeen_=true;
     self.enabled_=false; self.ready_=false;
+    if(!self.hardwareEnableAllowed_) { self.disableMasked_=true; return STATUS_SUCCESS; }
     self.disableMasked_=!self.dsp_ || self.Mask();
     if(!self.disableMasked_) { self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
     return STATUS_SUCCESS;
@@ -248,7 +265,7 @@ sof::CommandResult IpcInterrupt::Command(const UCHAR* request,SIZE_T bytes,ULONG
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return {};
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return {};
     sof::CommandResult result;
-    if(!admissionClosed_ && boot_->CommandUsable() && Sync(Operation::Begin)) {
+    if(!admissionClosed_ && boot_ && boot_->CommandUsable() && Sync(Operation::Begin)) {
         result=boot_->Command(request,bytes,expected,reply,capacity);
         if(boot_->CommandUsable()) (void)Sync(Operation::Rearm);
         else (void)Sync(Operation::Fault);
@@ -259,7 +276,7 @@ bool IpcInterrupt::Pop(sof::IpcNotification* event) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !interrupt_) return false;
     if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
     // After Stop no boot access: caller may already be tearing the boot owner down.
-    const bool result=!admissionClosed_ && boot_->AccessAllowed() &&
+    const bool result=!admissionClosed_ && boot_ && boot_->AccessAllowed() &&
         boot_->PopNotification(event);
     WdfWaitLockRelease(serial_); return result;
 }
