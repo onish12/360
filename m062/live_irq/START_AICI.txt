@@ -1,4 +1,4 @@
-PHASER360 M0.6.15F2 - CAPTURA IRQ READ-ONLY (Windows 10/11)
+PHASER360 M0.6.15F3 - CAPTURA IRQ READ-ONLY (Windows 10/11)
 
 1. Extrage integral artifactul/pachetul.
 2. Intra in folderul live_irq.
@@ -9,6 +9,7 @@ PHASER360 M0.6.15F2 - CAPTURA IRQ READ-ONLY (Windows 10/11)
 Windows 10 21H2/22H2:
 - foloseste SetupAPI numai pentru citirea SPDRP_ALLOC_CONFIG;
 - salveaza setupapi_alloc_config.bin si setupapi_alloc_config.json;
+- parserul foloseste layout pack(4) verificat de WDK real;
 - nu modifica registry/PnP.
 
 Windows 11 22H2+:

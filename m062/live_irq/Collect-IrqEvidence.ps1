@@ -99,6 +99,63 @@ namespace Phaser360 {
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool SetupDiDestroyDeviceInfoList(IntPtr DeviceInfoSet);
 
+        // WDK defines CM_PARTIAL_RESOURCE_DESCRIPTOR under pshpack4.h.
+        // Derive the ABI sizes/offsets through Pack=4 mirrors rather than
+        // duplicating parser constants in PowerShell.
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        private struct CM_INTERRUPT_LAYOUT {
+            public ushort Level;
+            public ushort Group;
+            public uint Vector;
+            public UIntPtr Affinity;
+        }
+
+        [StructLayout(LayoutKind.Explicit, Pack = 4)]
+        private struct CM_RESOURCE_UNION_LAYOUT {
+            [FieldOffset(0)] public CM_INTERRUPT_LAYOUT Interrupt;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        private struct CM_PARTIAL_RESOURCE_DESCRIPTOR_LAYOUT {
+            public byte Type;
+            public byte ShareDisposition;
+            public ushort Flags;
+            public CM_RESOURCE_UNION_LAYOUT Data;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        private struct CM_PARTIAL_RESOURCE_LIST_HEADER_LAYOUT {
+            public ushort Version;
+            public ushort Revision;
+            public uint Count;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        private struct CM_FULL_RESOURCE_DESCRIPTOR_HEADER_LAYOUT {
+            public int InterfaceType;
+            public uint BusNumber;
+            public CM_PARTIAL_RESOURCE_LIST_HEADER_LAYOUT Partial;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        private struct CM_RESOURCE_LIST_HEADER_LAYOUT {
+            public uint Count;
+            public CM_FULL_RESOURCE_DESCRIPTOR_HEADER_LAYOUT First;
+        }
+
+        public static int PartialDescriptorSize {
+            get { return Marshal.SizeOf(typeof(CM_PARTIAL_RESOURCE_DESCRIPTOR_LAYOUT)); }
+        }
+        public static int PartialUnionOffset {
+            get { return (int)Marshal.OffsetOf(typeof(CM_PARTIAL_RESOURCE_DESCRIPTOR_LAYOUT), "Data"); }
+        }
+        public static int ResourceListFirstFullOffset {
+            get { return (int)Marshal.OffsetOf(typeof(CM_RESOURCE_LIST_HEADER_LAYOUT), "First"); }
+        }
+        public static int FullDescriptorHeaderSize {
+            get { return Marshal.SizeOf(typeof(CM_FULL_RESOURCE_DESCRIPTOR_HEADER_LAYOUT)); }
+        }
+
         public static byte[] ReadAllocatedConfig(string instanceId, out uint regType) {
             if (IntPtr.Size != 8) throw new InvalidOperationException("SETUPAPI_X64_PROCESS_REQUIRED");
             IntPtr set = SetupDiGetClassDevsW(IntPtr.Zero, null, IntPtr.Zero,
@@ -180,17 +237,27 @@ function Get-HexSlice([byte[]]$Bytes,[int]$Offset,[int]$Length) {
 function Convert-CmResourceList([byte[]]$Bytes) {
     if ($null -eq $Bytes -or $Bytes.Length -lt 20) { throw 'CM_RESOURCE_LIST_TOO_SMALL' }
     if (-not [Environment]::Is64BitProcess) { throw 'CM_RESOURCE_LIST_X64_PROCESS_REQUIRED' }
+    Initialize-SetupApiReader
+
+    $descriptorBytes = [Phaser360.ReadOnlySetupApi]::PartialDescriptorSize
+    $unionOffset = [Phaser360.ReadOnlySetupApi]::PartialUnionOffset
+    $firstFullOffset = [Phaser360.ReadOnlySetupApi]::ResourceListFirstFullOffset
+    $fullHeaderBytes = [Phaser360.ReadOnlySetupApi]::FullDescriptorHeaderSize
+    if ($descriptorBytes -ne 20 -or $unionOffset -ne 4 -or
+        $firstFullOffset -ne 4 -or $fullHeaderBytes -ne 16) {
+        throw "CM_RESOURCE_ABI_UNEXPECTED: descriptor=$descriptorBytes union=$unionOffset firstFull=$firstFullOffset fullHeader=$fullHeaderBytes"
+    }
 
     $fullCount = [int](Read-U32 $Bytes 0)
     if ($fullCount -lt 1 -or $fullCount -gt 8) {
         throw "CM_RESOURCE_LIST_FULL_COUNT_INVALID: $fullCount"
     }
 
-    $offset = 4
+    $offset = $firstFullOffset
     $all = @()
     $interrupts = @()
     for ($fullIndex=0; $fullIndex -lt $fullCount; $fullIndex++) {
-        Assert-Range $Bytes $offset 16 "full[$fullIndex]"
+        Assert-Range $Bytes $offset $fullHeaderBytes "full[$fullIndex]"
         $interfaceType = [int](Read-U32 $Bytes $offset)
         $busNumber = [uint32](Read-U32 $Bytes ($offset+4))
         $version = [uint16](Read-U16 $Bytes ($offset+8))
@@ -200,11 +267,10 @@ function Convert-CmResourceList([byte[]]$Bytes) {
             throw "CM_RESOURCE_LIST_PARTIAL_COUNT_INVALID: $partialCount"
         }
 
-        $descriptorOffset = $offset + 16
+        $descriptorOffset = $offset + $fullHeaderBytes
         $lastDeviceSpecificBytes = 0
         for ($i=0; $i -lt $partialCount; $i++) {
-            # x64 Windows CM_PARTIAL_RESOURCE_DESCRIPTOR is 32 bytes.
-            Assert-Range $Bytes $descriptorOffset 32 "descriptor[$fullIndex][$i]"
+            Assert-Range $Bytes $descriptorOffset $descriptorBytes "descriptor[$fullIndex][$i]"
             $type = [byte]$Bytes[$descriptorOffset]
             $share = [byte]$Bytes[$descriptorOffset+1]
             $flags = [uint16](Read-U16 $Bytes ($descriptorOffset+2))
@@ -214,7 +280,7 @@ function Convert-CmResourceList([byte[]]$Bytes) {
                 Type = [int]$type
                 ShareDisposition = [int]$share
                 Flags = ('0x{0:X4}' -f $flags)
-                RawDescriptorHex = Get-HexSlice $Bytes $descriptorOffset 32
+                RawDescriptorHex = Get-HexSlice $Bytes $descriptorOffset $descriptorBytes
             }
 
             if ($type -eq 2) {
@@ -226,25 +292,19 @@ function Convert-CmResourceList([byte[]]$Bytes) {
                     ShareDisposition = [int]$share
                     Flags = ('0x{0:X4}' -f $flags)
                     MessageFlagSet = $message
-                    UnionHex = Get-HexSlice $Bytes ($descriptorOffset+8) 24
-                }
-                if (-not $message) {
-                    $irq.Level = [uint16](Read-U16 $Bytes ($descriptorOffset+8))
-                    $irq.Group = [uint16](Read-U16 $Bytes ($descriptorOffset+10))
-                    $irq.Vector = [uint32](Read-U32 $Bytes ($descriptorOffset+12))
-                    $irq.Affinity = ('0x{0:X16}' -f (Read-U64 $Bytes ($descriptorOffset+16)))
+                    UnionHex = Get-HexSlice $Bytes ($descriptorOffset+$unionOffset) ($descriptorBytes-$unionOffset)
                 }
                 $interrupts += [pscustomobject]$irq
                 $entry.InterruptKind = $irq.Kind
             }
 
-            # Device-specific data follows the descriptor array. We do not parse
-            # it, but must include its size when stepping to another full list.
+            # If the final descriptor is DeviceSpecific, DataSize is the first
+            # ULONG in the packed union and its payload follows the descriptor array.
             if ($type -eq 5) {
-                $lastDeviceSpecificBytes = [int](Read-U32 $Bytes ($descriptorOffset+8))
+                $lastDeviceSpecificBytes = [int](Read-U32 $Bytes ($descriptorOffset+$unionOffset))
             }
             $all += [pscustomobject]$entry
-            $descriptorOffset += 32
+            $descriptorOffset += $descriptorBytes
         }
 
         $all += [pscustomobject][ordered]@{
@@ -263,7 +323,11 @@ function Convert-CmResourceList([byte[]]$Bytes) {
     [pscustomobject]@{
         Source = 'SPDRP_ALLOC_CONFIG'
         Architecture = 'x64'
-        DescriptorBytes = 32
+        Packing = 4
+        DescriptorBytes = $descriptorBytes
+        UnionOffset = $unionOffset
+        FirstFullOffset = $firstFullOffset
+        FullHeaderBytes = $fullHeaderBytes
         FullDescriptorCount = $fullCount
         InterruptCount = @($interrupts).Count
         InterruptKinds = @($interrupts | ForEach-Object Kind)
@@ -363,9 +427,18 @@ if ($SelfTest) {
     }
     if ($rejected -ne 4) { throw "SELFTEST_REJECTION_COUNT=$rejected" }
 
-    # Synthetic x64 CM_RESOURCE_LIST: one full descriptor with one line IRQ and
-    # one message IRQ. No native device enumeration is performed in SelfTest.
-    [byte[]]$cm = New-Object byte[] 84
+    $descriptorBytes = [Phaser360.ReadOnlySetupApi]::PartialDescriptorSize
+    $unionOffset = [Phaser360.ReadOnlySetupApi]::PartialUnionOffset
+    $firstFullOffset = [Phaser360.ReadOnlySetupApi]::ResourceListFirstFullOffset
+    $fullHeaderBytes = [Phaser360.ReadOnlySetupApi]::FullDescriptorHeaderSize
+    if ($descriptorBytes -ne 20 -or $unionOffset -ne 4 -or
+        $firstFullOffset -ne 4 -or $fullHeaderBytes -ne 16) {
+        throw "SELFTEST_CM_RESOURCE_ABI: descriptor=$descriptorBytes union=$unionOffset firstFull=$firstFullOffset fullHeader=$fullHeaderBytes"
+    }
+
+    # Synthetic packed-4 x64 CM_RESOURCE_LIST: Count(4), full header(16),
+    # two 20-byte partial descriptors. No live enumeration in SelfTest.
+    [byte[]]$cm = New-Object byte[] 60
     [BitConverter]::GetBytes([uint32]1).CopyTo($cm,0)
     [BitConverter]::GetBytes([uint32]5).CopyTo($cm,4)
     [BitConverter]::GetBytes([uint32]0).CopyTo($cm,8)
@@ -374,19 +447,16 @@ if ($SelfTest) {
     [BitConverter]::GetBytes([uint32]2).CopyTo($cm,16)
     $cm[20]=2; $cm[21]=3
     [BitConverter]::GetBytes([uint16]0).CopyTo($cm,22)
-    [BitConverter]::GetBytes([uint16]11).CopyTo($cm,28)
-    [BitConverter]::GetBytes([uint16]0).CopyTo($cm,30)
-    [BitConverter]::GetBytes([uint32]0x45).CopyTo($cm,32)
-    [BitConverter]::GetBytes([uint64]1).CopyTo($cm,36)
-    $cm[52]=2; $cm[53]=3
-    [BitConverter]::GetBytes([uint16]2).CopyTo($cm,54)
+    $cm[40]=2; $cm[41]=3
+    [BitConverter]::GetBytes([uint16]2).CopyTo($cm,42)
     $parsed = Convert-CmResourceList $cm
-    if ($parsed.InterruptCount -ne 2 -or $parsed.InterruptKinds[0] -ne 'LINE' -or
+    if ($parsed.DescriptorBytes -ne 20 -or $parsed.Packing -ne 4 -or
+        $parsed.InterruptCount -ne 2 -or $parsed.InterruptKinds[0] -ne 'LINE' -or
         $parsed.InterruptKinds[1] -ne 'MESSAGE') {
         throw 'SELFTEST_CM_RESOURCE_LIST_CLASSIFICATION'
     }
 
-    Write-Host 'IRQ_CAPTURE_SELFTEST=PASS; readonly_setupapi=YES; readonly_pnputil=YES; line_and_message=PASS; mutation_commands=REJECTED'
+    Write-Host 'IRQ_CAPTURE_SELFTEST=PASS; cm_pack4=PASS; descriptor20=PASS; readonly_setupapi=YES; readonly_pnputil=YES; line_and_message=PASS; mutation_commands=REJECTED'
     return
 }
 

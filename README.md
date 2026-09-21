@@ -152,8 +152,15 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   `CM_RESOURCE_LIST`; Windows 11 22H2+ retains the PnPUtil /resources route.
   MESSAGE vs LINE is classified only from `CM_RESOURCE_INTERRUPT_MESSAGE`.
   IRQ selection, WdfInterruptCreate, DSP boot and playback remain disabled.
-  Source `fa7e9c0d` passes real WDK compilation, 10/10 selected regression
-  tests and the Win10/Win11 collector self-test/static safety gates.
+  The initial F2 artifact from `fa7e9c0d` is **withdrawn before target use**:
+  a later independent ABI audit found its Win10 parser assumed a 32-byte
+  `CM_PARTIAL_RESOURCE_DESCRIPTOR`, while WDK defines the structure under
+  pack(4) and the x64 size is 20 bytes.
+- **M0.6.15F3:** corrects the Win10 allocated-resource parser and adds real-WDK
+  compile-time ABI assertions for descriptor size/offsets plus an independent
+  Pack=4 PowerShell self-test. Only Type/ShareDisposition/Flags and the MESSAGE
+  discriminator are interpreted; the union is retained as raw hex. F3 must pass
+  CI before any replacement package is run on the Lenovo.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.

@@ -107,9 +107,16 @@ returned as a `CM_RESOURCE_LIST`. The collector stores the original binary and
 a parsed JSON inventory. It does not call a SetupAPI set/install/class-installer
 operation and does not write the registry.
 
-The x64 parser treats each `CM_PARTIAL_RESOURCE_DESCRIPTOR` as 32 bytes and
-classifies only `CmResourceTypeInterrupt` descriptors. The Windows-defined
-`CM_RESOURCE_INTERRUPT_MESSAGE` bit (0x0002) is the sole discriminator:
+The first F2 candidate treated each `CM_PARTIAL_RESOURCE_DESCRIPTOR` as
+32 bytes. A second independent ABI audit caught that error before the collector
+was run on the target: WDK defines this structure under `pshpack4.h`, and on
+the x64 WDK ABI its size is 20 bytes, with the union beginning at byte 4.
+That F2 parser and artifact are withdrawn. F3 derives the layout through
+`StructLayout(Pack=4)` and requires the real WDK build to compile matching
+`static_assert` checks.
+
+The Windows-defined `CM_RESOURCE_INTERRUPT_MESSAGE` bit (0x0002) remains the
+sole IRQ-kind discriminator:
 
 - flag clear -> LINE;
 - flag set -> MESSAGE.
@@ -163,6 +170,33 @@ Tree: `b9cb0165790522c28fcd8a56e7472832470436f3`.
   `10627996546`, 291,836 bytes. GitHub reports archive SHA-256
   `f4cbbc520bf68cadec4a29d7c71c06a803faf27d40497db530a176ff9f2b1e2f`.
 
-F2 is cleared for the documented read-only capture on the target's Windows 10
-21H2 build 19044. This does not authorize IRQ binding, WdfInterruptCreate, DSP
-boot, MAX98357A/DA7219 programming or playback.
+Despite the green F2 CI run, the artifact above is **withdrawn and must not be
+used** because its synthetic test repeated the same incorrect 32-byte layout
+assumption as its parser. It was not run on the Lenovo.
+
+## M0.6.15F3 — WDK-verified pack(4) resource ABI
+
+F3 keeps the same read-only SetupAPI/PnPUtil split, but corrects the Windows 10
+parser to the WDK packing contract. The production WDK static-library build now
+contains compile-time assertions that require:
+
+- `sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) == 20`;
+- `FIELD_OFFSET(CM_PARTIAL_RESOURCE_DESCRIPTOR, u) == 4`;
+- `FIELD_OFFSET(CM_RESOURCE_LIST, List) == 4`;
+- the first partial descriptor is 16 bytes after the start of a
+  `CM_FULL_RESOURCE_DESCRIPTOR`;
+- `CM_RESOURCE_INTERRUPT_MESSAGE == 0x0002`.
+
+The PowerShell interop independently derives the same values from managed
+`StructLayout(Pack=4)` mirrors. Its self-test requires descriptor=20,
+unionOffset=4, firstFull=4 and fullHeader=16 before parsing a 60-byte synthetic
+resource list with one LINE and one MESSAGE interrupt.
+
+F3 no longer interprets vector/affinity fields from the allocated-config union.
+For the current evidence goal it copies each complete 20-byte descriptor,
+preserves the 16-byte union as hex, and classifies an interrupt only from Type,
+ShareDisposition, Flags and the MESSAGE bit. This intentionally minimizes ABI
+assumptions.
+
+F3 remains read-only and still does not select an IRQ, create a WDF interrupt,
+write MMIO, boot the DSP, program either codec/amplifier or produce audio.

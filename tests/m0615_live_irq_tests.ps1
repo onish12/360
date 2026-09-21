@@ -14,7 +14,8 @@ $text=Get-Content -LiteralPath $scriptPath -Raw
 $cmd=Get-Content -LiteralPath $cmdPath -Raw
 foreach($required in @("'/enum-devices'","'/instanceid'","'/resources'","PCI\VEN_8086&DEV_3198",
     'SPDRP_ALLOC_CONFIG','SetupDiGetDeviceRegistryPropertyW','SETUPAPI_SPDRP_ALLOC_CONFIG',
-    'CM_RESOURCE_INTERRUPT_MESSAGE','0x0002','WINDOWS_10_21H2_OR_NEWER_REQUIRED',
+    'CM_RESOURCE_INTERRUPT_MESSAGE','0x0002','Pack = 4','DescriptorBytes',
+    'WINDOWS_10_21H2_OR_NEWER_REQUIRED',
     'MODE=READ_ONLY_ENUMERATION','SETUPAPI_WRITE=NO','WDF_INTERRUPT_CREATE=NO',
     'IRQ_SELECTION=DEFERRED','AUDIO_PLAYBACK=NO','Test-StableState','SHA256SUMS.txt',
     'ADMINISTRATOR_REQUIRED_FOR_READONLY_ENUMERATION')) {
@@ -39,4 +40,4 @@ if($cmd -notmatch '(?i)pause') { throw 'LAUNCHER_MUST_KEEP_CONSOLE_OPEN' }
 if($cmd -match '(?i)pnputil') { throw 'LAUNCHER_MUST_NOT_CALL_PNPUTIL_DIRECTLY' }
 
 & $scriptPath -SelfTest
-Write-Host 'IRQ_CAPTURE_STATIC_TESTS=PASS; syntax=PASS; launcher_pause=YES; pnputil_wrapped=YES; setupapi_readonly=YES; win10_path=YES'
+Write-Host 'IRQ_CAPTURE_STATIC_TESTS=PASS; syntax=PASS; launcher_pause=YES; pnputil_wrapped=YES; setupapi_readonly=YES; cm_pack4_guard=YES; win10_path=YES'
