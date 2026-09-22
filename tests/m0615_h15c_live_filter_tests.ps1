@@ -10,6 +10,14 @@ $pci=Get-Content -LiteralPath (Join-Path $root 'm062\driver\pci_config_attestati
 
 foreach($required in @(
  'WdfFdoInitSetFilter(deviceInit)',
+ 'WDF_FILEOBJECT_CONFIG_INIT',
+ 'H15cLiveEvtDeviceFileCreate',
+ 'WdfDeviceInitSetFileObjectConfig',
+ 'RtlInitUnicodeString(&referenceString,L"h15c")',
+ 'WdfDeviceCreateDeviceInterface(',
+ 'WdfFileObjectGetFileName',
+ 'RtlEqualUnicodeString',
+ 'STATUS_SUCCESS',
  'PciConfigAttestation attestation',
  'WdfDeviceConfigureRequestDispatching',
  'WdfRequestTypeDeviceControl',
@@ -88,6 +96,7 @@ foreach($forbidden in @('glk_boot.cpp','hda_transport.cpp','ipc_interrupt.cpp','
 
 foreach($required in @(
  'DeviceIoControl(','0x00226004','SnapshotBytes=292',
+ 'WIN32_ERROR=','ACCESS=GENERIC_READ',
  'pci_config_256.bin','OFFSET_44','OFFSET_48',
  'SetBusDataCalls=0','DRIVER_BIND_REPLACEMENT=NO'
 )){
@@ -105,4 +114,10 @@ foreach($forbidden in @(
  }
 }
 
+if($src.IndexOf('L"\\h15c"',[StringComparison]::Ordinal) -lt 0){
+ throw 'H15C_LIVE_REFERENCE_CREATE_MATCH_MISSING'
+}
+if(($src.Split('WdfDeviceGetIoTarget(device)').Count-1) -lt 2){
+ throw 'H15C_LIVE_CREATE_OR_IOCTL_PASSTHROUGH_INCOMPLETE'
+}
 Write-Host 'H15C_LIVE_STATIC_TESTS=PASS; role=EXACT_TARGET_EXTENSION_UPPER_FILTER; function_driver_replacement=NO; pci_access=GETBUSDATA_ONLY; setbusdata=FORBIDDEN; mmio=NONE; dma=NONE; irq=NONE; unknown_ioctl=SEND_AND_FORGET; snapshot_sync=WDFSPINLOCK; reader_install_actions=NONE'
