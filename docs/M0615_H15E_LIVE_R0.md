@@ -34,6 +34,4 @@ Primary references checked before implementation:
 - Microsoft READ_REGISTER_ULONG documentation: mapped-register read primitive;
 - Microsoft MmUnmapIoSpace documentation: release of mapped I/O space.
 
-A successful H15E capture proves only that the reviewed BAR resources can be
-mapped read-only and that the selected register snapshot is accessible. It does
-not authorize M1 DSP boot by itself.
+A successful H15E capture proves only that the reviewed BAR resources can be mapped read-only and that the selected register snapshot is accessible. It does not authorize M1 DSP boot by itself.
