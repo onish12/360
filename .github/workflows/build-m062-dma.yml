@@ -1,4 +1,4 @@
-name: M0.6.15 H15C/H15D transactional gates - NOT AUTO-INSTALL
+name: M0.6.15 H15C/H15D/H15E hardware gates - NOT AUTO-INSTALL
 on:
   workflow_dispatch:
   push:
@@ -27,6 +27,7 @@ on:
       - 'tests/m0615_h15c_live_transaction_tests.ps1'
       - 'tests/m0615_h15c_live_r2_tests.ps1'
       - 'tests/m0615_h15d_live_tests.ps1'
+      - 'tests/m0615_h15e_live_tests.ps1'
       - 'scripts/audit-pe-repro.py'
       - 'scripts/generate-embedded-firmware.py'
       - 'tests/sof_ipc_fixture.h'
@@ -59,6 +60,7 @@ on:
       - 'tests/m0615_h15c_live_transaction_tests.ps1'
       - 'tests/m0615_h15c_live_r2_tests.ps1'
       - 'tests/m0615_h15d_live_tests.ps1'
+      - 'tests/m0615_h15e_live_tests.ps1'
       - 'scripts/audit-pe-repro.py'
       - 'scripts/generate-embedded-firmware.py'
       - 'tests/sof_ipc_fixture.h'
@@ -713,13 +715,72 @@ jobs:
           & .\tests\m0615_h15d_live_tests.ps1
           if (-not $?) { throw 'H15D_LIVE_R1_STATIC_TESTS_FAILED' }
 
+      - name: Build and validate H15E-LIVE R0 transient read-only MMIO filter then destroy package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild .\m062\h15e_live\phaser360_h15e_live_filter.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'H15E_LIVE_FILTER_LINK_FAILED' }
+
+          $sys=(Resolve-Path .\m062\h15e_live\out\phaser360_h15e_live_filter.sys).Path
+          $build=(Resolve-Path .\build-dma).Path
+          $package=Join-Path $build 'h15e-live-package'
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+          $pkgSys=Join-Path $package 'phaser360_h15e_live_filter.sys'
+          $inf=Join-Path $package 'phaser360_h15e_live_filter.inf'
+          Copy-Item -LiteralPath $sys -Destination $pkgSys
+          Copy-Item -LiteralPath .\m062\h15e_live\phaser360_h15e_live_filter.inf -Destination $inf
+
+          $wdkPackage=(Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
+          $inf2cat=Join-Path $wdkPackage 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
+          if (-not (Test-Path -LiteralPath $inf2cat -PathType Leaf)) { throw 'H15E_LIVE_INF2CAT_NOT_FOUND' }
+          & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+          if ($LASTEXITCODE -ne 0) { throw 'H15E_LIVE_INF2CAT_FAILED' }
+          $cat=Join-Path $package 'phaser360_h15e_live_filter.cat'
+          if (-not (Test-Path -LiteralPath $cat -PathType Leaf)) { throw 'H15E_LIVE_CAT_MISSING' }
+
+          @(
+            "COMMIT=$env:GITHUB_SHA",
+            'H15E_LIVE_FILTER_LINK=PASS',
+            'H15E_LIVE_INF2CAT=PASS',
+            'TARGET_BUILD_EXACT_GATE=19044',
+            'TARGET_HWID=PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
+            'FILTER_POSITION=UPPER',
+            'HDA_RESOURCE_BYTES=0x4000',
+            'DSP_RESOURCE_BYTES=0x100000',
+            'MMIO_MAPPING=PAGE_READONLY_NOCACHE_TRANSIENT',
+            'MMIO_READ=REVIEWED_REGISTERS_ONLY',
+            'MMIO_WRITE=NONE',
+            'PCI_WRITE=NONE',
+            'DMA=NONE',
+            'IRQ=NONE',
+            'DSP_BOOT=NO',
+            'PLAYBACK=NO',
+            'PACKAGE_SIGNED=FALSE',
+            'PACKAGE_UPLOADED=FALSE',
+            'INSTALL_EXECUTED=FALSE'
+          ) | Set-Content -LiteralPath (Join-Path $build 'H15E_LIVE_R0_FILTER_REPORT.txt')
+
+          Remove-Item -LiteralPath $package -Recurse -Force
+          Remove-Item -LiteralPath $sys -Force
+          if ((Test-Path -LiteralPath $package) -or (Test-Path -LiteralPath $sys)) {
+            throw 'H15E_LIVE_PACKAGE_DELETE_FAILED'
+          }
+
+      - name: Verify H15E-LIVE R0 transient read-only MMIO guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15e_live_tests.ps1
+          if (-not $?) { throw 'H15E_LIVE_R0_STATIC_TESTS_FAILED' }
+
       - name: Stage development library
         shell: pwsh
         run: |
           New-Item -ItemType Directory _artifact_m062 | Out-Null
           Copy-Item m062/driver/out/phaser360_boot_dma.lib _artifact_m062/
-          Copy-Item build-dma/H8_DRIVER_LINK_REPORT.txt,build-dma/H8_REFERENCE_CHECK.json,build-dma/H8_EMBEDDED_FIRMWARE_REPORT.json,build-dma/H9_PE_HEADERS.txt,build-dma/H9_PE_IMPORTS.txt,build-dma/H10_PE_REPRO_FIRST.json,build-dma/H10_PE_REPRO_SECOND.json,build-dma/H13_PACKAGE_REPORT.txt,build-dma/H13_REFERENCE_CHECK.json,build-dma/H14_SIGNING_REPORT.txt,build-dma/H14_REFERENCE_CHECK.json,build-dma/H15C_LIVE_FILTER_REPORT.txt _artifact_m062/
-          Copy-Item m062/driver/boot_dma.h,m062/driver/boot_dma.cpp,m062/driver/cm_resource_abi.cpp,src/sof/hda_bdl.h,src/sof/hda_bdl.cpp,src/sof/hda_controller.h,src/sof/hda_controller.cpp,src/sof/hda_stream.h,src/sof/hda_stream.cpp,m062/driver/hda_transport.h,m062/driver/hda_transport.cpp,m062/driver/pci_config_attestation.h,m062/driver/pci_config_attestation.cpp,docs/M062_WINDOWS_DMA.md,docs/M063_HDA_TRANSPORT.md,src/sof/glk_rom.h,src/sof/glk_rom.cpp,m062/driver/glk_boot.h,m062/driver/glk_boot.cpp,docs/M064_GLK_ROM.md,src/sof/ipc3_ready.h,src/sof/ipc3_ready.cpp,src/sof/ipc3_receive.h,src/sof/ipc3_receive.cpp,docs/M065_IPC_READY.md,src/sof/ipc3_command.h,src/sof/ipc3_command.cpp,docs/M066_IPC_COMMAND.md,docs/M067_IPC_NOTIFICATIONS.md,m062/driver/ipc_interrupt.h,m062/driver/ipc_interrupt.cpp,docs/M068_KMDF_INTERRUPTS.md,m062/driver/cold_power.h,m062/driver/cold_power.cpp,docs/M069_COLD_POWER.md,docs/M0610_D0_REBIND.md,docs/M0611_DEFERRED_DRAIN.md,m062/driver/firmware_pin.h,m062/driver/firmware_pin.cpp,m062/driver/pinned_firmware.h,m062/driver/pinned_firmware.cpp,docs/M0612_PINNED_FIRMWARE.md,m062/driver/pnp_resources.h,m062/driver/pnp_resources.cpp,m062/driver/hardware_access_gate.h,m051/driver/resource_contract.h,docs/M0613_PNP_RESOURCES.md,docs/M0614_IRQ_EXIT.md,docs/M0615_ACCESS_FENCE.md,docs/M0615_PNP_RESOURCE_BUNDLE.md,docs/M0615_SURPRISE_CALLBACK.md,docs/M0615_POWER_SKELETON.md,docs/M0615_IRQ_INVENTORY.md,docs/M0615_LIVE_IRQ_EVIDENCE.md,docs/M0615F4_LIVE_CAPTURE_20260921.md,docs/M0615_SINGLE_IRQ_ADMISSION.md,docs/M0615_DORMANT_IRQ_SHELL.md,docs/M0615_DORMANT_IRQ_BINDING.md,docs/M0615_TWO_STAGE_IRQ_PERMISSION.md,docs/M0615_COMPOSED_PNP_D0.md,docs/M0615_REPEATED_D0.md,docs/M0615_DEVICEADD_OWNER.md,docs/M0615_FIRMWARE_SOURCE.md,docs/M0615_LINK_ONLY_DRIVER.md,docs/M0615_PE_IMPORT_AUDIT.md,docs/M0615_REPRODUCIBLE_DRIVER.md,docs/M0615_READONLY_TELEMETRY.md,docs/M0615_M1_PREFLIGHT_RECOVERY.md,docs/M0615_WIN10_KMDF_COMPAT.md,docs/M0615_EPHEMERAL_SIGNING.md,docs/M0615_H15A_SURPRISE_RACE.md,docs/M0615_H15B_HDA_CONTROLLER.md,docs/M0615_H15C_PCI_CONFIG_ATTESTATION.md,docs/M0615_H15C_LIVE_FILTER.md,m062/driver/telemetry.h,m062/driver/telemetry_ioctl.h,m062/driver/telemetry_ioctl.cpp,m062/driver/phaser360_m1_boot.vcxproj,m062/driver/firmware_source.h,m062/driver/firmware_source.cpp,m062/driver/device_lifecycle.h,m062/driver/device_lifecycle.cpp,m062/driver/repeated_device_lifecycle.h,m062/driver/repeated_device_lifecycle.cpp,m062/driver/d0_session.h,m062/driver/d0_session.cpp,m062/driver/device_owner.h,m062/driver/device_owner.cpp,m062/driver/driver_entry.h,m062/driver/driver_entry.cpp _artifact_m062/
+          Copy-Item build-dma/H8_DRIVER_LINK_REPORT.txt,build-dma/H8_REFERENCE_CHECK.json,build-dma/H8_EMBEDDED_FIRMWARE_REPORT.json,build-dma/H9_PE_HEADERS.txt,build-dma/H9_PE_IMPORTS.txt,build-dma/H10_PE_REPRO_FIRST.json,build-dma/H10_PE_REPRO_SECOND.json,build-dma/H13_PACKAGE_REPORT.txt,build-dma/H13_REFERENCE_CHECK.json,build-dma/H14_SIGNING_REPORT.txt,build-dma/H14_REFERENCE_CHECK.json,build-dma/H15C_LIVE_FILTER_REPORT.txt,build-dma/H15D_LIVE_FILTER_REPORT.txt,build-dma/H15E_LIVE_R0_FILTER_REPORT.txt _artifact_m062/
+          Copy-Item m062/driver/boot_dma.h,m062/driver/boot_dma.cpp,m062/driver/cm_resource_abi.cpp,src/sof/hda_bdl.h,src/sof/hda_bdl.cpp,src/sof/hda_controller.h,src/sof/hda_controller.cpp,src/sof/hda_stream.h,src/sof/hda_stream.cpp,m062/driver/hda_transport.h,m062/driver/hda_transport.cpp,m062/driver/pci_config_attestation.h,m062/driver/pci_config_attestation.cpp,m062/h15e_live/h15e_live_filter.h,m062/h15e_live/h15e_live_filter.cpp,m062/h15e_live/phaser360_h15e_live_filter.vcxproj,docs/M0615_H15E_LIVE_R0.md,docs/M062_WINDOWS_DMA.md,docs/M063_HDA_TRANSPORT.md,src/sof/glk_rom.h,src/sof/glk_rom.cpp,m062/driver/glk_boot.h,m062/driver/glk_boot.cpp,docs/M064_GLK_ROM.md,src/sof/ipc3_ready.h,src/sof/ipc3_ready.cpp,src/sof/ipc3_receive.h,src/sof/ipc3_receive.cpp,docs/M065_IPC_READY.md,src/sof/ipc3_command.h,src/sof/ipc3_command.cpp,docs/M066_IPC_COMMAND.md,docs/M067_IPC_NOTIFICATIONS.md,m062/driver/ipc_interrupt.h,m062/driver/ipc_interrupt.cpp,docs/M068_KMDF_INTERRUPTS.md,m062/driver/cold_power.h,m062/driver/cold_power.cpp,docs/M069_COLD_POWER.md,docs/M0610_D0_REBIND.md,docs/M0611_DEFERRED_DRAIN.md,m062/driver/firmware_pin.h,m062/driver/firmware_pin.cpp,m062/driver/pinned_firmware.h,m062/driver/pinned_firmware.cpp,docs/M0612_PINNED_FIRMWARE.md,m062/driver/pnp_resources.h,m062/driver/pnp_resources.cpp,m062/driver/hardware_access_gate.h,m051/driver/resource_contract.h,docs/M0613_PNP_RESOURCES.md,docs/M0614_IRQ_EXIT.md,docs/M0615_ACCESS_FENCE.md,docs/M0615_PNP_RESOURCE_BUNDLE.md,docs/M0615_SURPRISE_CALLBACK.md,docs/M0615_POWER_SKELETON.md,docs/M0615_IRQ_INVENTORY.md,docs/M0615_LIVE_IRQ_EVIDENCE.md,docs/M0615F4_LIVE_CAPTURE_20260921.md,docs/M0615_SINGLE_IRQ_ADMISSION.md,docs/M0615_DORMANT_IRQ_SHELL.md,docs/M0615_DORMANT_IRQ_BINDING.md,docs/M0615_TWO_STAGE_IRQ_PERMISSION.md,docs/M0615_COMPOSED_PNP_D0.md,docs/M0615_REPEATED_D0.md,docs/M0615_DEVICEADD_OWNER.md,docs/M0615_FIRMWARE_SOURCE.md,docs/M0615_LINK_ONLY_DRIVER.md,docs/M0615_PE_IMPORT_AUDIT.md,docs/M0615_REPRODUCIBLE_DRIVER.md,docs/M0615_READONLY_TELEMETRY.md,docs/M0615_M1_PREFLIGHT_RECOVERY.md,docs/M0615_WIN10_KMDF_COMPAT.md,docs/M0615_EPHEMERAL_SIGNING.md,docs/M0615_H15A_SURPRISE_RACE.md,docs/M0615_H15B_HDA_CONTROLLER.md,docs/M0615_H15C_PCI_CONFIG_ATTESTATION.md,docs/M0615_H15C_LIVE_FILTER.md,m062/driver/telemetry.h,m062/driver/telemetry_ioctl.h,m062/driver/telemetry_ioctl.cpp,m062/driver/phaser360_m1_boot.vcxproj,m062/driver/firmware_source.h,m062/driver/firmware_source.cpp,m062/driver/device_lifecycle.h,m062/driver/device_lifecycle.cpp,m062/driver/repeated_device_lifecycle.h,m062/driver/repeated_device_lifecycle.cpp,m062/driver/d0_session.h,m062/driver/d0_session.cpp,m062/driver/device_owner.h,m062/driver/device_owner.cpp,m062/driver/driver_entry.h,m062/driver/driver_entry.cpp _artifact_m062/
           New-Item -ItemType Directory _artifact_m062/live_irq | Out-Null
           Copy-Item m062/live_irq/Collect-IrqEvidence.ps1,m062/live_irq/COLLECT_IRQ_EVIDENCE.cmd,m062/live_irq/START_AICI.txt _artifact_m062/live_irq/
           New-Item -ItemType Directory _artifact_m062/h15c_live | Out-Null
