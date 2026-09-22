@@ -24,6 +24,7 @@ NTSTATUS phaser360::windows::H15cLiveEvtDeviceAdd(
     // This binary is a device-specific upper filter only. It never replaces
     // IntcAudioBus as the function driver.
     WdfFdoInitSetFilter(deviceInit);
+    WdfDeviceInitSetDeviceType(deviceInit,kH15cLiveDeviceType);
 
     WDF_PNPPOWER_EVENT_CALLBACKS pnp;
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
@@ -123,6 +124,9 @@ NTSTATUS phaser360::windows::H15cLiveEvtPrepareHardware(
     WdfSpinLockRelease(context->snapshotLock);
 
     H15cLiveSnapshotV1 snapshot{};
+    snapshot.version=1u;
+    snapshot.size=static_cast<ULONG>(sizeof(H15cLiveSnapshotV1));
+    snapshot.captureStatus=STATUS_DEVICE_NOT_READY;
     snapshot.flags=H15cLiveCaptureAttempted|
                    H15cLiveGetBusDataOnly|
                    H15cLiveNoPciWrite;
