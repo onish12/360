@@ -116,3 +116,4 @@ inline LONG InterlockedCompareExchange(volatile LONG* p,LONG value,LONG compare)
 
 constexpr NTSTATUS STATUS_INVALID_IMAGE_HASH=-6;
 constexpr NTSTATUS STATUS_NOT_SUPPORTED=-7;
+constexpr NTSTATUS STATUS_DELETE_PENDING=-8;
