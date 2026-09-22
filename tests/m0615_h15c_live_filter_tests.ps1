@@ -103,6 +103,7 @@ foreach($required in @(
  'WIN32_ERROR=','ACCESS=GENERIC_READ',
  'DevicePathOffset=4','DetailCbSizeX64=8',
  'H15C_LIVE_INTERFACE_PATH_PREFIX_INVALID','H15C_LIVE_ABI_MISMATCH:',
+ '[BitConverter]::ToUInt16($b,$o)','[BitConverter]::ToUInt32($b,$o)',
  'head36=','ioctl=0x{2:X8}',
  'pci_config_256.bin','OFFSET_44','OFFSET_48',
  'SetBusDataCalls=0','DRIVER_BIND_REPLACEMENT=NO'
@@ -123,6 +124,11 @@ foreach($forbidden in @(
 
 if($reader.IndexOf('[uint32]0x83376454',[StringComparison]::OrdinalIgnoreCase) -ge 0){
  throw 'H15C_LIVE_POWERSHELL_SIGNED_HEX_CAST_FORBIDDEN'
+}
+if($reader.IndexOf('$b[$o+1] -shl 8',[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+   $reader.IndexOf('$b[$o+2] -shl 16',[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+   $reader.IndexOf('$b[$o+3] -shl 24',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+ throw 'H15C_LIVE_POWERSHELL_BYTE_SHIFT_PARSER_FORBIDDEN'
 }
 if(($src+$hdr+$reader).IndexOf('0x00226004',[StringComparison]::OrdinalIgnoreCase) -ge 0){
  throw 'H15C_LIVE_MICROSOFT_DEVICE_TYPE_IOCTL_FORBIDDEN'
