@@ -82,7 +82,11 @@ function U32([byte[]]$b,[int]$o){[BitConverter]::ToUInt32($b,$o)} function I32([
 function Put32([byte[]]$b,[int]$o,[uint32]$v){[Array]::Copy([BitConverter]::GetBytes($v),0,$b,$o,4)}
 
 if( -not (Admin)){throw 'ADMINISTRATOR_REQUIRED'};if( -not [Environment]::Is64BitProcess){throw 'WINDOWS_X64_PROCESS_REQUIRED'}
-$before=Target;AssertTarget $before;if(@(Published).Count -ne 0){throw 'H15D_LIVE_FILTER_ALREADY_PRESENT'}
+$before=Target;AssertTarget $before
+if(@($before.CompoundUpperFilters|Where-Object {$_ -ceq 'Phaser360H15cLive' -or $_ -ceq $Service}).Count -ne 0){
+ throw 'PHASER_DIAGNOSTIC_FILTER_ALREADY_ATTACHED'
+}
+if(@(Published).Count -ne 0){throw 'H15D_LIVE_FILTER_ALREADY_PRESENT'}
 $ci=CodeIntegrity;if(($ci -band 2) -eq 0){throw 'CODE_INTEGRITY_TESTSIGN_NOT_ALLOWED'}
 $re=& (Join-Path $env:SystemRoot 'System32\reagentc.exe') /info 2>&1|Out-String;if($LASTEXITCODE -ne 0 -or $re -notmatch '(?im)Windows\s+RE.*(?:Enabled|Activat)'){throw 'WINRE_NOT_READY'}
 $pkg=Package $PackageRoot;$tb=Trust $pkg.Thumb;if($tb.Root -or $tb.TrustedPublisher){throw 'H15D_LIVE_PACKAGE_CERT_ALREADY_TRUSTED'}
@@ -91,7 +95,7 @@ $before|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'target_before.json'
 Copy-Item (Join-Path $PSScriptRoot 'H15D_LIVE_WINRE_ROLLBACK.txt') $dir
 $ex=PnP @('/export-driver',$before.DriverInfPath,$backup);$ex.Output|Set-Content (Join-Path $dir 'pnputil_export_intel.txt');if($ex.ExitCode -ne 0 -or @(Get-ChildItem $backup -Recurse -File).Count -eq 0){throw 'BASELINE_EXPORT_FAILED'}
 
-$rootAdded=$false;$pubAdded=$false;$installed=$false;$publishedInf=$null;$ioComplete=$false;$normal=$false;$err=$null
+$rootAdded=$false;$pubAdded=$false;$installed=$false;$publishedInf=$null;$ioAttempted=$false;$ioComplete=$false;$normal=$false;$err=$null
 try{
  $x=CertUtil @('-f','-addstore','Root',$pkg.Cer);if($x.ExitCode -ne 0){throw 'CERT_ROOT_ADD_FAILED'};$rootAdded=$true
  $x=CertUtil @('-f','-addstore','TrustedPublisher',$pkg.Cer);if($x.ExitCode -ne 0){throw 'CERT_PUBLISHER_ADD_FAILED'};$pubAdded=$true
@@ -99,7 +103,7 @@ try{
  $installed=$true;$x=PnP @('/add-driver',$pkg.Inf,'/install');$x.Output|Set-Content (Join-Path $dir 'pnputil_add_install.txt');if($x.ExitCode -ne 0){throw 'FILTER_INSTALL_FAILED'}
  $p=@(Published);if($p.Count -ne 1){throw "EXPECTED_ONE_H15D_PUBLISHED_INF: count=$($p.Count)"};$publishedInf=$p[0];$publishedInf|Set-Content (Join-Path $dir 'H15dPublishedInf.txt')
  $x=PnP @('/restart-device',$before.InstanceId);if($x.ExitCode -ne 0){throw 'FILTER_DEVICE_RESTART_FAILED'};$with=WaitHealthy $before.InstanceId;$with|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'target_with_filter.json')
- Native;$req=[byte[]]::new(16);Put32 $req 0 1;Put32 $req 4 16;Put32 $req 8 $ExpectedPg;Put32 $req 12 $ExpectedCg;$r=[Phaser360.H15dNative]::Go($InterfaceGuid,$Ioctl,$req,52)
+ Native;$req=[byte[]]::new(16);Put32 $req 0 1;Put32 $req 4 16;Put32 $req 8 $ExpectedPg;Put32 $req 12 $ExpectedCg;$ioAttempted=$true;$r=[Phaser360.H15dNative]::Go($InterfaceGuid,$Ioctl,$req,52)
  $v=U32 $r 0;$sz=U32 $r 4;$nt=I32 $r 8;$fl=U32 $r 12;$gen=U32 $r 16;$ven=U16 $r 20;$dev=U16 $r 22;$pg0=U32 $r 28;$cg0=U32 $r 32;$pg1=U32 $r 36;$cg1=U32 $r 40;$pg2=U32 $r 44;$cg2=U32 $r 48
  [ordered]@{Version=$v;Size=$sz;NtStatus=('0x{0:X8}' -f ([uint32]$nt));Flags=('0x{0:X8}' -f $fl);Generation=$gen;Vendor=('0x{0:X4}' -f $ven);Device=('0x{0:X4}' -f $dev);PgBefore=('0x{0:X8}' -f $pg0);CgBefore=('0x{0:X8}' -f $cg0);PgApplied=('0x{0:X8}' -f $pg1);CgApplied=('0x{0:X8}' -f $cg1);PgRestored=('0x{0:X8}' -f $pg2);CgRestored=('0x{0:X8}' -f $cg2)}|ConvertTo-Json|Set-Content (Join-Path $dir 'pci_transaction.json') -Encoding UTF8
  if($v -ne 1 -or $sz -ne 52 -or $nt -lt 0 -or ($fl -band $RequiredFlags) -ne $RequiredFlags -or $ven -ne 0x8086 -or $dev -ne 0x3198 -or $pg0 -ne $ExpectedPg -or $cg0 -ne $ExpectedCg -or $pg1 -ne $AppliedPg -or $cg1 -ne $AppliedCg -or $pg2 -ne $ExpectedPg -or $cg2 -ne $ExpectedCg){throw 'H15D_LIVE_TRANSACTION_VALIDATION_FAILED'}
@@ -113,13 +117,13 @@ try{
  $ta=Trust $pkg.Thumb;if($ta.Root -or $ta.TrustedPublisher){throw 'CERT_TRUST_REMAINS'};$after|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'target_after.json') -Encoding UTF8;$normal=$true
 }catch{$err=$_.Exception}finally{
  if( -not $normal){$log=@();if($installed){foreach($p in @(Published)){$q=PnP @('/delete-driver',$p,'/uninstall','/force');$log+="DELETE $p EXIT=$($q.ExitCode)";$log+=$q.Output};try{$q=PnP @('/restart-device',$before.InstanceId);$log+="RESTART EXIT=$($q.ExitCode)"}catch{$log+="RESTART_EXCEPTION=$($_.Exception.Message)"}}
- $safe=$false;try{$s=Target;$safe=@(Published).Count -eq 0 -and $s.Status -ceq 'OK' -and $s.ProblemCode -eq 0 -and $s.InstanceId -ceq $before.InstanceId -and $s.Service -ceq $before.Service -and $s.DriverInfPath -ceq $before.DriverInfPath}catch{}
+ $safe=$false;try{$s=Target;$safe=((-not $ioAttempted) -or $ioComplete) -and @(Published).Count -eq 0 -and $s.Status -ceq 'OK' -and $s.ProblemCode -eq 0 -and $s.InstanceId -ceq $before.InstanceId -and $s.Service -ceq $before.Service -and $s.DriverInfPath -ceq $before.DriverInfPath}catch{}
  if($safe){if($pubAdded){$q=CertUtil @('-delstore','TrustedPublisher',$pkg.Thumb);if($q.ExitCode -eq 0){$pubAdded=$false}};if($rootAdded){$q=CertUtil @('-delstore','Root',$pkg.Thumb);if($q.ExitCode -eq 0){$rootAdded=$false}}}else{$log+='TRUST_RETAINED_FOR_SAFETY=TRUE'}
  $log|Set-Content (Join-Path $dir 'emergency_rollback.txt') -Encoding UTF8
  }
 }
 $final=$null;try{$final=Target}catch{};$rem=@(Published);$ft=Trust $pkg.Thumb;$baseline=$false;if($final){$baseline=$final.Status -ceq 'OK' -and $final.ProblemCode -eq 0 -and $final.InstanceId -ceq $before.InstanceId -and $final.Service -ceq $before.Service -and $final.DriverInfPath -ceq $before.DriverInfPath -and $rem.Count -eq 0 -and -not $ft.Root -and -not $ft.TrustedPublisher}
-[ordered]@{Status=$(if($normal -and $baseline -and $ioComplete -and -not $err){'H15D_LIVE_R1_WRITE_RESTORE_AND_ROLLBACK_COMPLETE'}else{'H15D_LIVE_R1_TRANSACTION_FAILED'});PublishedInf=$publishedInf;WriteRestoreCompleted=$ioComplete;BaselineRestored=$baseline;TrustRestored=( -not $ft.Root -and -not $ft.TrustedPublisher);TransactionError=$(if($err){$err.Message}else{$null});PciConfigWrite='ONLY_0x44_BIT2_AND_0x48_BIT1_WITH_EXACT_RESTORE';Mmio='NO';Dma='NO';DspBoot='NO';AudioPlayback='NO';SystemReboot='NO';BcdWrite='NO';DeviceRestarts='TARGET_DEV3198_ONLY'}|ConvertTo-Json -Depth 6|Set-Content (Join-Path $dir 'transaction.json') -Encoding UTF8
+[ordered]@{Status=$(if($normal -and $baseline -and $ioComplete -and -not $err){'H15D_LIVE_R1_WRITE_RESTORE_AND_ROLLBACK_COMPLETE'}else{'H15D_LIVE_R1_TRANSACTION_FAILED'});PublishedInf=$publishedInf;WriteAttempted=$ioAttempted;WriteRestoreCompleted=$ioComplete;BaselineRestored=$baseline;TrustRestored=( -not $ft.Root -and -not $ft.TrustedPublisher);TransactionError=$(if($err){$err.Message}else{$null});PciConfigWrite='ONLY_0x44_BIT2_AND_0x48_BIT1_WITH_EXACT_RESTORE';Mmio='NO';Dma='NO';DspBoot='NO';AudioPlayback='NO';SystemReboot='NO';BcdWrite='NO';DeviceRestarts='TARGET_DEV3198_ONLY'}|ConvertTo-Json -Depth 6|Set-Content (Join-Path $dir 'transaction.json') -Encoding UTF8
 Hashes $dir;$zip=Join-Path $OutputRoot ('RESULT_H15D_LIVE_R1_TRANSACTION_'+$stamp+'_'+$suffix+'.zip');Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $zip -Force
 Write-Host $(if($normal -and $baseline -and $ioComplete -and -not $err){'STATUS=H15D_LIVE_R1_WRITE_RESTORE_AND_ROLLBACK_COMPLETE'}else{'STATUS=H15D_LIVE_R1_TRANSACTION_FAILED'})
 Write-Host "WRITE_RESTORE_COMPLETED=$($ioComplete.ToString().ToUpperInvariant())";Write-Host "BASELINE_RESTORED=$($baseline.ToString().ToUpperInvariant())";Write-Host "TRUST_RESTORED=$((( -not $ft.Root -and -not $ft.TrustedPublisher)).ToString().ToUpperInvariant())";Write-Host "PUBLISHED_INF=$publishedInf";Write-Host "Trimite fisierul: $zip"
