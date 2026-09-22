@@ -108,18 +108,17 @@ jobs:
             }
             $manifest | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $package 'package_manifest.json') -Encoding UTF8
 
-            Copy-Item .\m062\h15c_live\H15cLive-Common.ps1,$package
-            Copy-Item .\m062\h15c_live\Collect-H15cLive.ps1,$package
-            Copy-Item .\m062\h15c_live\COLLECT_H15C_LIVE.cmd,$package
-            Copy-Item .\m062\h15c_live\Collect-H15cLiveInstallPreflight.ps1,$package
-            Copy-Item .\m062\h15c_live\RUN_H15C_LIVE_PREFLIGHT.cmd,$package
-            Copy-Item .\m062\h15c_live\Run-H15cLiveTransaction.ps1,$package
-            Copy-Item .\m062\h15c_live\RUN_H15C_LIVE_TRANSACTION.cmd,$package
-            Copy-Item .\m062\h15c_live\H15C_LIVE_WINRE_ROLLBACK.txt,$package
-            Copy-Item .\m062\h15c_live\Check-H15cLivePackageTrust.ps1,$package
-            Copy-Item .\m062\h15c_live\CHECK_H15C_LIVE_R2_TRUST.cmd,$package
-            Copy-Item .\m062\h15c_live\START_H15C_LIVE_R2.txt,$package
-
+            Copy-Item -LiteralPath .\m062\h15c_live\H15cLive-Common.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\Collect-H15cLive.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\COLLECT_H15C_LIVE.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\Collect-H15cLiveInstallPreflight.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\RUN_H15C_LIVE_PREFLIGHT.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\Run-H15cLiveTransaction.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\RUN_H15C_LIVE_TRANSACTION.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\H15C_LIVE_WINRE_ROLLBACK.txt -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\Check-H15cLivePackageTrust.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\CHECK_H15C_LIVE_R2_TRUST.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\START_H15C_LIVE_R2.txt -Destination $package
             Get-ChildItem -LiteralPath $package -File | Sort-Object Name | ForEach-Object {
               (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.Name
             } | Set-Content (Join-Path $package 'SHA256SUMS.txt') -Encoding ASCII
