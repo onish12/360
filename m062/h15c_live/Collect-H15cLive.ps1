@@ -170,10 +170,10 @@ namespace Phaser360 {
 }
 
 function Read-U16([byte[]]$b,[int]$o){
-    [uint16]($b[$o] -bor ($b[$o+1] -shl 8))
+    [BitConverter]::ToUInt16($b,$o)
 }
 function Read-U32([byte[]]$b,[int]$o){
-    [uint32]($b[$o] -bor ($b[$o+1] -shl 8) -bor ($b[$o+2] -shl 16) -bor ($b[$o+3] -shl 24))
+    [BitConverter]::ToUInt32($b,$o)
 }
 function Read-I32([byte[]]$b,[int]$o){
     [BitConverter]::ToInt32($b,$o)
