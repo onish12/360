@@ -22,11 +22,20 @@ foreach($required in @(
     }
 }
 foreach($forbidden in @(
-    'Export-PfxCertificate','.pfx','.p12','-KeyExportPolicy Exportable',
+    'Export-PfxCertificate','-KeyExportPolicy Exportable',
     'certutil -addstore','Import-Certificate','bcdedit','/reboot'
 )){
     if($workflow.IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0){
         throw "R2_WORKFLOW_FORBIDDEN: $forbidden"
+    }
+}
+foreach($requiredGuard in @(
+    "'.pfx','.p12','.pvk','.key'",
+    'R2_PRIVATE_KEY_ARTIFACT_FORBIDDEN',
+    'PrivateKeyExported = $false'
+)){
+    if($workflow.IndexOf($requiredGuard,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+        throw "R2_PRIVATE_KEY_GUARD_MISSING: $requiredGuard"
     }
 }
 foreach($required in @(
