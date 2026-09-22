@@ -2,6 +2,7 @@
 #pragma once
 #include "boot_dma.h"
 #include "hardware_access_gate.h"
+#include "../../src/sof/hda_controller.h"
 #include "../../src/sof/hda_stream.h"
 namespace phaser360 { namespace windows {
 // Caller owns a translated, resident, read/write, noncached HDA BAR mapping.
@@ -21,14 +22,16 @@ public:
                      const UCHAR* approvedPayload, SIZE_T bytes) noexcept;
     bool Start() noexcept;
     bool StopAndRelease() noexcept;
+    bool QuiesceController() noexcept;
     UCHAR Tag() const noexcept { return stream_.Tag(); }
 private:
     BootDma dma_;
+    sof::HdaController controller_;
     sof::BootStream stream_;
     HardwareAccessGate* gate_=nullptr;
     UCHAR* base_=nullptr;
     ULONG length_=0;
-    bool allocated_=false, published_=false, attempted_=false;
+    bool allocated_=false, published_=false, attempted_=false, controllerAttempted_=false;
     static bool Read(void*,ULONG,unsigned,ULONG*) noexcept;
     static bool Write(void*,ULONG,unsigned,ULONG) noexcept;
     static void Delay(void*,unsigned) noexcept;

@@ -21,7 +21,11 @@ bool HdaTransport::Write(void* p,ULONG o,unsigned w,ULONG value) noexcept {
     else WRITE_REGISTER_ULONG(reinterpret_cast<ULONG*>(self.base_+o),value);
     return true;
 }
-void HdaTransport::Delay(void*,unsigned us) noexcept { KeStallExecutionProcessor(us); }
+void HdaTransport::Delay(void*,unsigned us) noexcept {
+    if(us<=50) { KeStallExecutionProcessor(us); return; }
+    LARGE_INTEGER interval; interval.QuadPart=-static_cast<LONGLONG>(us)*10;
+    (void)KeDelayExecutionThread(KernelMode,FALSE,&interval);
+}
 bool HdaTransport::Verify(void* p) noexcept {
     return static_cast<HdaTransport*>(p)->stream_.IsDetached();
 }
@@ -33,6 +37,8 @@ NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
        !bytes || bytes>sof::kMaxDmaBytes) return STATUS_INVALID_PARAMETER;
     attempted_=true; base_=base; length_=length;
     const sof::RegisterIo io={this,Read,Write,Delay,length_};
+    controllerAttempted_=true;
+    if(!controller_.Initialize(io)) return STATUS_DEVICE_CONFIGURATION_ERROR;
     if(!stream_.Select(io)) return STATUS_DEVICE_CONFIGURATION_ERROR;
     NTSTATUS status=dma_.Prepare(device,payload,bytes);
     if(!NT_SUCCESS(status)) return status;
@@ -46,7 +52,8 @@ NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
     return STATUS_SUCCESS;
 }
 bool HdaTransport::Start() noexcept {
-    return KeGetCurrentIrql()==PASSIVE_LEVEL && allocated_ && published_ && stream_.Start();
+    return KeGetCurrentIrql()==PASSIVE_LEVEL && controller_.Ready() &&
+        allocated_ && published_ && stream_.Start();
 }
 bool HdaTransport::StopAndRelease() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
@@ -57,3 +64,11 @@ bool HdaTransport::StopAndRelease() noexcept {
     return true;
 }
 } }
+
+bool phaser360::windows::HdaTransport::QuiesceController() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
+    if(!controllerAttempted_) return true;
+    if(!controller_.Quiesce()) return false;
+    controllerAttempted_=false;
+    return true;
+}

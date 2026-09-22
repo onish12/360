@@ -77,7 +77,9 @@ bool GlkBoot::Shutdown() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
     prepared_=false; ipcLive_=false; commands_.Close();
     if(!hda_.StopAndRelease()) return false;
-    // Do not overwrite the primary ROM failure with a cleanup result.
-    return !dspTouched_ || rom_.PowerDown();
+    // Keep HDA global processing alive after firmware DMA has been detached:
+    // IPC/FW runtime still owns the DSP. Quiesce HDA only after DSP power-down.
+    if(dspTouched_ && !rom_.PowerDown()) return false;
+    return hda_.QuiesceController();
 }
 } }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "../src/sof/hda_stream.h"
+#include "../src/sof/hda_controller.h"
 #include <array>
 #include <vector>
 #include <cstdio>
@@ -14,6 +15,7 @@ struct Hardware {
     std::vector<WriteEvent> writes;
     unsigned operations=0,failAt=0,delay=0;
     bool resetLow=false,resetHigh=false,runHigh=false,runLow=false,gone=false,dropBdlClear=false;
+    bool controllerEnterStuck=false,controllerExitStuck=false;
     Hardware() {
         Set(0,2,0x6701); Set(8,4,1); Set(0x14,4,pp);
         Set(pp,4,0x10030000u|spib); Set(spib,4,0x10040000);
@@ -39,26 +41,45 @@ struct Hardware {
         auto& h=*static_cast<Hardware*>(p);
         CHECK(o%w==0 && o+w<=h.memory.size());
         CHECK(!(o==sd && w!=1)); // no accidental DWORD write across W1C status
-        if(o==sd+3) CHECK(w==1 && v==0x1c);
+        const uint32_t gcap=h.Get(0,2);
+        const uint32_t total=((gcap>>8)&15)+((gcap>>12)&15);
+        const bool streamStatus=w==1 && o>=0x83 && o<0x80+total*0x20 &&
+            ((o-0x83)%0x20)==0;
+        if(streamStatus) CHECK(v==0x1c);
         if(o==sd+0xc || o==sd+0x12) CHECK(w==2);
         if(o==sd+0x12) CHECK((h.Get(pp+4,4)&bit)==0); // format quirk ordering
         ++h.operations;
         h.writes.push_back({o,w,v});
         if(h.gone) return false;
+        if(o==8 && w==4) {
+            const bool requestReady=(v&1)!=0;
+            if(!requestReady && h.controllerEnterStuck) v|=1;
+            if(requestReady && h.controllerExitStuck) v&=~1u;
+            if(!requestReady && !(v&1)) {
+                h.Set(0x20,4,0); h.Set(0x38,4,0); h.Set(0x70,4,0); h.Set(0x74,4,0);
+                h.Set(pp+4,4,0); h.Set(spib+4,4,0);
+                for(uint32_t i=0;i<total;++i) {
+                    const uint32_t s=0x80+i*0x20;
+                    h.Set(s,4,0); h.Set(s+8,4,0); h.Set(s+0xc,2,0);
+                    h.Set(s+0x12,2,0); h.Set(s+0x18,4,0); h.Set(s+0x1c,4,0);
+                    h.Set(spib+8+i*8,4,0);
+                }
+            }
+        }
         if(o==sd) {
             if(h.resetLow) v&=~1u;
             if(h.resetHigh) v|=1;
             if(h.runHigh) v|=2;
             if(h.runLow) v&=~2u;
         }
-        if(o==sd+3) h.Set(o,w,h.Get(o,w)&~v);
+        if(streamStatus) h.Set(o,w,h.Get(o,w)&~v);
         else if(!(h.dropBdlClear && o==sd+0x18 && v==0)) h.Set(o,w,v);
         // Failure may occur AFTER a posted write took effect.
         return h.operations!=h.failAt;
     }
     static void Delay(void* p,unsigned us) {
         auto& h=*static_cast<Hardware*>(p);
-        CHECK(us==3 || us==10); h.delay+=us;
+        CHECK(us==3 || us==10 || us==500 || us==1000); h.delay+=us;
     }
     RegisterIo Io() { return {this,Read,Write,Delay,0x4000}; }
 };
@@ -68,6 +89,41 @@ static void Prepare(Hardware& h,BootStream& s) {
 }
 int main() {
     unsigned selectOps=0,configOps=0,startOps=0,stopOps=0;
+
+    // H15B takes ownership from a dirty controller baseline before BootStream.
+    {
+        Hardware h; HdaController controller; BootStream stream;
+        h.Set(8,4,1); h.Set(0x20,4,0xc0000080u); h.Set(0x38,4,0x80);
+        h.Set(0x70,4,1); h.Set(0x1030,4,0x2000);
+        h.Set(sd,1,0x1e); h.Set(sd+2,1,0xf0); h.Set(sd+0x18,4,0x12345000);
+        h.Set(pp+4,4,0xffffffffu); h.Set(spib+4,4,0xffffffffu);
+        h.Set(spib+8+7*8,4,0x1234);
+        CHECK(controller.Initialize(h.Io()));
+        CHECK(controller.Ready() && (h.Get(8,4)&1)==1);
+        CHECK(h.Get(0x20,4)==0 && h.Get(0x38,4)==0 && (h.Get(0x70,4)&1)==0);
+        CHECK((h.Get(0x1030,4)&0x2000)==0);
+        CHECK((h.Get(pp+4,4)&0xc0001fffu)==0x40000000u);
+        CHECK((h.Get(spib+4,4)&0x1fffu)==0 && h.Get(spib+8+7*8,4)==0);
+        CHECK(h.Get(sd,1)==0 && h.Get(sd+0x18,4)==0);
+        CHECK(stream.Select(h.Io()));
+        CHECK(controller.Quiesce());
+        CHECK((h.Get(pp+4,4)&0xc0001fffu)==0 && (h.Get(0x1030,4)&0x2000)==0x2000);
+    }
+
+    for(unsigned mode=0;mode<2;++mode) {
+        Hardware h; HdaController controller;
+        h.controllerEnterStuck=mode==0; h.controllerExitStuck=mode==1;
+        CHECK(!controller.Initialize(h.Io()));
+        h.controllerEnterStuck=false; h.controllerExitStuck=false;
+        CHECK(controller.Quiesce());
+    }
+    {
+        Hardware h; HdaController controller;
+        h.Set(pp,4,0x10050000u|spib);
+        CHECK(!controller.Initialize(h.Io()));
+        CHECK(controller.Quiesce());
+    }
+
     {
         Hardware h; BootStream s;
         CHECK(!s.Start() && !s.StopDetach() && !s.IsDetached());

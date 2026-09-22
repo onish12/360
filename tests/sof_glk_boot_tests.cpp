@@ -80,7 +80,11 @@ static void Write(void* p,unsigned w,ULONG v) {
             }
         }
     } else {
-        if(o==0x163) v=Get(b,o,w)&~v;
+        const ULONG gcap=Get(b,0,2);
+        const ULONG total=((gcap>>8)&15)+((gcap>>12)&15);
+        const bool streamStatus=w==1 && o>=0x83 && o<0x80+total*0x20 &&
+            ((o-0x83)%0x20)==0;
+        if(streamStatus) v=Get(b,o,w)&~v;
         if(o==0x160) {
             if(stuckRun) v|=2;
             if(noRun) v&=~2u;
@@ -103,8 +107,8 @@ unsigned KeGetCurrentIrql() { return irql; }
 void KeMemoryBarrier() {}
 void KeStallExecutionProcessor(unsigned us) { ticks+=us*10; }
 NTSTATUS KeDelayExecutionThread(unsigned mode,bool alert,LARGE_INTEGER* delay) {
-    CHECK(mode==KernelMode && !alert && delay->QuadPart==-5000);
-    ticks+=5000; return STATUS_SUCCESS;
+    CHECK(mode==KernelMode && !alert && delay && delay->QuadPart<0);
+    ticks+=static_cast<uint64_t>(-delay->QuadPart); return STATUS_SUCCESS;
 }
 ULONGLONG KeQueryInterruptTime() { return ticks; }
 struct FakeObject { unsigned id; std::vector<UCHAR> bytes; };
@@ -266,7 +270,20 @@ int main() {
         CHECK(boot.PopNotification(&event) && event.acknowledged && event.bytes==24);
         CHECK(boot.Shutdown()); CHECK(!boot.Windows()); CHECK((Get(dsp,4,4)&0x03030303)==0x303);
     }
-    Reset(); { GlkBoot boot; Put(hda,8,4,0); CHECK(!NT_SUCCESS(Prepare(boot)));
+    // H15B establishes HDA global state instead of inheriting Intel's state.
+    Reset(); { GlkBoot boot;
+        Put(hda,8,4,0); Put(hda,0x20,4,0xc0000080u); Put(hda,0x38,4,0x80);
+        Put(hda,0x70,4,1); Put(hda,0x1030,4,0x2000); Put(hda,0x504,4,0);
+        CHECK(NT_SUCCESS(Prepare(boot)));
+        CHECK((Get(hda,8,4)&1)==1 && Get(hda,0x20,4)==0 && Get(hda,0x38,4)==0);
+        CHECK((Get(hda,0x70,4)&1)==0 && (Get(hda,0x1030,4)&0x2000)==0);
+        CHECK((Get(hda,0x504,4)&0x40000000u)!=0);
+        auto transfer=boot.Transfer();
+        CHECK(transfer.dmaReleased && (Get(hda,0x504,4)&0x40000000u)!=0);
+        CHECK(boot.Shutdown());
+        CHECK((Get(hda,0x504,4)&0x40000000u)==0 && (Get(hda,0x1030,4)&0x2000)!=0);
+    }
+    Reset(); { GlkBoot boot; Put(hda,0,2,0xffff); CHECK(!NT_SUCCESS(Prepare(boot)));
         CHECK(dspWrites==0 && live==0); CHECK(boot.Shutdown()); CHECK(dspWrites==0);
     }
     Reset(); { GlkBoot boot; power=false; CHECK(!NT_SUCCESS(Prepare(boot)));
