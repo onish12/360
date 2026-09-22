@@ -27,7 +27,9 @@ public:
 
     bool PreparedResources() const noexcept { return prepared_; }
     bool ActiveD0() const noexcept { return active_; }
-    bool Removed() const noexcept { return removed_; }
+    // HardwareAccessGate is the single atomic terminal-removal truth shared
+    // with the unsynchronized EvtDeviceSurpriseRemoval callback.
+    bool Removed() const noexcept { return gate_.Removed(); }
     ULONG SessionGeneration() const noexcept { return sessions_.Generation(); }
     ULONG CompletedD0() const noexcept { return completedD0_; }
     ULONG FailedD0() const noexcept { return failedD0_; }
@@ -43,7 +45,6 @@ private:
     bool prepared_=false;
     bool active_=false;
     bool irqBound_=false;
-    bool removed_=false;
     ULONG completedD0_=0;
     ULONG failedD0_=0;
 

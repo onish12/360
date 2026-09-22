@@ -286,6 +286,17 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
         }
         lifecyclePrepared_=true;
     }
+
+    // H15A final PrepareHardware linearization point. SurpriseRemoval is not
+    // synchronized with this callback; if it won while lifecycle_.prepared was
+    // running, unwind the fully prepared software/resource bundle now. A remove
+    // that wins after this atomic gate observation is ordered after successful
+    // preparation and will follow the normal surprise-removal teardown path.
+    if(!gate_->Allowed()) {
+        const auto releaseStatus=Release();
+        return NT_SUCCESS(releaseStatus)
+            ? STATUS_INVALID_DEVICE_STATE : STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
     return STATUS_SUCCESS;
 }
 

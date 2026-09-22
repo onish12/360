@@ -34,6 +34,7 @@ struct HookTrace {
     std::vector<unsigned> sequence;
     bool failPrepared=false;
     bool failPre=false;
+    bool removeDuringPrepared=false;
     HardwareAccessGate* removeAfterEntry=nullptr;
 };
 static NTSTATUS HookPrepared(void* p,const PnpResourceView& view,
@@ -41,6 +42,8 @@ static NTSTATUS HookPrepared(void* p,const PnpResourceView& view,
     auto& h=*static_cast<HookTrace*>(p); h.sequence.push_back(1);
     check(view.hda && view.dsp && view.hdaLength==0x4000 && view.dspLength==0x100000);
     check(binding.gate && binding.dsp==view.dsp && binding.dspLength==view.dspLength);
+    if(h.removeDuringPrepared && surpriseCallback && surpriseDevice)
+        surpriseCallback(surpriseDevice);
     return h.failPrepared?STATUS_DEVICE_CONFIGURATION_ERROR:STATUS_SUCCESS;
 }
 static NTSTATUS HookD0Entry(void* p,WDFDEVICE,const PnpResourceView& view) noexcept {
@@ -474,6 +477,28 @@ int main() {
         check(hookGate.Removed() && trace.sequence==std::vector<unsigned>({1,7}));
         check(NT_SUCCESS(release(&hookDevice,nullptr)));
         check(trace.sequence==std::vector<unsigned>({1,7,6}) && live.empty());
+    }
+
+    // H15A: SurpriseRemoval may win inside the consumer Prepared callback.
+    // PrepareHardware must recheck the atomic gate after that callback, unwind
+    // the lifecycle/resource bundle, and return failure rather than publish a
+    // successful preparation after terminal removal.
+    {
+        HardwareAccessGate racePreparedGate; PnpResources racePreparedOwner(racePreparedGate);
+        FakeObject racePreparedDevice; HookTrace trace; trace.removeDuringPrepared=true;
+        activeGate=&racePreparedGate;
+        check(racePreparedOwner.InstallLifecycle(MakeHooks(trace)));
+        check(NT_SUCCESS(racePreparedOwner.Attach(&racePreparedDevice)));
+        expectedAddresses={0x512004000LL,0x512100000LL};
+        auto rt=validTranslated(); auto rr=validRaw(); mapCalls=0; unmaps.clear();
+        surpriseCallback=surprise; surpriseDevice=&racePreparedDevice;
+        check(prepare(&racePreparedDevice,&rr,&rt)==STATUS_INVALID_DEVICE_STATE);
+        check(racePreparedGate.Removed() &&
+              racePreparedOwner.PowerPhase()==PnpPowerPhase::NoResources &&
+              trace.sequence==std::vector<unsigned>({1,7,6}) && live.empty());
+        check(NT_SUCCESS(release(&racePreparedDevice,nullptr)));
+        check(trace.sequence==std::vector<unsigned>({1,7,6}));
+        surpriseCallback=nullptr; surpriseDevice=nullptr; surpriseMapAt=0;
     }
 
     // SurpriseRemoval may win at the tail of a successful consumer D0Entry.

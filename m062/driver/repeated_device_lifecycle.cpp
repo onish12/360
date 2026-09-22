@@ -38,7 +38,7 @@ bool RepeatedDeviceLifecycle::SamePreparedView(const PnpResourceView& view) cons
 NTSTATUS RepeatedDeviceLifecycle::Prepared(
     const PnpResourceView& view,const PnpDormantInterruptBinding& binding) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !shellCreated_ || prepared_ ||
-       active_ || irqBound_ || sessions_.Active() || removed_ || !gate_.Allowed() ||
+       active_ || irqBound_ || sessions_.Active() || gate_.Removed() || !gate_.Allowed() ||
        binding.gate!=&gate_ || view.hdaLength!=0x4000 ||
        view.dsp!=binding.dsp || view.dspLength!=binding.dspLength ||
        view.dspLength!=0x100000 || !binding.raw || !binding.translated)
@@ -82,8 +82,7 @@ bool RepeatedDeviceLifecycle::CleanupFailedEntry() noexcept {
 }
 
 bool RepeatedDeviceLifecycle::AbandonRemovedBeforeEnable() noexcept {
-    if(!active_ || !sessions_.Active()) return false;
-    removed_=true;
+    if(!active_ || !sessions_.Active() || !gate_.Removed()) return false;
     if(telemetry_) telemetry_->SetFlag(TelemetryRemoved,true);
     (void)irq_.FenceForSurpriseRemoval();
     if(!irq_.ResetDormantRemovedSession() || !sessions_.AbandonRemoved(gate_))
@@ -99,7 +98,7 @@ bool RepeatedDeviceLifecycle::AbandonRemovedBeforeEnable() noexcept {
 NTSTATUS RepeatedDeviceLifecycle::D0Entry(
     WDFDEVICE device,const PnpResourceView& view) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !shellCreated_ || !prepared_ ||
-       active_ || irqBound_ || sessions_.Active() || removed_ || !device ||
+       active_ || irqBound_ || sessions_.Active() || gate_.Removed() || !device ||
        !gate_.Allowed() || !SamePreparedView(view))
         return RecordD0Status(STATUS_INVALID_DEVICE_STATE);
 
@@ -173,8 +172,7 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
 NTSTATUS RepeatedDeviceLifecycle::PostInterruptsEnabled() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !active_ || !sessions_.Active())
         return STATUS_INVALID_DEVICE_STATE;
-    if(removed_ || !gate_.Allowed()) {
-        removed_=true;
+    if(gate_.Removed() || !gate_.Allowed()) {
         if(telemetry_) telemetry_->SetFlag(TelemetryRemoved,true);
         (void)irq_.FenceForSurpriseRemoval();
         return STATUS_INVALID_DEVICE_STATE;
@@ -186,8 +184,7 @@ NTSTATUS RepeatedDeviceLifecycle::PostInterruptsEnabled() noexcept {
 NTSTATUS RepeatedDeviceLifecycle::PreInterruptsDisabled() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !active_ || !sessions_.Active())
         return STATUS_INVALID_DEVICE_STATE;
-    if(removed_ || gate_.Removed()) {
-        removed_=true;
+    if(gate_.Removed()) {
         if(telemetry_) telemetry_->SetFlag(TelemetryRemoved,true);
         return irq_.FenceForSurpriseRemoval()?STATUS_SUCCESS:STATUS_INVALID_DEVICE_STATE;
     }
@@ -229,8 +226,7 @@ NTSTATUS RepeatedDeviceLifecycle::D0Exit() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !active_ || !sessions_.Active())
         return STATUS_INVALID_DEVICE_STATE;
 
-    if(removed_ || gate_.Removed()) {
-        removed_=true;
+    if(gate_.Removed()) {
         return FinishRemovedSession()?STATUS_SUCCESS:STATUS_DEVICE_CONFIGURATION_ERROR;
     }
 
@@ -252,9 +248,11 @@ NTSTATUS RepeatedDeviceLifecycle::Release() noexcept {
 }
 
 void RepeatedDeviceLifecycle::SurpriseRemoval() noexcept {
-    removed_=true;
+    // KMDF does not serialize EvtDeviceSurpriseRemoval with PnP/power callbacks.
+    // Do not inspect lifecycle-owned bools here. The gate was made terminal by
+    // PnpResources first; IpcInterrupt owns synchronization of its admission bit.
     if(telemetry_) telemetry_->SetFlag(TelemetryRemoved,true);
-    if(irqBound_) (void)irq_.FenceForSurpriseRemoval();
+    (void)irq_.FenceForSurpriseRemoval();
 }
 
 NTSTATUS RepeatedDeviceLifecycle::PreparedThunk(
