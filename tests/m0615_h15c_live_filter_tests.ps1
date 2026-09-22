@@ -99,6 +99,7 @@ foreach($forbidden in @('glk_boot.cpp','hda_transport.cpp','ipc_interrupt.cpp','
 
 foreach($required in @(
  'DeviceIoControl(','0x83376454','SnapshotBytes=292',
+ '[Convert]::ToUInt32(''83376454'',16)',
  'WIN32_ERROR=','ACCESS=GENERIC_READ',
  'DevicePathOffset=4','DetailCbSizeX64=8',
  'H15C_LIVE_INTERFACE_PATH_PREFIX_INVALID','H15C_LIVE_ABI_MISMATCH:',
@@ -120,6 +121,9 @@ foreach($forbidden in @(
  }
 }
 
+if($reader.IndexOf('[uint32]0x83376454',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+ throw 'H15C_LIVE_POWERSHELL_SIGNED_HEX_CAST_FORBIDDEN'
+}
 if(($src+$hdr+$reader).IndexOf('0x00226004',[StringComparison]::OrdinalIgnoreCase) -ge 0){
  throw 'H15C_LIVE_MICROSOFT_DEVICE_TYPE_IOCTL_FORBIDDEN'
 }
