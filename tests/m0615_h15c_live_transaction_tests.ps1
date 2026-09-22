@@ -52,6 +52,10 @@ foreach($required in @(
  '$rollbackTarget.HardwareIds|Where-Object {$_ -ceq $script:H15cExactHwid}',
  'BaseProvider=$before.DriverProvider',
  'CaptureCompleted=$captureCompleted',
+ 'CompoundUpperFilterObserved=$compoundFilterObserved',
+ 'compound_upper_filters_observation.json',
+ 'PrimaryProof=''DEVICE_INTERFACE_PLUS_READ_ONLY_IOCTL''',
+ 'filter_service_after_restart.json',
  'TrustRestored=',
  'RegistryWrite=''PNP_AND_CERT_STORES_TRANSACTIONAL''',
  'TrustChange=''TEMPORARY_LOCALMACHINE_ROOT_AND_TRUSTEDPUBLISHER''',
@@ -66,7 +70,8 @@ foreach($required in @(
 foreach($forbidden in @(
  '/reboot','bcdedit','Import-Certificate',
  'New-ItemProperty','Set-ItemProperty','Remove-ItemProperty',
- '/disable-device','/enable-device','Phaser360M1'
+ '/disable-device','/enable-device','Phaser360M1',
+ 'H15C_FILTER_NOT_PRESENT_IN_COMPOUND_UPPER_FILTERS'
 )){
  if(($pre+$tx+$common).IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0){
   throw "H15C_LIVE_R2_FORBIDDEN_MUTATION: $forbidden"
