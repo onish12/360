@@ -1,0 +1,33 @@
+PHASER360 H15C-LIVE-R2 SIGNED PACKAGE
+
+This package is produced only by the manual GitHub Actions workflow
+H15C-LIVE-R2 signed test package.
+
+Files:
+- phaser360_h15c_live_filter.sys
+- phaser360_h15c_live_filter.inf
+- phaser360_h15c_live_filter.cat
+- phaser360_h15c_live_filter.cer
+- package_manifest.json
+- the H15C-LIVE read-only collector and R1 transaction scripts
+
+The CER is public-key-only. No PFX/P12/private key is distributed.
+
+Before any driver installation:
+1. Keep Windows build 19044 and Intel IntcAudioBus healthy.
+2. TESTSIGNING must already be effective.
+3. Windows RE must be enabled.
+4. Run CHECK_H15C_LIVE_R2_TRUST.cmd "<package folder>".
+5. If it reports H15C_LIVE_R2_PACKAGE_TRUST_BLOCKED, do not run the transaction.
+   The exact CER must be explicitly trusted in LocalMachine Root and
+   LocalMachine TrustedPublisher according to Microsoft test-driver guidance.
+6. Re-run the checker. Continue only when it reports
+   H15C_LIVE_R2_PACKAGE_TRUST_READY and both SYS/CAT signatures are Valid.
+7. Run Collect-H15cLiveInstallPreflight.ps1 for the same package.
+8. Only after READY, run RUN_H15C_LIVE_TRANSACTION.cmd "<package folder>".
+9. After the capture and filter rollback complete, remove the exact R2
+   certificate thumbprint from Root and TrustedPublisher and verify it is gone.
+
+Do not remove the Intel IntcAudioBus package.
+Do not enable/disable unrelated devices.
+Do not modify BCD as part of this package procedure.
