@@ -4,6 +4,16 @@
 
 namespace phaser360 { namespace windows {
 
+namespace {
+bool ReadConfigImage(BUS_INTERFACE_STANDARD& bus,UCHAR* config) noexcept {
+    if(!config || !bus.GetBusData) return false;
+    RtlZeroMemory(config,kPciConfigSnapshotBytes);
+    return bus.GetBusData(
+        bus.Context,PCI_WHICHSPACE_CONFIG,config,0,kPciConfigSnapshotBytes)
+        ==kPciConfigSnapshotBytes;
+}
+}
+
 bool PciConfigBootPolicy::ReadDword(
     BUS_INTERFACE_STANDARD& bus,ULONG offset,ULONG* value) noexcept {
     if(!value || !bus.GetBusData) return false;
@@ -99,15 +109,18 @@ NTSTATUS PciConfigBootPolicy::Apply(
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
 
-    ULONG pgctl=0,cgctl=0;
-    bool success=ReadDword(bus,kPgctlOffset,&pgctl) &&
-                 ReadDword(bus,kCgctlOffset,&cgctl) &&
-                 pgctl==evidence.pgctl && cgctl==evidence.cgctl;
-    if(!success) {
+    UCHAR liveConfig[kPciConfigSnapshotBytes]={};
+    const bool snapshotExact=
+        ReadConfigImage(bus,liveConfig) &&
+        RtlCompareMemory(liveConfig,evidence.config,kPciConfigSnapshotBytes)
+            ==kPciConfigSnapshotBytes;
+    if(!snapshotExact) {
         bus.InterfaceDereference(bus.Context);
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
 
+    const ULONG pgctl=evidence.pgctl;
+    const ULONG cgctl=evidence.cgctl;
     originalPgctl_=pgctl;
     originalCgctl_=cgctl;
     if(!gate.Allowed() || gate.Removed()) {

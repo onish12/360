@@ -24,6 +24,14 @@ constexpr ULONG MAXULONG = UINT32_MAX;
 #define NT_SUCCESS(x) ((x) >= 0)
 #define NT_ASSERT(x) assert(x)
 inline void RtlCopyMemory(void* d,const void* s,size_t n) { std::memcpy(d,s,n); }
+inline size_t RtlCompareMemory(const void* a,const void* b,size_t n) {
+    const auto* x=static_cast<const unsigned char*>(a);
+    const auto* y=static_cast<const unsigned char*>(b);
+    size_t equal=0;
+    while(equal<n && x[equal]==y[equal]) ++equal;
+    return equal;
+}
+inline void RtlZeroMemory(void* d,size_t n) { std::memset(d,0,n); }
 unsigned KeGetCurrentIrql();
 void KeMemoryBarrier();
 using ULONG_PTR=uintptr_t;
