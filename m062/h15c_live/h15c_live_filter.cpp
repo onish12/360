@@ -30,6 +30,13 @@ NTSTATUS phaser360::windows::H15cLiveEvtDeviceAdd(
     pnp.EvtDevicePrepareHardware=H15cLiveEvtPrepareHardware;
     WdfDeviceInitSetPnpPowerEventCallbacks(deviceInit,&pnp);
 
+    WDF_FILEOBJECT_CONFIG fileConfig;
+    WDF_FILEOBJECT_CONFIG_INIT(
+        &fileConfig,H15cLiveEvtDeviceFileCreate,
+        WDF_NO_EVENT_CALLBACK,WDF_NO_EVENT_CALLBACK);
+    WdfDeviceInitSetFileObjectConfig(
+        deviceInit,&fileConfig,WDF_NO_OBJECT_ATTRIBUTES);
+
     WDF_OBJECT_ATTRIBUTES attributes;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes,H15cLiveDeviceContext);
 
@@ -62,8 +69,43 @@ NTSTATUS phaser360::windows::H15cLiveEvtDeviceAdd(
         device,queue,WdfRequestTypeDeviceControl);
     if(!NT_SUCCESS(status)) return status;
 
+    UNICODE_STRING referenceString;
+    RtlInitUnicodeString(&referenceString,L"h15c");
     return WdfDeviceCreateDeviceInterface(
-        device,&kH15cLiveInterfaceGuid,nullptr);
+        device,&kH15cLiveInterfaceGuid,&referenceString);
+}
+
+void phaser360::windows::H15cLiveEvtDeviceFileCreate(
+    WDFDEVICE device,WDFREQUEST request,WDFFILEOBJECT fileObject) {
+    if(!device || !request || !fileObject) {
+        if(request) WdfRequestComplete(request,STATUS_INVALID_PARAMETER);
+        return;
+    }
+
+    const auto* fileName=WdfFileObjectGetFileName(fileObject);
+    UNICODE_STRING expectedWithSlash;
+    UNICODE_STRING expectedBare;
+    RtlInitUnicodeString(&expectedWithSlash,L"\\h15c");
+    RtlInitUnicodeString(&expectedBare,L"h15c");
+
+    if(fileName &&
+       (RtlEqualUnicodeString(fileName,&expectedWithSlash,TRUE) ||
+        RtlEqualUnicodeString(fileName,&expectedBare,TRUE))) {
+        // This exact reference-string endpoint is owned by the diagnostic
+        // filter. Completing CREATE locally prevents the Intel function
+        // driver from rejecting an otherwise valid filter-only handle.
+        WdfRequestComplete(request,STATUS_SUCCESS);
+        return;
+    }
+
+    // Preserve all unrelated CREATE semantics of the Intel function stack.
+    WDF_REQUEST_SEND_OPTIONS options;
+    WDF_REQUEST_SEND_OPTIONS_INIT(
+        &options,WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
+    if(!WdfRequestSend(
+        request,WdfDeviceGetIoTarget(device),&options)) {
+        WdfRequestComplete(request,WdfRequestGetStatus(request));
+    }
 }
 
 NTSTATUS phaser360::windows::H15cLiveEvtPrepareHardware(
