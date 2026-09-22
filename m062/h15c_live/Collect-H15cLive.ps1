@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2
 
 $InterfaceGuid=[Guid]'8c1b3150-6d0c-4c88-9d36-15c000319801'
-$Ioctl=[uint32]0x83376454
+$Ioctl=[Convert]::ToUInt32('83376454',16)
 $SnapshotBytes=292
 
 function Test-IsAdministrator {
