@@ -44,6 +44,13 @@ foreach($required in @(
  "'-delstore','Root'",
  'TRUST_RETAINED_FOR_SAFETY=TRUE',
  'safeToDropTrust',
+ '$rollbackTarget.InstanceId -ceq $before.InstanceId',
+ '$rollbackTarget.Service -ceq $before.Service',
+ '$rollbackTarget.DriverInfPath -ceq $before.DriverInfPath',
+ '$rollbackTarget.DriverVersion -ceq $before.DriverVersion',
+ '$rollbackTarget.DriverProvider -ceq $before.DriverProvider',
+ '$rollbackTarget.HardwareIds|Where-Object {$_ -ceq $script:H15cExactHwid}',
+ 'BaseProvider=$before.DriverProvider',
  'CaptureCompleted=$captureCompleted',
  'TrustRestored=',
  'RegistryWrite=''PNP_AND_CERT_STORES_TRANSACTIONAL''',
@@ -76,4 +83,4 @@ foreach($required in @(
   throw "H15C_LIVE_R2_WINRE_REQUIRED_MISSING: $required"
  }
 }
-Write-Host 'H15C_LIVE_R2_TRANSACTION_TESTS=PASS; preflight=READ_ONLY; baseline_export=YES; trust=TEMPORARY_EXACT_CERT; install=EXTENSION_ONLY; capture=READ_ONLY; rollback=DRIVER_THEN_TRUST; emergency=RETAIN_TRUST_IF_DRIVER_STATE_UNPROVEN; reboot=NONE; pci_write=NONE; mmio=NONE'
+Write-Host 'H15C_LIVE_R2_TRANSACTION_TESTS=PASS; preflight=READ_ONLY; baseline_export=YES; trust=TEMPORARY_EXACT_CERT; install=EXTENSION_ONLY; capture=READ_ONLY; rollback=DRIVER_THEN_TRUST; emergency=EXACT_BASELINE_IDENTITY_OR_RETAIN_TRUST; reboot=NONE; pci_write=NONE; mmio=NONE'

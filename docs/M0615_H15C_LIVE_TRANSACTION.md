@@ -61,10 +61,14 @@ Success requires capture completed, Intel baseline restored and trust restored.
 
 If anything fails after mutation begins, the finally path attempts driver
 rollback first. The signer certificate is removed only when package/filter
-absence and a healthy Intel baseline are proven. If that proof is unavailable,
-R2 intentionally retains the exact signer trust and writes
-`TRUST_RETAINED_FOR_SAFETY=TRUE`. This avoids making a possibly still
-installed test-signed filter untrusted on a subsequent device start.
+absence is proven and the target exactly matches the recorded Intel baseline:
+InstanceId, service, published INF, driver version and provider must all match,
+the exact DEV_3198 REV_06 hardware ID must still be present, and the H15C upper
+filter must be absent. Merely returning to an OK IntcAudioBus device is not
+sufficient. If that exact proof is unavailable, R2 intentionally retains the
+signer trust and writes `TRUST_RETAINED_FOR_SAFETY=TRUE`. This avoids making a
+possibly still installed test-signed filter untrusted on a subsequent device
+start.
 
 If Windows cannot boot, WinRE instructions remove only the recorded PHASER360
 H15C-LIVE published driver. Offline certificate-store edits are not attempted.

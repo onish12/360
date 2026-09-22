@@ -167,7 +167,12 @@ try {
         $safeToDropTrust=(-not $installStarted) -or
             ($remainingForTrust.Count -eq 0 -and $rollbackTarget -and
              $rollbackTarget.ProblemCode -eq 0 -and $rollbackTarget.Status -ceq 'OK' -and
+             $rollbackTarget.InstanceId -ceq $before.InstanceId -and
              $rollbackTarget.Service -ceq $before.Service -and
+             $rollbackTarget.DriverInfPath -ceq $before.DriverInfPath -and
+             $rollbackTarget.DriverVersion -ceq $before.DriverVersion -and
+             $rollbackTarget.DriverProvider -ceq $before.DriverProvider -and
+             @($rollbackTarget.HardwareIds|Where-Object {$_ -ceq $script:H15cExactHwid}).Count -eq 1 -and
              @($rollbackTarget.CompoundUpperFilters|Where-Object {$_ -ceq $script:H15cService}).Count -eq 0)
 
         if($safeToDropTrust){
@@ -221,6 +226,7 @@ $result=[ordered]@{
     TrustRestored=(-not $finalTrust.Root -and -not $finalTrust.TrustedPublisher)
     TransactionError=$(if($transactionError){$transactionError.Message}else{$null})
     BaseService=$before.Service;BaseInf=$before.DriverInfPath;BaseVersion=$before.DriverVersion
+    BaseProvider=$before.DriverProvider
     TestSignAllowed=$ci.TestSignAllowed
     PackageCertificateThumbprint=$package.CertificateThumbprint
     SystemReboot='NO';BcdWrite='NO'
