@@ -489,7 +489,9 @@ int main() {
         CHECK(bridge.GrantBootStart() && bridge.CanStartBeforeEnable());
         ColdPower session(boot,bridge,accessGate);
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
-        Put(hda,8,4,0); // deterministic HDA failure before framework Enable
+        // H15B owns/reinitializes GCTL, so GCTL=0 is no longer a failure.
+        // Use malformed GCAP to keep this cleanup regression deterministic.
+        Put(hda,0,2,0xffff);
         CHECK(!NT_SUCCESS(session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
                                        image.data(),image.size(),x.data(),x.size(),20)));
         CHECK(session.CanReleaseMappings());
