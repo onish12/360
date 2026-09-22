@@ -90,8 +90,8 @@ foreach($required in @(
     'TRUST_RETAINED_FOR_SAFETY=TRUE',
     'RegistryWrite=''PNP_AND_CERT_STORES_TRANSACTIONAL''',
     'TrustChange=''TEMPORARY_LOCALMACHINE_ROOT_AND_TRUSTEDPUBLISHER''',
-    'TrustRestored='
-    ,'compound_upper_filters_observation.json','DEVICE_INTERFACE_PLUS_READ_ONLY_IOCTL'
+    'TrustRestored=',
+    'compound_upper_filters_observation.json','DEVICE_INTERFACE_PLUS_READ_ONLY_IOCTL'
 )){
     if($tx.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
         throw "R2_TRANSACTION_REQUIRED_MISSING: $required"
