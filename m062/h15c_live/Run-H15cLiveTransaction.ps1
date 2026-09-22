@@ -48,6 +48,7 @@ $rootAdded=$false
 $publisherAdded=$false
 $installStarted=$false
 $captureCompleted=$false
+$compoundFilterObserved=$false
 $normalRollbackComplete=$false
 $transactionError=$null
 
@@ -84,10 +85,25 @@ try {
     if($restart.ExitCode -ne 0){throw "FILTER_DEVICE_RESTART_FAILED: $($restart.ExitCode)"}
 
     $withFilter=Wait-H15cTargetHealthy $before.InstanceId
-    if(@($withFilter.CompoundUpperFilters|Where-Object {$_ -ceq $script:H15cService}).Count -ne 1){
-        throw 'H15C_FILTER_NOT_PRESENT_IN_COMPOUND_UPPER_FILTERS'
-    }
+    $compoundFilterObserved=(@($withFilter.CompoundUpperFilters|Where-Object {$_ -ceq $script:H15cService}).Count -eq 1)
     $withFilter|ConvertTo-Json -Depth 8|Set-Content (Join-Path $runDir 'target_with_filter.json') -Encoding UTF8
+    [pscustomobject]@{
+        Service=$script:H15cService
+        Observed=$compoundFilterObserved
+        Values=@($withFilter.CompoundUpperFilters)
+        Source=$withFilter.CompoundUpperFiltersSource
+        QueryError=$withFilter.CompoundUpperFiltersQueryError
+        Role='ADVISORY_TELEMETRY_ONLY'
+        PrimaryProof='DEVICE_INTERFACE_PLUS_READ_ONLY_IOCTL'
+    }|ConvertTo-Json -Depth 6|Set-Content (Join-Path $runDir 'compound_upper_filters_observation.json') -Encoding UTF8
+    try {
+        $svc=Get-Service -Name $script:H15cService -ErrorAction Stop
+        [pscustomobject]@{Found=$true;Name=$svc.Name;Status=[string]$svc.Status}|
+            ConvertTo-Json -Depth 4|Set-Content (Join-Path $runDir 'filter_service_after_restart.json') -Encoding UTF8
+    } catch {
+        [pscustomobject]@{Found=$false;Error=$_.Exception.Message}|
+            ConvertTo-Json -Depth 4|Set-Content (Join-Path $runDir 'filter_service_after_restart.json') -Encoding UTF8
+    }
 
     $collector=Join-Path $PSScriptRoot 'Collect-H15cLive.ps1'
     $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -222,6 +238,7 @@ $result=[ordered]@{
     }else{'H15C_LIVE_R2_TRANSACTION_FAILED'})
     PublishedInf=$publishedInf
     CaptureCompleted=$captureCompleted
+    CompoundUpperFilterObserved=$compoundFilterObserved
     BaselineRestored=$baselineRestored
     TrustRestored=(-not $finalTrust.Root -and -not $finalTrust.TrustedPublisher)
     TransactionError=$(if($transactionError){$transactionError.Message}else{$null})
