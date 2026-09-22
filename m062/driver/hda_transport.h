@@ -3,6 +3,7 @@
 #include "boot_dma.h"
 #include "hardware_access_gate.h"
 #include "pci_config_attestation.h"
+#include "pci_config_boot_policy.h"
 #include "../../src/sof/hda_controller.h"
 #include "../../src/sof/hda_stream.h"
 namespace phaser360 { namespace windows {
@@ -28,6 +29,7 @@ public:
 private:
     BootDma dma_;
     PciConfigAttestation pci_;
+    PciConfigBootPolicy pciPolicy_;
     sof::HdaController controller_;
     sof::BootStream stream_;
     HardwareAccessGate* gate_=nullptr;
