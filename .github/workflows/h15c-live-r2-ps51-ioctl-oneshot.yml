@@ -1,0 +1,144 @@
+name: H15C-LIVE-R2 PS51-ioctl signed package - ONE SHOT
+
+on:
+  push:
+    branches:
+      - codex/audio-auto-20260915
+    paths:
+      - '.github/H15C_LIVE_R2_PS51_IOCTL_ONESHOT_TRIGGER'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: github.repository == 'onish12/360' && github.ref == 'refs/heads/codex/audio-auto-20260915'
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore pinned WDK packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          nuget restore .\m062\packages.config -PackagesDirectory .\m062\packages -NonInteractive
+          if ($LASTEXITCODE -ne 0) { throw 'R2_RESTORE_FAILED' }
+
+      - name: Build H15C-LIVE filter unsigned
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild .\m062\h15c_live\phaser360_h15c_live_filter.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'R2_FILTER_BUILD_FAILED' }
+
+      - name: Create ephemeral signer and signed package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Join-Path $env:GITHUB_WORKSPACE '_h15c_live_r2_package'
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+
+          $sys = (Resolve-Path .\m062\h15c_live\out\phaser360_h15c_live_filter.sys).Path
+          $pkgSys = Join-Path $package 'phaser360_h15c_live_filter.sys'
+          $inf = Join-Path $package 'phaser360_h15c_live_filter.inf'
+          $cat = Join-Path $package 'phaser360_h15c_live_filter.cat'
+          $cer = Join-Path $package 'phaser360_h15c_live_filter.cer'
+          Copy-Item -LiteralPath $sys -Destination $pkgSys
+          Copy-Item -LiteralPath .\m062\h15c_live\phaser360_h15c_live_filter.inf -Destination $inf
+
+          $buildTools = (Resolve-Path .\m062\packages\Microsoft.Windows.SDK.BuildTools.10.0.28000.2526).Path
+          $signtool = Join-Path $buildTools 'bin\10.0.28000.0\x64\signtool.exe'
+          $wdk = (Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
+          $inf2cat = Join-Path $wdk 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
+          if (-not (Test-Path -LiteralPath $signtool -PathType Leaf)) { throw 'R2_SIGNTOOL_NOT_FOUND' }
+          if (-not (Test-Path -LiteralPath $inf2cat -PathType Leaf)) { throw 'R2_INF2CAT_NOT_FOUND' }
+
+          $subject = 'CN=PHASER360 H15C-LIVE R2 Ephemeral Test Signing'
+          $cert = $null
+          try {
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(7)
+            if (-not $cert -or -not $cert.HasPrivateKey) { throw 'R2_CERT_CREATE_FAILED' }
+            $thumb = [string]$cert.Thumbprint
+
+            Export-Certificate -Cert $cert -FilePath $cer -Type CERT | Out-Null
+            $public = Get-PfxCertificate -FilePath $cer
+            if (-not $public -or $public.HasPrivateKey) { throw 'R2_CER_PUBLIC_ONLY_CHECK_FAILED' }
+
+            & $signtool sign /fd SHA256 /sha1 $thumb /s My /v $pkgSys
+            if ($LASTEXITCODE -ne 0) { throw 'R2_SYS_SIGN_FAILED' }
+
+            & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+            if ($LASTEXITCODE -ne 0) { throw 'R2_INF2CAT_FAILED' }
+            if (-not (Test-Path -LiteralPath $cat -PathType Leaf)) { throw 'R2_CAT_MISSING' }
+
+            & $signtool sign /fd SHA256 /sha1 $thumb /s My /v $cat
+            if ($LASTEXITCODE -ne 0) { throw 'R2_CAT_SIGN_FAILED' }
+
+            $sysSig = Get-AuthenticodeSignature -LiteralPath $pkgSys
+            $catSig = Get-AuthenticodeSignature -LiteralPath $cat
+            if (-not $sysSig.SignerCertificate -or [string]$sysSig.SignerCertificate.Thumbprint -cne $thumb) {
+              throw 'R2_SYS_SIGNER_MISMATCH'
+            }
+            if (-not $catSig.SignerCertificate -or [string]$catSig.SignerCertificate.Thumbprint -cne $thumb) {
+              throw 'R2_CAT_SIGNER_MISMATCH'
+            }
+            if ($sysSig.Status -eq 'NotSigned' -or $sysSig.Status -eq 'HashMismatch') { throw 'R2_SYS_SIGNATURE_DAMAGED' }
+            if ($catSig.Status -eq 'NotSigned' -or $catSig.Status -eq 'HashMismatch') { throw 'R2_CAT_SIGNATURE_DAMAGED' }
+
+            $manifest = [ordered]@{
+              Schema = 1
+              Purpose = 'H15C_LIVE_R2_EPHEMERAL_TEST_PACKAGE'
+              SourceCommit = $env:GITHUB_SHA
+              CertificateSubject = $subject
+              CertificateThumbprint = $thumb
+              CertificateNotAfterUtc = $cert.NotAfter.ToUniversalTime().ToString('o')
+              PrivateKeyExported = $false
+              InfSha256 = (Get-FileHash -LiteralPath $inf -Algorithm SHA256).Hash.ToLowerInvariant()
+              SysSha256 = (Get-FileHash -LiteralPath $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant()
+              CatSha256 = (Get-FileHash -LiteralPath $cat -Algorithm SHA256).Hash.ToLowerInvariant()
+              CerSha256 = (Get-FileHash -LiteralPath $cer -Algorithm SHA256).Hash.ToLowerInvariant()
+              PciConfigWrite = 'NO'
+              Mmio = 'NO'
+              DspBoot = 'NO'
+            }
+            $manifest | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $package 'package_manifest.json') -Encoding UTF8
+
+            Copy-Item -LiteralPath .\m062\h15c_live\H15cLive-Common.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\Collect-H15cLive.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\COLLECT_H15C_LIVE.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\Collect-H15cLiveInstallPreflight.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\RUN_H15C_LIVE_PREFLIGHT.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\Run-H15cLiveTransaction.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\RUN_H15C_LIVE_TRANSACTION.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\H15C_LIVE_WINRE_ROLLBACK.txt -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\Check-H15cLivePackageTrust.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\CHECK_H15C_LIVE_R2_TRUST.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15c_live\START_H15C_LIVE_R2.txt -Destination $package
+            Get-ChildItem -LiteralPath $package -File | Sort-Object Name | ForEach-Object {
+              (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.Name
+            } | Set-Content (Join-Path $package 'SHA256SUMS.txt') -Encoding ASCII
+
+            if (Get-ChildItem -LiteralPath $package -File | Where-Object { $_.Extension -in @('.pfx','.p12','.pvk','.key') }) {
+              throw 'R2_PRIVATE_KEY_ARTIFACT_FORBIDDEN'
+            }
+          } finally {
+            if ($cert) {
+              Remove-Item -LiteralPath ("Cert:\CurrentUser\My\{0}" -f $cert.Thumbprint) -Force -ErrorAction SilentlyContinue
+              if (Test-Path -LiteralPath ("Cert:\CurrentUser\My\{0}" -f $cert.Thumbprint)) {
+                throw 'R2_RUNNER_PRIVATE_CERT_CLEANUP_FAILED'
+              }
+            }
+          }
+
+      - name: Upload signed H15C-LIVE R2 package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: PHASER360_H15C_LIVE_R2_SIGNED_TEST_PACKAGE
+          path: _h15c_live_r2_package/
+          if-no-files-found: error
+          retention-days: 3
