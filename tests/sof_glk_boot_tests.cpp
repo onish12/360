@@ -555,7 +555,7 @@ int main() {
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
-        if(mode==1) Put(hda,8,4,0); // HDA failure before DSP mutation
+        if(mode==1) Put(hda,0,2,0xffff); // malformed GCAP before DSP mutation
         if(mode==2) missingReady=true;
         if(mode==3) stuckRun=true; // failed DMA stop must retain all buffers
         CHECK(!session.CanReleaseMappings());
@@ -813,7 +813,7 @@ int main() {
         binding.gate=&accessGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
         binding.raw=&raw; binding.translated=&translated;
         CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
-        Put(hda,8,4,0);
+        Put(hda,0,2,0xffff); // H15B: malformed GCAP remains a hard HDA failure
         CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
         CHECK(!lifecycle.Bound() && lifecycle.D0Consumed());
         CHECK(NT_SUCCESS(ops.release(ops.context)));
