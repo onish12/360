@@ -91,8 +91,8 @@ try {
         Service=$script:H15cService
         Observed=$compoundFilterObserved
         Values=@($withFilter.CompoundUpperFilters)
-        Source=$withFilter.CompoundUpperFiltersSource
-        QueryError=$withFilter.CompoundUpperFiltersQueryError
+        Source=$(if($withFilter.PSObject.Properties['CompoundUpperFiltersSource']){$withFilter.CompoundUpperFiltersSource}else{'ENUMERATED_OR_ABSENT'})
+        QueryError=$(if($withFilter.PSObject.Properties['CompoundUpperFiltersQueryError']){$withFilter.CompoundUpperFiltersQueryError}else{$null})
         Role='ADVISORY_TELEMETRY_ONLY'
         PrimaryProof='DEVICE_INTERFACE_PLUS_READ_ONLY_IOCTL'
     }|ConvertTo-Json -Depth 6|Set-Content (Join-Path $runDir 'compound_upper_filters_observation.json') -Encoding UTF8
