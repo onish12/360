@@ -1,0 +1,15 @@
+PHASER360 H15C-LIVE OFFLINE ROLLBACK
+
+Use only if Windows cannot boot after the H15C-LIVE upper-filter transaction.
+
+1. Enter Windows Recovery Environment -> Command Prompt.
+2. Identify the offline Windows volume. Do NOT assume C:.
+3. Read the transaction evidence and note H15cPublishedInf=oemNN.inf.
+4. Confirm the package before removal:
+   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
+5. Remove ONLY the recorded PHASER360 H15C-LIVE published package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
+6. Reboot only after DISM reports success.
+
+Do not remove the Intel IntcAudioBus package. The H15C-LIVE package is an
+Extension upper filter, not the base Intel function driver.
