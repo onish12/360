@@ -12,8 +12,12 @@ foreach($required in @(
     '-Type CodeSigningCert',
     '-KeyExportPolicy NonExportable',
     'Export-Certificate',
-    "Cert:\CurrentUser\Root",
-    "Cert:\CurrentUser\TrustedPublisher",
+    'System.Security.Cryptography.X509Certificates.X509Store',
+    'StoreLocation]::CurrentUser',
+    "Add-H14CurrentUserCertificate 'Root'",
+    "Add-H14CurrentUserCertificate 'TrustedPublisher'",
+    "Remove-H14CurrentUserCertificate 'Root'",
+    "Remove-H14CurrentUserCertificate 'TrustedPublisher'",
     'signtool.exe',
     ' sign ',
     '/fd SHA256',
@@ -31,6 +35,10 @@ foreach($required in @(
     'H14_INF2CAT_PATH=',
     'H14_CERT_CREATE_BEGIN',
     'H14_CERT_TRUST_BEGIN',
+    'H14_CERT_ROOT_ADD_BEGIN',
+    'H14_CERT_ROOT_ADD_END',
+    'H14_CERT_TRUSTEDPUBLISHER_ADD_BEGIN',
+    'H14_CERT_TRUSTEDPUBLISHER_ADD_END',
     'H14_SYS_SIGN_BEGIN',
     'H14_INF2CAT_BEGIN',
     'H14_CAT_SIGN_BEGIN',
@@ -82,10 +90,13 @@ if($signSys -lt 0 -or $inf2cat -lt 0 -or $signCat -lt 0 -or
 }
 
 foreach($store in @('My','Root','TrustedPublisher')) {
-    $needle="Cert:\CurrentUser\$store\$thumb"
+    $needle="Remove-H14CurrentUserCertificate '$store' `$thumb"
     if($workflow.IndexOf($needle,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "H14_CERT_CLEANUP_MISSING: $store"
     }
+}
+if($workflow.IndexOf('Import-Certificate',[StringComparison]::OrdinalIgnoreCase) -ge 0) {
+    throw 'H14_IMPORT_CERTIFICATE_FORBIDDEN'
 }
 
 $artifactCopies=@(

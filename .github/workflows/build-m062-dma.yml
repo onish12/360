@@ -1,4 +1,4 @@
-name: M0.6.15H14.1 deterministic signing gate - NOT INSTALLABLE
+name: M0.6.15H14.2 non-interactive trust signing gate - NOT INSTALLABLE
 on:
   workflow_dispatch:
   push:
@@ -449,8 +449,57 @@ jobs:
           $cer = Join-Path $build 'H14_EPHEMERAL_PUBLIC.cer'
           Write-Host 'H14_CERT_TRUST_BEGIN'
           Export-Certificate -Cert $cert -FilePath $cer -Type CERT | Out-Null
-          Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
-          Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
+          $publicCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cer)
+          if ($publicCert.HasPrivateKey) { throw 'H14_PUBLIC_CERT_UNEXPECTED_PRIVATE_KEY' }
+
+          function Add-H14CurrentUserCertificate([string]$StoreName,[System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate) {
+            $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+              $StoreName,[System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+            try {
+              $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+              $store.Add($Certificate)
+            } finally {
+              $store.Close()
+              $store.Dispose()
+            }
+          }
+          function Remove-H14CurrentUserCertificate([string]$StoreName,[string]$Thumbprint) {
+            $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+              $StoreName,[System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+            try {
+              $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+              $found = $store.Certificates.Find(
+                [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+                $Thumbprint,$false)
+              foreach($item in $found) { $store.Remove($item) }
+            } finally {
+              $store.Close()
+              $store.Dispose()
+            }
+          }
+          function Test-H14CurrentUserCertificate([string]$StoreName,[string]$Thumbprint) {
+            $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+              $StoreName,[System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+            try {
+              $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+              $found = $store.Certificates.Find(
+                [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+                $Thumbprint,$false)
+              return $found.Count -gt 0
+            } finally {
+              $store.Close()
+              $store.Dispose()
+            }
+          }
+
+          Write-Host 'H14_CERT_ROOT_ADD_BEGIN'
+          Add-H14CurrentUserCertificate 'Root' $publicCert
+          if (-not (Test-H14CurrentUserCertificate 'Root' $thumb)) { throw 'H14_CERT_ROOT_ADD_FAILED' }
+          Write-Host 'H14_CERT_ROOT_ADD_END'
+          Write-Host 'H14_CERT_TRUSTEDPUBLISHER_ADD_BEGIN'
+          Add-H14CurrentUserCertificate 'TrustedPublisher' $publicCert
+          if (-not (Test-H14CurrentUserCertificate 'TrustedPublisher' $thumb)) { throw 'H14_CERT_TRUSTEDPUBLISHER_ADD_FAILED' }
+          Write-Host 'H14_CERT_TRUSTEDPUBLISHER_ADD_END'
           Write-Host 'H14_CERT_TRUST_END'
 
           # Embedded-sign SYS first. Inf2Cat must hash the already-signed SYS.
@@ -516,9 +565,15 @@ jobs:
           Remove-Item -LiteralPath $generated -Force
           Remove-Item -LiteralPath $fixture -Force
           Remove-Item -LiteralPath $cer -Force
-          Remove-Item -LiteralPath "Cert:\CurrentUser\My\$thumb" -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$thumb" -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath "Cert:\CurrentUser\TrustedPublisher\$thumb" -Force -ErrorAction SilentlyContinue
+          Write-Host 'H14_CERT_TRUSTEDPUBLISHER_REMOVE_BEGIN'
+          Remove-H14CurrentUserCertificate 'TrustedPublisher' $thumb
+          Write-Host 'H14_CERT_TRUSTEDPUBLISHER_REMOVE_END'
+          Write-Host 'H14_CERT_ROOT_REMOVE_BEGIN'
+          Remove-H14CurrentUserCertificate 'Root' $thumb
+          Write-Host 'H14_CERT_ROOT_REMOVE_END'
+          Write-Host 'H14_CERT_MY_REMOVE_BEGIN'
+          Remove-H14CurrentUserCertificate 'My' $thumb
+          Write-Host 'H14_CERT_MY_REMOVE_END'
 
           if ((Test-Path -LiteralPath $package) -or (Test-Path -LiteralPath $sys) -or
               (Test-Path -LiteralPath $generated) -or (Test-Path -LiteralPath $fixture) -or
@@ -526,7 +581,7 @@ jobs:
             throw 'H14_TEMP_PAYLOAD_DELETE_FAILED'
           }
           foreach($store in @('My','Root','TrustedPublisher')) {
-            if (Test-Path -LiteralPath "Cert:\CurrentUser\$store\$thumb") {
+            if (Test-H14CurrentUserCertificate $store $thumb) {
               throw "H14_CERT_CLEANUP_FAILED: $store"
             }
           }

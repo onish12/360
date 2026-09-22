@@ -1,6 +1,6 @@
-# M0.6.15H14.1 deterministic ephemeral signing gate
+# M0.6.15H14.2 non-interactive trust signing gate
 
-H14.1 proves that the exact H13.1 package can be cryptographically signed and verified in CI without distributing a signed driver package or any private key. Tool discovery is deterministic: SignTool is supplied by the official `Microsoft.Windows.SDK.BuildTools` package pinned to 10.0.28000.2526, while Inf2Cat remains supplied by the matching `Microsoft.Windows.WDK.x64` package.
+H14.2 keeps the deterministic H14.1 tool paths and replaces the PKI Import-Certificate calls that timed out on GitHub Actions with direct System.Security.Cryptography.X509Certificates.X509Store writes to the disposable runner CurrentUser stores.
 
 It does not establish production Windows kernel acceptance on the Lenovo and it
 does not modify target trust.
@@ -19,12 +19,14 @@ GitHub Actions runner CurrentUser certificate store with:
 The private key is never exported. H14 contains no Export-PfxCertificate path
 and no PFX/P12 payload is created.
 
-A public CER copy is exported temporarily only so the same certificate can be
-trusted in the runner CurrentUser Root and TrustedPublisher stores for local
-Authenticode verification.
+A public CER copy is exported temporarily only so a public-key-only X509Certificate2 can be added directly to the runner CurrentUser Root and TrustedPublisher stores for local Authenticode verification. The workflow confirms the public copy has no private key and checks each insertion by thumbprint.
 
 This trust modification exists only inside the disposable CI runner. It is not
 a target-side trust procedure.
+
+## H14.1 timeout and H14.2 change
+
+The H14.1 run completed deterministic tool discovery and certificate creation, reached H14_CERT_TRUST_BEGIN, then timed out before SYS signing. H14.2 removes Import-Certificate and emits separate begin/end markers for Root and TrustedPublisher add/remove operations.
 
 ## Correct signing order
 
