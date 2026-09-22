@@ -1,4 +1,5 @@
 name: H15D-LIVE-R1 ONE-SHOT signed package
+# Re-armed for the D0 + full-256 pre-write hardening commit only.
 on:
   push:
     branches:

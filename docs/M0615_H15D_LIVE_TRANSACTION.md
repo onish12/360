@@ -14,3 +14,17 @@ restore must recover the exact original dwords. The IOCTL is one-shot.
 The gate contains no DSP/HDA MMIO path, DMA owner, firmware source, IPC path or
 audio playback path. The package workflow is manual-only and never installs on
 a target from CI.
+
+
+## R1 hardening gates
+
+The Extension queue remains explicitly non-power-managed because it is above
+the Intel power-policy owner. Hardware transaction admission is instead gated
+by EvtDeviceD0Entry/EvtDeviceD0Exit state. Device callbacks and the request
+queue use device synchronization at PASSIVE_LEVEL; SurpriseRemoval remains
+terminal through the shared HardwareAccessGate.
+
+Immediately before the first SetBusData, PciConfigBootPolicy re-reads the
+complete 256-byte PCI configuration image and requires byte-for-byte equality
+with the attestation passed into Apply. Applied-state evidence and final
+rollback evidence also use full 256-byte snapshots.
