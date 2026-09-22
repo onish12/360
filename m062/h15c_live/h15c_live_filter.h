@@ -43,6 +43,7 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(H15cLiveDeviceContext,H15cLiveGetContext)
 
 EVT_WDF_DRIVER_DEVICE_ADD H15cLiveEvtDeviceAdd;
 EVT_WDF_DEVICE_PREPARE_HARDWARE H15cLiveEvtPrepareHardware;
+EVT_WDF_DEVICE_FILE_CREATE H15cLiveEvtDeviceFileCreate;
 EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL H15cLiveEvtIoDeviceControl;
 
 extern const GUID kH15cLiveInterfaceGuid;
