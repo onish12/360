@@ -75,10 +75,15 @@ if($workflow.IndexOf("Microsoft.Windows.SDK.BuildTools.10.0.28000.2526",[StringC
     throw 'H14_PINNED_TOOL_PATHS_MISSING'
 }
 
-# Signing order must be: sign SYS -> Inf2Cat -> sign CAT.
-$signSys=$workflow.IndexOf('& $signtool sign /fd SHA256',[StringComparison]::OrdinalIgnoreCase)
-$inf2cat=$workflow.IndexOf('& $inf2cat "/driver:$package"',[StringComparison]::OrdinalIgnoreCase)
-$signCat=$workflow.IndexOf('& $signtool sign /fd SHA256',$signSys+1,[StringComparison]::OrdinalIgnoreCase)
+# Signing order is evaluated only inside the H14 runtime step. H13 has its own
+# earlier Inf2Cat invocation and must not be mistaken for the H14 catalog pass.
+$h14Start=$workflow.IndexOf('- name: H14 ephemeral sign and verify package then destroy all signing material',[StringComparison]::OrdinalIgnoreCase)
+$h14End=$workflow.IndexOf('- name: Verify H14 signing guards',$h14Start+1,[StringComparison]::OrdinalIgnoreCase)
+if($h14Start -lt 0 -or $h14End -le $h14Start){throw 'H14_WORKFLOW_STEP_BOUNDARY_INVALID'}
+$h14=$workflow.Substring($h14Start,$h14End-$h14Start)
+$signSys=$h14.IndexOf('& $signtool sign /fd SHA256',[StringComparison]::OrdinalIgnoreCase)
+$inf2cat=$h14.IndexOf('& $inf2cat "/driver:$package"',[StringComparison]::OrdinalIgnoreCase)
+$signCat=$h14.IndexOf('& $signtool sign /fd SHA256',$signSys+1,[StringComparison]::OrdinalIgnoreCase)
 if($signSys -lt 0 -or $inf2cat -lt 0 -or $signCat -lt 0 -or
    -not($signSys -lt $inf2cat -and $inf2cat -lt $signCat)) {
     throw "H14_SIGNING_ORDER_INVALID: sys=$signSys inf2cat=$inf2cat cat=$signCat"
