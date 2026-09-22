@@ -50,6 +50,7 @@ if($workflow.IndexOf(',$package',[StringComparison]::Ordinal) -ge 0){
 foreach($required in @(
     'Get-H15cCertificatePresence','Invoke-H15cCertUtil',
     'PUBLIC_CER_HAS_PRIVATE_KEY','CODE_SIGNING_EKU_MISSING',
+    'DEVPKEY_Device_CompoundUpperFilters','EXPLICIT_KEY_QUERY',
     'MANIFEST_CERTIFICATE_THUMBPRINT_MISMATCH','MANIFEST_HASH_MISMATCH'
 )){
     if($common.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
@@ -90,6 +91,7 @@ foreach($required in @(
     'RegistryWrite=''PNP_AND_CERT_STORES_TRANSACTIONAL''',
     'TrustChange=''TEMPORARY_LOCALMACHINE_ROOT_AND_TRUSTEDPUBLISHER''',
     'TrustRestored='
+    ,'compound_upper_filters_observation.json','DEVICE_INTERFACE_PLUS_READ_ONLY_IOCTL'
 )){
     if($tx.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
         throw "R2_TRANSACTION_REQUIRED_MISSING: $required"
