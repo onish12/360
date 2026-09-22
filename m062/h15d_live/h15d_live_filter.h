@@ -31,9 +31,10 @@ enum H15dLiveFlags : ULONG {
     H15dNoMmio=1u<<6,
     H15dNoDma=1u<<7,
     H15dNoDspBoot=1u<<8,
-    H15dOneShot=1u<<9
+    H15dOneShot=1u<<9,
+    H15dFullConfigRestoredExact=1u<<10
 };
-inline constexpr ULONG kH15dRequiredSuccessFlags=0x3ffu;
+inline constexpr ULONG kH15dRequiredSuccessFlags=0x7ffu;
 
 struct H15dLiveRequestV1 {
     ULONG version=1u;

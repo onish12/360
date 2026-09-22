@@ -12,7 +12,7 @@ $ExpectedPg=[Convert]::ToUInt32('00000010',16)
 $ExpectedCg=[Convert]::ToUInt32('807B0DFF',16)
 $AppliedPg=[Convert]::ToUInt32('00000014',16)
 $AppliedCg=[Convert]::ToUInt32('807B0DFD',16)
-$RequiredFlags=[Convert]::ToUInt32('000003FF',16)
+$RequiredFlags=[Convert]::ToUInt32('000007FF',16)
 
 function Admin {
  $id=[Security.Principal.WindowsIdentity]::GetCurrent()
@@ -48,7 +48,10 @@ function Package([string]$root,[switch]$Trusted){
  $r=(Resolve-Path $root).Path;$inf=Join-Path $r 'phaser360_h15d_live_filter.inf';$sys=Join-Path $r 'phaser360_h15d_live_filter.sys';$cat=Join-Path $r 'phaser360_h15d_live_filter.cat';$cer=Join-Path $r 'phaser360_h15d_live_filter.cer';$man=Join-Path $r 'package_manifest.json'
  foreach($p in @($inf,$sys,$cat,$cer,$man)){if(-not(Test-Path $p -PathType Leaf)){throw "PACKAGE_FILE_MISSING: $p"}}
  $c=Get-PfxCertificate $cer;if(-not$c-or$c.HasPrivateKey-or$c.Subject-cne$CertSubject-or$c.Issuer-cne$CertSubject){throw 'CERTIFICATE_IDENTITY_INVALID'}
+ if($c.NotBefore.ToUniversalTime()-gt[DateTime]::UtcNow-or$c.NotAfter.ToUniversalTime()-le[DateTime]::UtcNow){throw 'CERTIFICATE_NOT_CURRENTLY_VALID'}
+ $eku=@();foreach($e in $c.Extensions){if($e.Oid.Value-eq'2.5.29.37'){$te=[System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]$e;foreach($o in $te.EnhancedKeyUsages){$eku+=[string]$o.Value}}};if(@($eku|Where-Object {$_-ceq'1.3.6.1.5.5.7.3.3'}).Count-ne1){throw 'CODE_SIGNING_EKU_MISSING'}
  $m=Get-Content $man -Raw|ConvertFrom-Json;if([string]$m.CertificateThumbprint-cne[string]$c.Thumbprint){throw 'MANIFEST_CERTIFICATE_THUMBPRINT_MISMATCH'}
+ if([string]$m.Purpose-cne'H15D_LIVE_R1_BOUNDED_PCI_TRANSACTION_PACKAGE'-or[string]$m.ExpectedPgctl-cne'0x00000010'-or[string]$m.ExpectedCgctl-cne'0x807B0DFF'-or[string]$m.AppliedPgctl-cne'0x00000014'-or[string]$m.AppliedCgctl-cne'0x807B0DFD'-or[string]$m.PciConfigWrite-cne'ONLY_0x44_BIT2_AND_0x48_BIT1_WITH_EXACT_RESTORE'){throw 'MANIFEST_TRANSACTION_CONTRACT_MISMATCH'}
  foreach($x in @(@($inf,[string]$m.InfSha256),@($sys,[string]$m.SysSha256),@($cat,[string]$m.CatSha256),@($cer,[string]$m.CerSha256))){if((Get-FileHash $x[0] -Algorithm SHA256).Hash.ToLowerInvariant()-cne$x[1].ToLowerInvariant()){throw 'MANIFEST_HASH_MISMATCH'}}
  $ss=Get-AuthenticodeSignature $sys;$cs=Get-AuthenticodeSignature $cat;if(-not$ss.SignerCertificate-or-not$cs.SignerCertificate){throw 'SIGNER_MISSING'};if([string]$ss.SignerCertificate.Thumbprint-cne[string]$c.Thumbprint-or[string]$cs.SignerCertificate.Thumbprint-cne[string]$c.Thumbprint){throw 'SIGNER_CERT_MISMATCH'}
  if($Trusted-and($ss.Status-ne'Valid'-or$cs.Status-ne'Valid')){throw 'SIGNATURE_NOT_VALID_AFTER_TRUST'}

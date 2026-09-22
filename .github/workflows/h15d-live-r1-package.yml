@@ -55,10 +55,10 @@ jobs:
             if($LASTEXITCODE-ne0){throw 'H15D_R1_CAT_SIGN_FAILED'}
             $manifest=[ordered]@{Schema=1;Purpose='H15D_LIVE_R1_BOUNDED_PCI_TRANSACTION_PACKAGE';SourceCommit=$env:GITHUB_SHA;CertificateSubject=$subject;CertificateThumbprint=$thumb;CertificateNotAfterUtc=$cert.NotAfter.ToUniversalTime().ToString('o');PrivateKeyExported=$false;InfSha256=(Get-FileHash $inf -Algorithm SHA256).Hash.ToLowerInvariant();SysSha256=(Get-FileHash $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant();CatSha256=(Get-FileHash $cat -Algorithm SHA256).Hash.ToLowerInvariant();CerSha256=(Get-FileHash $cer -Algorithm SHA256).Hash.ToLowerInvariant();ExpectedPgctl='0x00000010';ExpectedCgctl='0x807B0DFF';AppliedPgctl='0x00000014';AppliedCgctl='0x807B0DFD';PciConfigWrite='ONLY_0x44_BIT2_AND_0x48_BIT1_WITH_EXACT_RESTORE';Mmio='NO';Dma='NO';DspBoot='NO';AudioPlayback='NO'}
             $manifest|ConvertTo-Json -Depth 6|Set-Content (Join-Path $package 'package_manifest.json') -Encoding UTF8
-            Copy-Item .\m062\h15d_live\Run-H15dLiveR1.ps1,$package
-            Copy-Item .\m062\h15d_live\RUN_H15D_LIVE_R1.cmd,$package
-            Copy-Item .\m062\h15d_live\H15D_LIVE_WINRE_ROLLBACK.txt,$package
-            Copy-Item .\m062\h15d_live\START_H15D_LIVE_R1.txt,$package
+            Copy-Item -LiteralPath .\m062\h15d_live\Run-H15dLiveR1.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15d_live\RUN_H15D_LIVE_R1.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15d_live\H15D_LIVE_WINRE_ROLLBACK.txt -Destination $package
+            Copy-Item -LiteralPath .\m062\h15d_live\START_H15D_LIVE_R1.txt -Destination $package
             Get-ChildItem $package -File|Sort-Object Name|ForEach-Object {(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+'  '+$_.Name}|Set-Content (Join-Path $package 'SHA256SUMS.txt') -Encoding ASCII
             if(Get-ChildItem $package -File|Where-Object {$_.Extension -in @('.pfx','.p12','.pvk','.key')}){throw 'H15D_R1_PRIVATE_KEY_ARTIFACT_FORBIDDEN'}
           }finally{

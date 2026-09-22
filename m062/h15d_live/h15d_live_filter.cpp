@@ -192,6 +192,10 @@ void phaser360::windows::H15dLiveEvtIoDeviceControl(
                     if(result.pgctlRestored==kH15dExpectedPgctl &&
                        result.cgctlRestored==kH15dExpectedCgctl)
                         result.flags|=H15dFinalBaselineExact;
+                    if(RtlCompareMemory(
+                           before.Snapshot().config,after.Snapshot().config,
+                           kPciConfigSnapshotBytes)==kPciConfigSnapshotBytes)
+                        result.flags|=H15dFullConfigRestoredExact;
                 } else if(NT_SUCCESS(result.transactionStatus)) result.transactionStatus=finalStatus;
             } else result.transactionStatus=STATUS_INVALID_DEVICE_STATE;
         } else result.transactionStatus=STATUS_DEVICE_CONFIGURATION_ERROR;
