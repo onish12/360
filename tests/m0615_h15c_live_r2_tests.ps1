@@ -38,9 +38,14 @@ foreach($forbidden in @(
 # Reject actual commands or artifact paths that try to create/copy/upload them.
 foreach($pattern in @(
     '(?im)^\s*(?:Copy-Item|Move-Item|Set-Content|Out-File).*\.p(?:fx|12)\b',
-    '(?im)^\s*path:\s*.*\.p(?:fx|12)\b',
-    '(?im)^\s*Copy-Item\s+\.\\m062\\h15c_live\\[^,\r\n]+,\$package\s*
+    '(?im)^\s*path:\s*.*\.p(?:fx|12)\b'
+)){
     if($workflow -match $pattern){throw "R2_PRIVATE_KEY_ARTIFACT_PATH_FORBIDDEN: $pattern"}
+}
+# PowerShell parses "Copy-Item source,$package" as two Path arguments rather
+# than Path + Destination. Require the explicit -Destination form.
+if($workflow.IndexOf(',$package',[StringComparison]::Ordinal) -ge 0){
+    throw 'R2_AMBIGUOUS_COPYITEM_DESTINATION_FORBIDDEN'
 }
 foreach($required in @(
     'Get-H15cCertificatePresence','Invoke-H15cCertUtil',
