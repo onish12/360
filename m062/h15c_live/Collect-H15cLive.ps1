@@ -121,13 +121,22 @@ namespace Phaser360 {
                 IntPtr detail=Marshal.AllocHGlobal((int)required);
                 try {
                     for(int i=0;i<required;i++) Marshal.WriteByte(detail,i,0);
-                    Marshal.WriteInt32(detail,8);
+                    // On x64 the Unicode structure's cbSize value is 8 because
+                    // sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W)==8, but the
+                    // variable-length DevicePath field begins immediately
+                    // after the DWORD cbSize at byte offset 4.
+                    const int DetailCbSizeX64=8;
+                    const int DevicePathOffset=4;
+                    Marshal.WriteInt32(detail,0,DetailCbSizeX64);
                     Win32(SetupDiGetDeviceInterfaceDetail(
                         set,ref data,detail,required,out required,IntPtr.Zero),
                         "SetupDiGetDeviceInterfaceDetail");
-                    string path=Marshal.PtrToStringUni(IntPtr.Add(detail,8));
+                    string path=Marshal.PtrToStringUni(IntPtr.Add(detail,DevicePathOffset));
                     if(String.IsNullOrWhiteSpace(path))
                         throw new InvalidOperationException("H15C_LIVE_INTERFACE_PATH_EMPTY");
+                    if(!path.StartsWith(@"\\?\",StringComparison.Ordinal))
+                        throw new InvalidOperationException(
+                            "H15C_LIVE_INTERFACE_PATH_PREFIX_INVALID: "+path);
                     return path;
                 } finally { Marshal.FreeHGlobal(detail); }
             } finally { SetupDiDestroyDeviceInfoList(set); }
