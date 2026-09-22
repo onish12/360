@@ -66,7 +66,6 @@ struct BUS_INTERFACE_STANDARD {
     PGET_SET_DEVICE_DATA GetBusData=nullptr;
 };
 constexpr ULONG PCI_WHICHSPACE_CONFIG=0;
-constexpr BOOLEAN TRUE=1;
 constexpr UCHAR CmResourceTypeInterrupt=2;
 struct CM_PARTIAL_RESOURCE_DESCRIPTOR {
     UCHAR Type;
