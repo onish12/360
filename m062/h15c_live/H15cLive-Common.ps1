@@ -5,6 +5,10 @@ Set-StrictMode -Version 2
 $script:H15cExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $script:H15cExtensionId='{53f678f1-2b3c-4b2e-a15c-360031980001}'
 $script:H15cService='Phaser360H15cLive'
+$script:H15cCertFile='phaser360_h15c_live_filter.cer'
+$script:H15cManifestFile='package_manifest.json'
+$script:H15cCertSubject='CN=PHASER360 H15C-LIVE R2 Ephemeral Test Signing'
+$script:H15cCodeSigningOid='1.3.6.1.5.5.7.3.3'
 
 function Test-H15cAdministrator {
     $id=[Security.Principal.WindowsIdentity]::GetCurrent()
@@ -124,36 +128,113 @@ function Get-H15cPublishedInf {
     return @($matches)
 }
 
-function Assert-H15cPackage([string]$PackageRoot) {
+function Get-H15cCertificatePresence([string]$Thumbprint) {
+    if([string]::IsNullOrWhiteSpace($Thumbprint)){throw 'CERT_THUMBPRINT_REQUIRED'}
+    $thumb=$Thumbprint.Replace(' ','').ToUpperInvariant()
+    [pscustomobject]@{
+        Thumbprint=$thumb
+        Root=(Test-Path -LiteralPath ("Cert:\LocalMachine\Root\"+$thumb))
+        TrustedPublisher=(Test-Path -LiteralPath ("Cert:\LocalMachine\TrustedPublisher\"+$thumb))
+    }
+}
+
+function Assert-H15cPackage([string]$PackageRoot,[switch]$RequireTrusted) {
     if([string]::IsNullOrWhiteSpace($PackageRoot)){throw 'PACKAGE_ROOT_REQUIRED'}
     $root=(Resolve-Path -LiteralPath $PackageRoot -ErrorAction Stop).Path
     $inf=Join-Path $root 'phaser360_h15c_live_filter.inf'
     $sys=Join-Path $root 'phaser360_h15c_live_filter.sys'
     $cat=Join-Path $root 'phaser360_h15c_live_filter.cat'
-    foreach($p in @($inf,$sys,$cat)){
+    $cer=Join-Path $root $script:H15cCertFile
+    $manifestPath=Join-Path $root $script:H15cManifestFile
+    foreach($p in @($inf,$sys,$cat,$cer,$manifestPath)){
         if(-not (Test-Path -LiteralPath $p -PathType Leaf)){throw "PACKAGE_FILE_MISSING: $p"}
     }
+
+    $cert=Get-PfxCertificate -FilePath $cer
+    if(-not $cert){throw 'CERTIFICATE_PARSE_FAILED'}
+    if($cert.HasPrivateKey){throw 'PUBLIC_CER_HAS_PRIVATE_KEY'}
+    if($cert.Subject -cne $script:H15cCertSubject -or $cert.Issuer -cne $script:H15cCertSubject){
+        throw "CERTIFICATE_IDENTITY_INVALID: $($cert.Subject)"
+    }
+    $now=[DateTime]::UtcNow
+    if($cert.NotBefore.ToUniversalTime() -gt $now -or $cert.NotAfter.ToUniversalTime() -le $now){
+        throw 'CERTIFICATE_NOT_CURRENTLY_VALID'
+    }
+    $eku=New-Object System.Collections.Generic.List[string]
+    foreach($extension in $cert.Extensions){
+        if($extension.Oid.Value -eq '2.5.29.37'){
+            $typed=[System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]$extension
+            foreach($oid in $typed.EnhancedKeyUsages){$eku.Add([string]$oid.Value)}
+        }
+    }
+    if(@($eku|Where-Object {$_ -ceq $script:H15cCodeSigningOid}).Count -ne 1){
+        throw 'CODE_SIGNING_EKU_MISSING'
+    }
+
+    $manifest=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json
+    if([string]$manifest.CertificateThumbprint -cne [string]$cert.Thumbprint){
+        throw 'MANIFEST_CERTIFICATE_THUMBPRINT_MISMATCH'
+    }
+    foreach($entry in @(
+        @('INF',$inf,[string]$manifest.InfSha256),
+        @('SYS',$sys,[string]$manifest.SysSha256),
+        @('CAT',$cat,[string]$manifest.CatSha256),
+        @('CER',$cer,[string]$manifest.CerSha256)
+    )){
+        $actual=(Get-FileHash -LiteralPath $entry[1] -Algorithm SHA256).Hash.ToLowerInvariant()
+        if($actual -cne $entry[2].ToLowerInvariant()){throw "MANIFEST_HASH_MISMATCH: $($entry[0])"}
+    }
+
     $sysSig=Get-AuthenticodeSignature -LiteralPath $sys
     $catSig=Get-AuthenticodeSignature -LiteralPath $cat
-    if($sysSig.Status -ne 'Valid'){throw "SYS_SIGNATURE_NOT_VALID: $($sysSig.Status)"}
-    if($catSig.Status -ne 'Valid'){throw "CAT_SIGNATURE_NOT_VALID: $($catSig.Status)"}
+    foreach($pair in @(@('SYS',$sysSig),@('CAT',$catSig))){
+        if(-not $pair[1].SignerCertificate){throw "$($pair[0])_SIGNER_MISSING"}
+        if([string]$pair[1].SignerCertificate.Thumbprint -cne [string]$cert.Thumbprint){
+            throw "$($pair[0])_SIGNER_CERT_MISMATCH"
+        }
+        if($pair[1].Status -eq 'HashMismatch' -or $pair[1].Status -eq 'NotSigned'){
+            throw "$($pair[0])_SIGNATURE_DAMAGED: $($pair[1].Status)"
+        }
+    }
+    if($RequireTrusted){
+        if($sysSig.Status -ne 'Valid'){throw "SYS_SIGNATURE_NOT_VALID_AFTER_TRUST: $($sysSig.Status)"}
+        if($catSig.Status -ne 'Valid'){throw "CAT_SIGNATURE_NOT_VALID_AFTER_TRUST: $($catSig.Status)"}
+    }
+
     $infText=Get-Content -LiteralPath $inf -Raw
     if($infText.IndexOf($script:H15cExtensionId,[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
        $infText.IndexOf($script:H15cExactHwid,[StringComparison]::OrdinalIgnoreCase) -lt 0){
         throw 'PACKAGE_INF_IDENTITY_MISMATCH'
     }
+
     [pscustomobject]@{
-        Root=$root;Inf=$inf;Sys=$sys;Cat=$cat
-        InfSha256=(Get-FileHash $inf -Algorithm SHA256).Hash.ToLowerInvariant()
-        SysSha256=(Get-FileHash $sys -Algorithm SHA256).Hash.ToLowerInvariant()
-        CatSha256=(Get-FileHash $cat -Algorithm SHA256).Hash.ToLowerInvariant()
-        SignerThumbprint=[string]$sysSig.SignerCertificate.Thumbprint
+        Root=$root;Inf=$inf;Sys=$sys;Cat=$cat;Certificate=$cer;Manifest=$manifestPath
+        SourceCommit=[string]$manifest.SourceCommit
+        InfSha256=[string]$manifest.InfSha256
+        SysSha256=[string]$manifest.SysSha256
+        CatSha256=[string]$manifest.CatSha256
+        CertificateSha256=[string]$manifest.CerSha256
+        CertificateThumbprint=[string]$cert.Thumbprint
+        CertificateSubject=[string]$cert.Subject
+        CertificateNotAfter=$cert.NotAfter.ToUniversalTime().ToString('o')
+        SysAuthenticode=[string]$sysSig.Status
+        CatAuthenticode=[string]$catSig.Status
+        TrustedRequired=[bool]$RequireTrusted
     }
 }
 
 function Invoke-H15cPnPUtil([string[]]$Arguments) {
     $exe=Join-Path $env:SystemRoot 'System32\pnputil.exe'
     if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'PNPUTIL_NOT_FOUND'}
+    $old=$ErrorActionPreference;$ErrorActionPreference='Continue'
+    try{$out=(& $exe @Arguments 2>&1|Out-String -Width 8192);$code=$LASTEXITCODE}
+    finally{$ErrorActionPreference=$old}
+    [pscustomobject]@{ExitCode=$code;Output=$out;Arguments=@($Arguments)}
+}
+
+function Invoke-H15cCertUtil([string[]]$Arguments) {
+    $exe=Join-Path $env:SystemRoot 'System32\certutil.exe'
+    if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'CERTUTIL_NOT_FOUND'}
     $old=$ErrorActionPreference;$ErrorActionPreference='Continue'
     try{$out=(& $exe @Arguments 2>&1|Out-String -Width 8192);$code=$LASTEXITCODE}
     finally{$ErrorActionPreference=$old}

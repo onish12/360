@@ -56,7 +56,7 @@ jobs:
           $subject = 'CN=PHASER360 H15C-LIVE R2 Ephemeral Test Signing'
           $cert = $null
           try {
-            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(2)
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(7)
             if (-not $cert -or -not $cert.HasPrivateKey) { throw 'R2_CERT_CREATE_FAILED' }
             $thumb = [string]$cert.Thumbprint
 
@@ -107,6 +107,7 @@ jobs:
             Copy-Item .\m062\h15c_live\Collect-H15cLive.ps1,$package
             Copy-Item .\m062\h15c_live\COLLECT_H15C_LIVE.cmd,$package
             Copy-Item .\m062\h15c_live\Collect-H15cLiveInstallPreflight.ps1,$package
+            Copy-Item .\m062\h15c_live\RUN_H15C_LIVE_PREFLIGHT.cmd,$package
             Copy-Item .\m062\h15c_live\Run-H15cLiveTransaction.ps1,$package
             Copy-Item .\m062\h15c_live\RUN_H15C_LIVE_TRANSACTION.cmd,$package
             Copy-Item .\m062\h15c_live\H15C_LIVE_WINRE_ROLLBACK.txt,$package

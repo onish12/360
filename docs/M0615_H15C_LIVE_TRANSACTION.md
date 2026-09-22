@@ -1,74 +1,97 @@
-# M0.6.15H15C-LIVE-R1 transactional install/capture/rollback gate
+# M0.6.15H15C-LIVE-R2 transactional trust and rollback
 
-H15C-LIVE-R1 adds the controlled physical-use contract for the read-only upper
-filter. CI still does not authorize or perform target installation.
+R2 uses the existing workflow-dispatch-only signed package producer and closes
+the target-side trust gap left by R1. The H15C-LIVE filter remains read-only.
 
-## Preflight
+## Signed package
 
-Collect-H15cLiveInstallPreflight.ps1 is read-only. It requires:
+The manual workflow `.github/workflows/h15c-live-r2-package.yml` creates a
+short-lived self-signed Code Signing certificate on a disposable runner. Its
+private key is NonExportable and never enters the artifact. The workflow
+exports only the public CER, signs the SYS, runs Inf2Cat over the already signed
+SYS, signs the CAT, records exact hashes and signer identity in
+`package_manifest.json`, removes the runner private certificate and uploads
+the signed package for three days.
 
-- administrator x64 PowerShell;
-- Windows build exactly 19044;
-- exactly one healthy exact DEV_3198 REV_06 target;
-- Intel IntcAudioBus still bound as the function service;
-- no existing H15C-LIVE published extension package;
-- Windows RE enabled;
-- Code Integrity reporting CODEINTEGRITY_OPTION_TESTSIGN;
-- a complete H15C-LIVE package whose SYS and CAT Authenticode status is Valid.
+R2 keeps certificate validity longer than artifact retention so an artifact
+cannot remain downloadable after its signer certificate has already expired.
 
-It records Secure Boot and HVCI but does not change either one. It does not
-change BCD, trust stores, registry, drivers, devices or power state.
+## Read-only target gates
 
-Microsoft documents SystemCodeIntegrityInformation option 0x02 as
-CODEINTEGRITY_OPTION_TESTSIGN.
+Before any target mutation:
+
+- Windows must be exactly build 19044;
+- the exact REV_06 DEV_3198 must be healthy;
+- IntcAudioBus must remain the function service;
+- no H15C-LIVE package/filter may already be present;
+- TestSign must already be effective;
+- WinRE must be enabled;
+- package hashes, certificate identity, Code Signing EKU and SYS/CAT signer
+  thumbprints must match the manifest;
+- the exact package certificate must be absent from both LocalMachine Root and
+  LocalMachine TrustedPublisher.
+
+The package checker and preflight are read-only. They do not install the
+certificate, driver, change BCD, restart the device or mutate registry state.
 
 ## Transaction
 
-Run-H15cLiveTransaction.ps1 performs one bounded transaction:
+`Run-H15cLiveTransaction.ps1` performs one bounded transaction:
 
-1. repeat all exact-target/trust/WinRE gates;
-2. export the currently bound Intel package with PnPUtil /export-driver;
-3. add/install only the exact H15C-LIVE extension package;
-4. discover and record the resulting PHASER360 oemNN.inf by its unique
-   ExtensionId;
-5. restart only the exact DEV_3198 instance;
-6. require Phaser360H15cLive in CompoundUpperFilters while IntcAudioBus remains
-   the function service;
-7. execute the existing read-only PCI collector;
-8. delete only the recorded PHASER360 extension package using
-   PnPUtil /delete-driver oemNN.inf /uninstall /force;
-9. restart only DEV_3198;
-10. require exact restoration of service, base INF, version and provider and
-    require the PHASER360 package/filter to be absent.
+1. export the currently bound Intel package;
+2. add only the package's exact public certificate to LocalMachine Root;
+3. add the same exact certificate to LocalMachine TrustedPublisher;
+4. require SYS and CAT Authenticode status to become Valid;
+5. install only the exact H15C-LIVE Extension upper-filter package;
+6. restart only the exact DEV_3198;
+7. require IntcAudioBus to remain the function service and require the H15C
+   filter in CompoundUpperFilters;
+8. capture PCI configuration using the read-only filter;
+9. uninstall only the recorded PHASER360 published INF;
+10. restart only DEV_3198 back to the Intel baseline;
+11. prove exact restoration of service, base INF, version and provider and prove
+    the PHASER360 package/filter absent;
+12. delete only the exact package-certificate thumbprint from
+    TrustedPublisher and Root;
+13. prove both certificate stores returned to their pre-transaction absence.
 
-There is no /reboot flag.
+Success requires capture completed, Intel baseline restored and trust restored.
 
-## Failure behavior
+## Failure ordering
 
-Once installation has started, every failure enters a finally-block emergency
-rollback. The script searches only for packages carrying the fixed PHASER360
-ExtensionId, removes those packages, restarts only DEV_3198 and writes a
-rollback log.
+If anything fails after mutation begins, the finally path attempts driver
+rollback first. The signer certificate is removed only when package/filter
+absence and a healthy Intel baseline are proven. If that proof is unavailable,
+R2 intentionally retains the exact signer trust and writes
+`TRUST_RETAINED_FOR_SAFETY=TRUE`. This avoids making a possibly still
+installed test-signed filter untrusted on a subsequent device start.
 
-The transaction result is successful only if the Intel baseline identity is
-exactly restored and no H15C-LIVE package/filter remains.
+If Windows cannot boot, WinRE instructions remove only the recorded PHASER360
+H15C-LIVE published driver. Offline certificate-store edits are not attempted.
+After Windows boots healthy on IntcAudioBus, the exact recorded certificate
+thumbprint can be removed from TrustedPublisher and Root.
 
-If Windows cannot boot, H15C_LIVE_WINRE_ROLLBACK.txt documents offline DISM
-removal of only the recorded PHASER360 oemNN.inf. The Intel base package must
-not be removed.
+## Persistent-state accounting
 
-Microsoft documents AddFilter for device-specific filters on Windows 10 1903+,
-PnPUtil /delete-driver /uninstall for package removal, /restart-device on
-Windows 10 2004+, and offline DISM driver removal.
+Unlike R1, R2 does not claim RegistryWrite=NO. PnP package operations and
+machine certificate stores are persistent Windows state.
 
-## Explicit holds
+R2 reports:
 
-TARGET_INSTALL_EXECUTED_IN_CI=FALSE
-TARGET_INSTALL_AUTHORIZED_BY_SOURCE_ALONE=FALSE
-BCD_WRITE=FALSE
-TRUST_STORE_WRITE=FALSE
-SYSTEM_REBOOT=FALSE
-PCI_CONFIG_WRITE=FALSE
-MMIO=FALSE
-DSP_BOOT=FALSE
-AUDIO_PLAYBACK=FALSE
+- `RegistryWrite=PNP_AND_CERT_STORES_TRANSACTIONAL`
+- `TrustChange=TEMPORARY_LOCALMACHINE_ROOT_AND_TRUSTEDPUBLISHER`
+- `SystemReboot=NO`
+- `BcdWrite=NO`
+- `PciConfigWrite=NO`
+- `Mmio=NO`
+- `DspBoot=NO`
+- `AudioPlayback=NO`
+
+## Primary references
+
+- Microsoft Learn: Installing Test Certificates.
+- Microsoft Learn: Test Signing.
+- Microsoft Learn: Test-Signing Driver Packages.
+- Microsoft Learn: CertUtil command syntax.
+- Microsoft Learn: PnPUtil command syntax.
+- Microsoft Learn: AddFilter directive and device filter ordering.

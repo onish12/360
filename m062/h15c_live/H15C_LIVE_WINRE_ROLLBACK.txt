@@ -1,4 +1,4 @@
-PHASER360 H15C-LIVE OFFLINE ROLLBACK
+PHASER360 H15C-LIVE R2 OFFLINE ROLLBACK
 
 Use only if Windows cannot boot after the H15C-LIVE upper-filter transaction.
 
@@ -13,3 +13,15 @@ Use only if Windows cannot boot after the H15C-LIVE upper-filter transaction.
 
 Do not remove the Intel IntcAudioBus package. The H15C-LIVE package is an
 Extension upper filter, not the base Intel function driver.
+
+R2 temporarily trusts the package's unique public test certificate in the
+online LocalMachine Root and TrustedPublisher stores. Do NOT edit offline
+certificate stores in WinRE. First recover boot by removing only the H15C-LIVE
+driver package. After Windows boots and DEV_3198 is healthy on IntcAudioBus,
+remove the exact certificate thumbprint recorded as
+PackageCertificateThumbprint/CertificateThumbprint in the transaction evidence:
+
+  certutil -delstore TrustedPublisher <THUMBPRINT>
+  certutil -delstore Root <THUMBPRINT>
+
+Never remove another certificate by subject-name wildcard.

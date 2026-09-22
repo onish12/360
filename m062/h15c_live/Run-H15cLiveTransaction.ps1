@@ -19,11 +19,15 @@ if(-not $ci.TestSignAllowed){throw 'CODE_INTEGRITY_TESTSIGN_NOT_ALLOWED'}
 $re=Get-H15cWinRE
 if($re.ExitCode -ne 0 -or $re.Status -cne 'ENABLED'){throw 'WINRE_NOT_READY'}
 $package=Assert-H15cPackage $PackageRoot
+$trustBefore=Get-H15cCertificatePresence $package.CertificateThumbprint
+if($trustBefore.Root -or $trustBefore.TrustedPublisher){
+    throw 'H15C_LIVE_PACKAGE_CERT_ALREADY_TRUSTED'
+}
 
 if([string]::IsNullOrWhiteSpace($OutputRoot)){$OutputRoot=$PSScriptRoot}
 $stamp=Get-Date -Format 'yyyyMMdd_HHmmss'
 $suffix=[Guid]::NewGuid().ToString('N').Substring(0,8)
-$runDir=Join-Path $OutputRoot ('H15C_LIVE_TRANSACTION_'+$stamp+'_'+$suffix)
+$runDir=Join-Path $OutputRoot ('H15C_LIVE_R2_TRANSACTION_'+$stamp+'_'+$suffix)
 $backupDir=Join-Path $runDir 'intel_baseline_export'
 $captureDir=Join-Path $runDir 'capture'
 New-Item -ItemType Directory -Path $backupDir,$captureDir -Force|Out-Null
@@ -31,6 +35,7 @@ New-Item -ItemType Directory -Path $backupDir,$captureDir -Force|Out-Null
 $before|ConvertTo-Json -Depth 8|Set-Content (Join-Path $runDir 'target_before.json') -Encoding UTF8
 $ci|ConvertTo-Json -Depth 6|Set-Content (Join-Path $runDir 'code_integrity.json') -Encoding UTF8
 $package|ConvertTo-Json -Depth 6|Set-Content (Join-Path $runDir 'package.json') -Encoding UTF8
+$trustBefore|ConvertTo-Json -Depth 4|Set-Content (Join-Path $runDir 'trust_before.json') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'H15C_LIVE_WINRE_ROLLBACK.txt') -Destination $runDir
 
 $export=Invoke-H15cPnPUtil @('/export-driver',$before.DriverInfPath,$backupDir)
@@ -39,10 +44,31 @@ if($export.ExitCode -ne 0){throw "BASELINE_EXPORT_FAILED: $($export.ExitCode)"}
 if(@(Get-ChildItem -LiteralPath $backupDir -Recurse -File).Count -eq 0){throw 'BASELINE_EXPORT_EMPTY'}
 
 $publishedInf=$null
+$rootAdded=$false
+$publisherAdded=$false
 $installStarted=$false
+$captureCompleted=$false
 $normalRollbackComplete=$false
 $transactionError=$null
+
 try {
+    $rootAdd=Invoke-H15cCertUtil @('-f','-addstore','Root',$package.Certificate)
+    $rootAdd.Output|Set-Content (Join-Path $runDir 'certutil_add_root.txt') -Encoding UTF8
+    if($rootAdd.ExitCode -ne 0){throw "CERT_ROOT_ADD_FAILED: $($rootAdd.ExitCode)"}
+    $rootAdded=$true
+
+    $publisherAdd=Invoke-H15cCertUtil @('-f','-addstore','TrustedPublisher',$package.Certificate)
+    $publisherAdd.Output|Set-Content (Join-Path $runDir 'certutil_add_trustedpublisher.txt') -Encoding UTF8
+    if($publisherAdd.ExitCode -ne 0){throw "CERT_TRUSTEDPUBLISHER_ADD_FAILED: $($publisherAdd.ExitCode)"}
+    $publisherAdded=$true
+
+    $trustedNow=Get-H15cCertificatePresence $package.CertificateThumbprint
+    if(-not $trustedNow.Root -or -not $trustedNow.TrustedPublisher){
+        throw 'CERT_TRUST_NOT_PRESENT_AFTER_ADD'
+    }
+    $trustedPackage=Assert-H15cPackage $PackageRoot -RequireTrusted
+    $trustedPackage|ConvertTo-Json -Depth 6|Set-Content (Join-Path $runDir 'package_after_trust.json') -Encoding UTF8
+
     $installStarted=$true
     $install=Invoke-H15cPnPUtil @('/add-driver',$package.Inf,'/install')
     $install.Output|Set-Content (Join-Path $runDir 'pnputil_add_install.txt') -Encoding UTF8
@@ -74,6 +100,7 @@ try {
     if($collectorCode -ne 0){throw "H15C_LIVE_COLLECTOR_FAILED: $collectorCode"}
     $captureZips=@(Get-ChildItem -LiteralPath $captureDir -Filter 'RESULT_H15C_LIVE_*.zip' -File)
     if($captureZips.Count -ne 1){throw "EXPECTED_ONE_CAPTURE_ZIP: count=$($captureZips.Count)"}
+    $captureCompleted=$true
 
     $remove=Invoke-H15cPnPUtil @('/delete-driver',$publishedInf,'/uninstall','/force')
     $remove.Output|Set-Content (Join-Path $runDir 'pnputil_delete_filter.txt') -Encoding UTF8
@@ -93,26 +120,74 @@ try {
     if(@($after.CompoundUpperFilters|Where-Object {$_ -ceq $script:H15cService}).Count -ne 0){
         throw 'H15C_FILTER_REMAINS_IN_COMPOUND_UPPER_FILTERS'
     }
+    $after|ConvertTo-Json -Depth 8|Set-Content (Join-Path $runDir 'target_after_driver_rollback.json') -Encoding UTF8
+
+    $publisherDel=Invoke-H15cCertUtil @('-delstore','TrustedPublisher',$package.CertificateThumbprint)
+    $publisherDel.Output|Set-Content (Join-Path $runDir 'certutil_delete_trustedpublisher.txt') -Encoding UTF8
+    if($publisherDel.ExitCode -ne 0){throw "CERT_TRUSTEDPUBLISHER_REMOVE_FAILED: $($publisherDel.ExitCode)"}
+    $publisherAdded=$false
+
+    $rootDel=Invoke-H15cCertUtil @('-delstore','Root',$package.CertificateThumbprint)
+    $rootDel.Output|Set-Content (Join-Path $runDir 'certutil_delete_root.txt') -Encoding UTF8
+    if($rootDel.ExitCode -ne 0){throw "CERT_ROOT_REMOVE_FAILED: $($rootDel.ExitCode)"}
+    $rootAdded=$false
+
+    $trustAfter=Get-H15cCertificatePresence $package.CertificateThumbprint
+    if($trustAfter.Root -or $trustAfter.TrustedPublisher){throw 'CERT_TRUST_REMAINS_AFTER_ROLLBACK'}
+    $trustAfter|ConvertTo-Json -Depth 4|Set-Content (Join-Path $runDir 'trust_after.json') -Encoding UTF8
     $after|ConvertTo-Json -Depth 8|Set-Content (Join-Path $runDir 'target_after.json') -Encoding UTF8
     $normalRollbackComplete=$true
 } catch {
     $transactionError=$_.Exception
 } finally {
-    if($installStarted -and -not $normalRollbackComplete){
-        $emergency=@(Get-H15cPublishedInf)
+    if(-not $normalRollbackComplete){
         $rollbackLog=New-Object System.Collections.Generic.List[string]
-        foreach($inf in $emergency){
-            $rr=Invoke-H15cPnPUtil @('/delete-driver',$inf,'/uninstall','/force')
-            $rollbackLog.Add("DELETE $inf EXIT=$($rr.ExitCode)")
-            $rollbackLog.Add($rr.Output)
+
+        if($installStarted){
+            $emergency=@(Get-H15cPublishedInf)
+            foreach($inf in $emergency){
+                $rr=Invoke-H15cPnPUtil @('/delete-driver',$inf,'/uninstall','/force')
+                $rollbackLog.Add("DELETE $inf EXIT=$($rr.ExitCode)")
+                $rollbackLog.Add($rr.Output)
+            }
+            try{
+                $rr2=Invoke-H15cPnPUtil @('/restart-device',$before.InstanceId)
+                $rollbackLog.Add("RESTART EXIT=$($rr2.ExitCode)")
+                $rollbackLog.Add($rr2.Output)
+            }catch{
+                $rollbackLog.Add("RESTART_EXCEPTION=$($_.Exception.Message)")
+            }
         }
-        try{
-            $rr2=Invoke-H15cPnPUtil @('/restart-device',$before.InstanceId)
-            $rollbackLog.Add("RESTART EXIT=$($rr2.ExitCode)")
-            $rollbackLog.Add($rr2.Output)
-        }catch{
-            $rollbackLog.Add("RESTART_EXCEPTION=$($_.Exception.Message)")
+
+        $remainingForTrust=@(Get-H15cPublishedInf)
+        $rollbackTarget=$null
+        try{$rollbackTarget=Get-H15cTargetState}catch{
+            $rollbackLog.Add("TARGET_CHECK_EXCEPTION=$($_.Exception.Message)")
         }
+        $safeToDropTrust=(-not $installStarted) -or
+            ($remainingForTrust.Count -eq 0 -and $rollbackTarget -and
+             $rollbackTarget.ProblemCode -eq 0 -and $rollbackTarget.Status -ceq 'OK' -and
+             $rollbackTarget.Service -ceq $before.Service -and
+             @($rollbackTarget.CompoundUpperFilters|Where-Object {$_ -ceq $script:H15cService}).Count -eq 0)
+
+        if($safeToDropTrust){
+            if($publisherAdded){
+                $cr=Invoke-H15cCertUtil @('-delstore','TrustedPublisher',$package.CertificateThumbprint)
+                $rollbackLog.Add("CERT_DELETE TrustedPublisher EXIT=$($cr.ExitCode)")
+                $rollbackLog.Add($cr.Output)
+                if($cr.ExitCode -eq 0){$publisherAdded=$false}
+            }
+            if($rootAdded){
+                $cr=Invoke-H15cCertUtil @('-delstore','Root',$package.CertificateThumbprint)
+                $rollbackLog.Add("CERT_DELETE Root EXIT=$($cr.ExitCode)")
+                $rollbackLog.Add($cr.Output)
+                if($cr.ExitCode -eq 0){$rootAdded=$false}
+            }
+        } else {
+            $rollbackLog.Add('TRUST_RETAINED_FOR_SAFETY=TRUE')
+            $rollbackLog.Add('Reason: filter package/device state was not proven restored; retaining signer trust avoids making a remaining test driver unloadable on the next start.')
+        }
+
         $rollbackLog|Set-Content (Join-Path $runDir 'emergency_rollback.txt') -Encoding UTF8
     }
 }
@@ -120,6 +195,7 @@ try {
 $final=$null
 try{$final=Get-H15cTargetState}catch{}
 $remaining=@(Get-H15cPublishedInf)
+$finalTrust=Get-H15cCertificatePresence $package.CertificateThumbprint
 $baselineRestored=$false
 if($final){
     $baselineRestored=($final.ProblemCode -eq 0 -and $final.Status -ceq 'OK' -and
@@ -129,31 +205,39 @@ if($final){
         $final.DriverVersion -ceq $before.DriverVersion -and
         $final.DriverProvider -ceq $before.DriverProvider -and
         $remaining.Count -eq 0 -and
-        @($final.CompoundUpperFilters|Where-Object {$_ -ceq $script:H15cService}).Count -eq 0)
+        @($final.CompoundUpperFilters|Where-Object {$_ -ceq $script:H15cService}).Count -eq 0 -and
+        -not $finalTrust.Root -and -not $finalTrust.TrustedPublisher)
 }
 if($final){$final|ConvertTo-Json -Depth 8|Set-Content (Join-Path $runDir 'target_final.json') -Encoding UTF8}
+$finalTrust|ConvertTo-Json -Depth 4|Set-Content (Join-Path $runDir 'trust_final.json') -Encoding UTF8
 
 $result=[ordered]@{
     Status=$(if($normalRollbackComplete -and $baselineRestored -and -not $transactionError){
-        'H15C_LIVE_CAPTURE_AND_ROLLBACK_COMPLETE'
-    }else{'H15C_LIVE_TRANSACTION_FAILED'})
+        'H15C_LIVE_R2_CAPTURE_AND_ROLLBACK_COMPLETE'
+    }else{'H15C_LIVE_R2_TRANSACTION_FAILED'})
     PublishedInf=$publishedInf
-    CaptureCompleted=$normalRollbackComplete
+    CaptureCompleted=$captureCompleted
     BaselineRestored=$baselineRestored
+    TrustRestored=(-not $finalTrust.Root -and -not $finalTrust.TrustedPublisher)
     TransactionError=$(if($transactionError){$transactionError.Message}else{$null})
     BaseService=$before.Service;BaseInf=$before.DriverInfPath;BaseVersion=$before.DriverVersion
     TestSignAllowed=$ci.TestSignAllowed
-    SystemReboot='NO';BcdWrite='NO';TrustChange='NO';RegistryWrite='NO'
+    PackageCertificateThumbprint=$package.CertificateThumbprint
+    SystemReboot='NO';BcdWrite='NO'
+    TrustChange='TEMPORARY_LOCALMACHINE_ROOT_AND_TRUSTEDPUBLISHER'
+    RegistryWrite='PNP_AND_CERT_STORES_TRANSACTIONAL'
     PciConfigWrite='NO';Mmio='NO';DspBoot='NO';AudioPlayback='NO'
     DeviceRestarts='TARGET_DEV3198_ONLY'
 }
 $result|ConvertTo-Json -Depth 8|Set-Content (Join-Path $runDir 'transaction.json') -Encoding UTF8
 Write-H15cHashes $runDir
-$zip=Join-Path $OutputRoot ('RESULT_H15C_LIVE_TRANSACTION_'+$stamp+'_'+$suffix+'.zip')
+$zip=Join-Path $OutputRoot ('RESULT_H15C_LIVE_R2_TRANSACTION_'+$stamp+'_'+$suffix+'.zip')
 Compress-Archive -Path (Join-Path $runDir '*') -DestinationPath $zip -Force
 
 Write-Host "STATUS=$($result.Status)"
+Write-Host "CAPTURE_COMPLETED=$($captureCompleted.ToString().ToUpperInvariant())"
 Write-Host "BASELINE_RESTORED=$($baselineRestored.ToString().ToUpperInvariant())"
+Write-Host "TRUST_RESTORED=$($result.TrustRestored.ToString().ToUpperInvariant())"
 Write-Host "PUBLISHED_INF=$publishedInf"
 Write-Host "Trimite fisierul: $zip"
 if($transactionError){throw $transactionError}

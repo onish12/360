@@ -2,7 +2,10 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2
 $root=Join-Path $PSScriptRoot '..'
 $workflow=Get-Content -LiteralPath (Join-Path $root '.github\workflows\h15c-live-r2-package.yml') -Raw
+$common=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\H15cLive-Common.ps1') -Raw
 $check=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\Check-H15cLivePackageTrust.ps1') -Raw
+$pre=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\Collect-H15cLiveInstallPreflight.ps1') -Raw
+$tx=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\Run-H15cLiveTransaction.ps1') -Raw
 $start=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\START_H15C_LIVE_R2.txt') -Raw
 
 if($workflow -notmatch '(?m)^\s*workflow_dispatch:\s*$'){throw 'R2_WORKFLOW_DISPATCH_MISSING'}
@@ -14,7 +17,7 @@ foreach($required in @(
     '-KeyExportPolicy NonExportable','RSA','SHA256','Export-Certificate',
     'signtool sign','Inf2Cat.exe','phaser360_h15c_live_filter.cer',
     'package_manifest.json','PrivateKeyExported = $false',
-    'retention-days: 3','actions/upload-artifact',
+    '(Get-Date).AddDays(7)','retention-days: 3','actions/upload-artifact',
     'PHASER360_H15C_LIVE_R2_SIGNED_TEST_PACKAGE'
 )){
     if($workflow.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
@@ -22,27 +25,25 @@ foreach($required in @(
     }
 }
 foreach($forbidden in @(
-    'Export-PfxCertificate','-KeyExportPolicy Exportable',
+    'Export-PfxCertificate','.pfx','.p12','-KeyExportPolicy Exportable',
     'certutil -addstore','Import-Certificate','bcdedit','/reboot'
 )){
     if($workflow.IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0){
         throw "R2_WORKFLOW_FORBIDDEN: $forbidden"
     }
 }
-foreach($requiredGuard in @(
-    "'.pfx','.p12','.pvk','.key'",
-    'R2_PRIVATE_KEY_ARTIFACT_FORBIDDEN',
-    'PrivateKeyExported = $false'
+foreach($required in @(
+    'Get-H15cCertificatePresence','Invoke-H15cCertUtil',
+    'PUBLIC_CER_HAS_PRIVATE_KEY','CODE_SIGNING_EKU_MISSING',
+    'MANIFEST_CERTIFICATE_THUMBPRINT_MISMATCH','MANIFEST_HASH_MISMATCH'
 )){
-    if($workflow.IndexOf($requiredGuard,[StringComparison]::OrdinalIgnoreCase) -lt 0){
-        throw "R2_PRIVATE_KEY_GUARD_MISSING: $requiredGuard"
+    if($common.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+        throw "R2_COMMON_REQUIRED_MISSING: $required"
     }
 }
 foreach($required in @(
-    'PUBLIC_CER_HAS_PRIVATE_KEY','CODE_SIGNING_EKU_MISSING',
-    'MANIFEST_CERTIFICATE_THUMBPRINT_MISMATCH','MANIFEST_HASH_MISMATCH',
-    'Cert:\LocalMachine\Root','Cert:\LocalMachine\TrustedPublisher',
-    'H15C_LIVE_R2_PACKAGE_TRUST_READY','H15C_LIVE_R2_PACKAGE_TRUST_BLOCKED',
+    'H15C_LIVE_R2_PACKAGE_READY_FOR_TRANSACTION',
+    'H15C_LIVE_R2_PACKAGE_TRUST_PREEXISTS',
     'DRIVER_INSTALL=NO','TRUST_CHANGE=NO','BCD_WRITE=NO'
 )){
     if($check.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
@@ -58,13 +59,36 @@ foreach($forbidden in @(
     }
 }
 foreach($required in @(
-    'No PFX/P12/private key is distributed',
-    'LocalMachine Root','LocalMachine TrustedPublisher',
-    'H15C_LIVE_R2_PACKAGE_TRUST_READY',
+    'H15C_LIVE_R2_INSTALL_READY',
+    'CertificateAlreadyInRoot','CertificateAlreadyInTrustedPublisher',
+    'TrustChange=''NO_PREFLIGHT'''
+)){
+    if($pre.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+        throw "R2_PREFLIGHT_REQUIRED_MISSING: $required"
+    }
+}
+foreach($required in @(
+    "'-addstore','Root'","'-addstore','TrustedPublisher'",
+    'Assert-H15cPackage $PackageRoot -RequireTrusted',
+    "'-delstore','TrustedPublisher'","'-delstore','Root'",
+    'TRUST_RETAINED_FOR_SAFETY=TRUE',
+    'RegistryWrite=''PNP_AND_CERT_STORES_TRANSACTIONAL''',
+    'TrustChange=''TEMPORARY_LOCALMACHINE_ROOT_AND_TRUSTEDPUBLISHER''',
+    'TrustRestored='
+)){
+    if($tx.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+        throw "R2_TRANSACTION_REQUIRED_MISSING: $required"
+    }
+}
+foreach($required in @(
+    'Do not manually import the certificate before the transaction',
+    'H15C_LIVE_R2_PACKAGE_READY_FOR_TRANSACTION',
+    'H15C_LIVE_R2_INSTALL_READY',
+    'TRUST_RESTORED=TRUE',
     'RUN_H15C_LIVE_TRANSACTION.cmd'
 )){
     if($start.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
         throw "R2_START_REQUIRED_MISSING: $required"
     }
 }
-Write-Host 'H15C_LIVE_R2_STATIC_TESTS=PASS; package_trigger=MANUAL_ONLY; signer=EPHEMERAL_NONEXPORTABLE; private_key_artifact=NO; target_checker=READ_ONLY; target_trust_change=EXPLICIT_USER_ACTION; bcd_write=NO; pci_write=NO; mmio=NO'
+Write-Host 'H15C_LIVE_R2_STATIC_TESTS=PASS; package_trigger=MANUAL_ONLY; signer=EPHEMERAL_NONEXPORTABLE_7D; private_key_artifact=NO; pretrust_checker=READ_ONLY_AND_REQUIRES_ABSENCE; target_trust_change=TRANSACTIONAL_EXACT_CERT; trust_rollback=REQUIRED; bcd_write=NO; pci_write=NO; mmio=NO'

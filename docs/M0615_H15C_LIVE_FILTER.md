@@ -1,69 +1,51 @@
 # M0.6.15H15C-LIVE read-only PCI capture filter
 
-This milestone prepares a device-specific KMDF upper filter for the exact
-Intel SST target. CI builds and validates it, but does not publish an
-installable package and does not authorize target installation.
+H15C-LIVE is a device-specific KMDF Extension upper filter for the exact Intel
+SST target. It exists only to expose the H15C read-only PCI configuration
+attestation while IntcAudioBus remains the function driver.
 
-## Why a filter
-
-Windows user mode does not expose the raw PCI configuration-space bytes needed
-for the 0x44/0x48 attestation. Replacing IntcAudioBus merely to read those bytes
-would enlarge risk unnecessarily.
-
-The H15C-LIVE driver is therefore an Extension-INF device-specific upper filter.
-It calls WdfFdoInitSetFilter and leaves the existing Intel function driver in
-place. Windows 10 1903 and later support declarative device filters via
-DDInstall.Filters/AddFilter; the target build is Windows 10 19044.
-
-## Hardware behavior
+## Filter behavior
 
 At EvtDevicePrepareHardware the filter constructs a fresh
-PciConfigAttestation and performs the existing single 256-byte GetBusData
-capture. Capture failure is stored for diagnostics but the filter returns
-STATUS_SUCCESS so it cannot intentionally prevent the Intel function driver
-from starting.
+PciConfigAttestation and performs one 256-byte BUS_INTERFACE_STANDARD
+GetBusData capture. Capture failure is recorded but the filter returns success
+so diagnostic failure does not intentionally block the Intel function driver.
 
-There is no SetBusData path, no BAR mapping, no MMIO, no DMA, no IRQ object,
-no DSP boot, no firmware access and no codec/audio programming.
+The filter has no SetBusData path, BAR mapping, MMIO, DMA, IRQ object, DSP boot,
+firmware execution, codec access or audio programming.
 
-## IOCTL behavior
-
-The filter exposes one read-only interface and one METHOD_BUFFERED,
-FILE_READ_ACCESS IOCTL. It returns a fixed 292-byte snapshot containing:
-
-- capture NTSTATUS and generation;
-- target/vendor/header/capability summary;
-- values at config offsets 0x44 and 0x48;
-- all 256 conventional PCI configuration bytes.
-
-The queue is non-power-managed. Unknown IOCTLs are formatted using their
-current type and forwarded to the existing target, preserving the Intel
-function-driver IOCTL surface.
+A private FILE_READ_ACCESS/METHOD_BUFFERED IOCTL returns the fixed snapshot.
+All other DeviceControl requests are forwarded to the next-lower target.
+Snapshot publication is protected by a WDF spin lock.
 
 ## INF boundary
 
-The INF is Class=Extension and uses an ExtensionId. It targets only
-PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06 and only Windows build 19044;
-the intentionally empty 19045 section blocks later builds. AddService does not
-use SPSVCINST_ASSOCSERVICE. AddFilter registers the service as an upper filter.
+The INF is Class=Extension with a fixed ExtensionId, targets only
+PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06 and only Windows build 19044.
+The intentionally empty 19045 section blocks later builds. AddService does not
+associate the filter as the function service; AddFilter registers it in the
+Upper position.
 
-## Current authorization
+## R2 physical-use boundary
 
-CI may compile the SYS and validate a temporary INF/CAT package, then must
-delete all SYS/INF/CAT payloads. The development artifact may contain source,
-documentation and the reader script only.
+The normal development artifact remains source-only. A separate manual
+workflow can produce the signed R2 test package. That package is never
+auto-installed by CI.
 
-FILTER_INSTALL_AUTHORIZED=FALSE
-DEVICE_RESTART_AUTHORIZED=FALSE
-TARGET_TRUST_CHANGE_AUTHORIZED=FALSE
+Physical use is allowed only through the R2 checker, read-only preflight and
+transaction. The transaction owns temporary trust for the package's exact
+public certificate, captures read-only PCI evidence, removes the extension
+filter, restores the Intel baseline and then removes the exact temporary trust.
+
+FILTER_AUTO_INSTALL=FALSE
+SYSTEM_REBOOT=FALSE
+BCD_WRITE=FALSE
+TRUST_CHANGE=TEMPORARY_EXACT_CERTIFICATE_DURING_R2_TRANSACTION
 PCI_CONFIG_WRITE=FALSE
 SETBUSDATA=FALSE
 MMIO=FALSE
 DSP_BOOT=FALSE
 AUDIO_PLAYBACK=FALSE
-
-Before physical installation, the existing H12 recovery/baseline controls and
-a dedicated H15C-LIVE install/uninstall rollback gate must be completed.
 
 ## Primary references
 
@@ -72,24 +54,4 @@ a dedicated H15C-LIVE install/uninstall rollback gate must be completed.
 - Microsoft Learn: INF AddFilter Directive.
 - Microsoft Learn: Device Filter Driver Ordering.
 - Microsoft Learn: Using an Extension INF File.
-- Microsoft Windows-driver-samples: KMDF filter examples.
-
-
-## H15C-LIVE forwarding and snapshot synchronization hardening
-
-The filter intercepts only DeviceControl requests so it can expose the private
-read-only snapshot IOCTL. Every other DeviceControl request is formatted using
-its current type and forwarded to the next-lower target with
-WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET. This matches KMDF's transparent filter
-forwarding contract and avoids retaining an asynchronously forwarded request
-without a completion routine.
-
-The snapshot is protected by a WDF spin lock. EvtDevicePrepareHardware marks
-the snapshot unavailable under the lock before recapturing PCI configuration,
-then publishes the complete 292-byte snapshot atomically under the same lock.
-The IOCTL handler copies the snapshot only while holding that lock. Therefore a
-device restart or resource rebalance cannot expose a torn mixture of old and
-new PCI evidence.
-
-These changes do not add any PCI write, MMIO, DMA, IRQ, DSP boot, device
-restart, installation or audio path.
+- Microsoft Learn: Test-Signing Driver Packages.
