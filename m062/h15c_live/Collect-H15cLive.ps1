@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2
 
 $InterfaceGuid=[Guid]'8c1b3150-6d0c-4c88-9d36-15c000319801'
-$Ioctl=[uint32]0x00226004
+$Ioctl=[uint32]0x83376454
 $SnapshotBytes=292
 
 function Test-IsAdministrator {
@@ -212,7 +212,10 @@ $cgctl=Read-U32 $bytes 32
 $config=[byte[]]::new(256)
 [Array]::Copy($bytes,36,$config,0,256)
 
-if($version -ne 1 -or $size -ne $SnapshotBytes){throw 'H15C_LIVE_ABI_MISMATCH'}
+if($version -ne 1 -or $size -ne $SnapshotBytes){
+    $head36=([BitConverter]::ToString($bytes,0,36)).Replace('-','')
+    throw ("H15C_LIVE_ABI_MISMATCH: version=$version size=$size captureStatus=0x{0:X8} flags=0x{1:X8} generation=$generation head36=$head36 ioctl=0x{2:X8}" -f ([uint32]$captureStatus),$flags,$Ioctl)
+}
 if($captureStatus -lt 0){throw ('H15C_LIVE_CAPTURE_NTSTATUS=0x{0:X8}' -f ([uint32]$captureStatus))}
 if(($flags -band 0x0f) -ne 0x0f){throw ('H15C_LIVE_FLAGS_INVALID=0x{0:X8}' -f $flags)}
 if($vendor -ne 0x8086 -or $device -ne 0x3198){throw 'H15C_LIVE_TARGET_ID_MISMATCH'}
