@@ -1,4 +1,4 @@
-name: M0.6.15H15C-LIVE-R2 transactional trust gate - NOT AUTO-INSTALL
+name: M0.6.15 H15C/H15D transactional gates - NOT AUTO-INSTALL
 on:
   workflow_dispatch:
   push:
@@ -26,6 +26,7 @@ on:
       - 'tests/m0615_h15c_live_filter_tests.ps1'
       - 'tests/m0615_h15c_live_transaction_tests.ps1'
       - 'tests/m0615_h15c_live_r2_tests.ps1'
+      - 'tests/m0615_h15d_live_tests.ps1'
       - 'scripts/audit-pe-repro.py'
       - 'scripts/generate-embedded-firmware.py'
       - 'tests/sof_ipc_fixture.h'
@@ -57,6 +58,7 @@ on:
       - 'tests/m0615_h15c_live_filter_tests.ps1'
       - 'tests/m0615_h15c_live_transaction_tests.ps1'
       - 'tests/m0615_h15c_live_r2_tests.ps1'
+      - 'tests/m0615_h15d_live_tests.ps1'
       - 'scripts/audit-pe-repro.py'
       - 'scripts/generate-embedded-firmware.py'
       - 'tests/sof_ipc_fixture.h'
@@ -648,6 +650,68 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & .\tests\m0615_h15c_live_r2_tests.ps1
           if (-not $?) { throw 'H15C_LIVE_R2_STATIC_TESTS_FAILED' }
+
+      - name: Build and validate H15D-LIVE R1 bounded PCI filter then destroy package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild .\m062\h15d_live\phaser360_h15d_live_filter.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'H15D_LIVE_FILTER_LINK_FAILED' }
+
+          $sys=(Resolve-Path .\m062\h15d_live\out\phaser360_h15d_live_filter.sys).Path
+          $build=(Resolve-Path .\build-dma).Path
+          $package=Join-Path $build 'h15d-live-package'
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+          $pkgSys=Join-Path $package 'phaser360_h15d_live_filter.sys'
+          $inf=Join-Path $package 'phaser360_h15d_live_filter.inf'
+          Copy-Item -LiteralPath $sys -Destination $pkgSys
+          Copy-Item -LiteralPath .\m062\h15d_live\phaser360_h15d_live_filter.inf -Destination $inf
+
+          $wdkPackage=(Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
+          $inf2cat=Join-Path $wdkPackage 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
+          if (-not (Test-Path -LiteralPath $inf2cat -PathType Leaf)) { throw 'H15D_LIVE_INF2CAT_NOT_FOUND' }
+          & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+          if ($LASTEXITCODE -ne 0) { throw 'H15D_LIVE_INF2CAT_FAILED' }
+          $cat=Join-Path $package 'phaser360_h15d_live_filter.cat'
+          if (-not (Test-Path -LiteralPath $cat -PathType Leaf)) { throw 'H15D_LIVE_CAT_MISSING' }
+
+          $report=Join-Path $build 'H15D_LIVE_FILTER_REPORT.txt'
+          @(
+            "COMMIT=$env:GITHUB_SHA",
+            'H15D_LIVE_FILTER_LINK=PASS',
+            'H15D_LIVE_INF2CAT=PASS',
+            'TARGET_BUILD_EXACT_GATE=19044',
+            'TARGET_HWID=PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
+            'FILTER_POSITION=UPPER',
+            'EXPECTED_PGCTL=0x00000010',
+            'EXPECTED_CGCTL=0x807B0DFF',
+            'APPLIED_PGCTL=0x00000014',
+            'APPLIED_CGCTL=0x807B0DFD',
+            'PCI_WRITE=ONLY_0x44_BIT2_AND_0x48_BIT1',
+            'RESTORE=EXACT_BASELINE_REQUIRED',
+            'ONE_SHOT=YES',
+            'MMIO=NONE',
+            'DMA=NONE',
+            'DSP_BOOT=NO',
+            'PLAYBACK=NO',
+            'PACKAGE_SIGNED=FALSE',
+            'PACKAGE_UPLOADED=FALSE',
+            'INSTALL_EXECUTED=FALSE'
+          ) | Set-Content -LiteralPath $report
+
+          Remove-Item -LiteralPath $package -Recurse -Force
+          Remove-Item -LiteralPath $sys -Force
+          if ((Test-Path -LiteralPath $package) -or (Test-Path -LiteralPath $sys)) {
+            throw 'H15D_LIVE_PACKAGE_DELETE_FAILED'
+          }
+          Write-Host 'H15D_LIVE_FILTER=PASS; pci_write=BOUNDED_TWO_BITS; exact_restore=REQUIRED; one_shot=YES; mmio=NO; dma=NO; dsp_boot=NO'
+
+      - name: Verify H15D-LIVE R1 transaction guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15d_live_tests.ps1
+          if (-not $?) { throw 'H15D_LIVE_R1_STATIC_TESTS_FAILED' }
 
       - name: Stage development library
         shell: pwsh
