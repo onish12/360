@@ -32,6 +32,7 @@ static WDFWAITLOCK serialHandle=nullptr;
 static std::vector<UCHAR> hda(0x4000),dsp(0x100000),pciConfig(256);
 static unsigned pciQueryCalls=0,pciReadCalls=0,pciWriteCalls=0,pciDereferenceCalls=0;
 static bool failPciQuery=false,shortPciRead=false,shortPciWriteOnce=false,rejectPciWrite=false;
+static HardwareAccessGate* surpriseGateAfterPciWrite=nullptr;
 static bool stuckRun=false,noRun=false,power=true,halt=false,missingReady=false,badReady=false,commandTimeout=false;
 static bool rejectPinnedEnter=false;
 static HardwareAccessGate* removeDuringPinnedEnter=nullptr;
@@ -131,6 +132,11 @@ static ULONG FakeSetBusData(void*,ULONG which,void* buffer,ULONG offset,ULONG le
     ULONG actual=length;
     if(shortPciWriteOnce && actual) { --actual; shortPciWriteOnce=false; }
     RtlCopyMemory(pciConfig.data()+offset,buffer,actual);
+    if(surpriseGateAfterPciWrite) {
+        auto* gate=surpriseGateAfterPciWrite;
+        surpriseGateAfterPciWrite=nullptr;
+        gate->SurpriseRemove();
+    }
     return actual;
 }
 static void FakeBusReference(void*) {}
@@ -280,6 +286,7 @@ static void Reset() {
     rejectPinnedEnter=false; removeDuringPinnedEnter=nullptr;
     pciQueryCalls=0; pciReadCalls=0; pciWriteCalls=0; pciDereferenceCalls=0;
     failPciQuery=false; shortPciRead=false; shortPciWriteOnce=false; rejectPciWrite=false;
+    surpriseGateAfterPciWrite=nullptr;
     ResetPciConfig();
     ResetColdRegisters();
 }
@@ -409,6 +416,28 @@ int main() {
         CHECK(!NT_SUCCESS(policy.Apply(&checks,attestation.Snapshot(),accessGate)));
         CHECK(Get(pciConfig,0x48,4)==originalCg);
         CHECK(!policy.Applied() && !policy.Dirty() && pciWriteCalls==1);
+    }
+    // Surprise removal after the first PCI write terminally closes the gate.
+    // The policy must not read back, issue the second write, or query again to restore.
+    Reset(); {
+        Put(pciConfig,0x44,4,0x00000000u);
+        Put(pciConfig,0x48,4,0x00000002u);
+        PciConfigAttestation attestation;
+        CHECK(NT_SUCCESS(attestation.Capture(&checks)));
+        HardwareAccessGate removalGate;
+        CHECK(removalGate.OpenForPrepare());
+        surpriseGateAfterPciWrite=&removalGate;
+        const auto readsBeforeApply=pciReadCalls;
+        const auto queriesBeforeApply=pciQueryCalls;
+        PciConfigBootPolicy policy;
+        CHECK(policy.Apply(&checks,attestation.Snapshot(),removalGate)==STATUS_DELETE_PENDING);
+        CHECK(removalGate.Removed());
+        CHECK(pciWriteCalls==1);
+        CHECK(pciReadCalls==readsBeforeApply+2);
+        CHECK(pciQueryCalls==queriesBeforeApply+1);
+        CHECK(policy.Dirty() && !policy.Applied());
+        CHECK(!policy.Restore());
+        CHECK(pciWriteCalls==1 && pciQueryCalls==queriesBeforeApply+1);
     }
     Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); CHECK(live==3);
         auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && r.ipcReady && r.commandReady && live==0);

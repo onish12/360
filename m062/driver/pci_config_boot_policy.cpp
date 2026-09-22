@@ -20,20 +20,25 @@ bool PciConfigBootPolicy::WriteDword(
 }
 
 bool PciConfigBootPolicy::RestoreWithBus(BUS_INTERFACE_STANDARD& bus) noexcept {
+    if(!gate_ || !gate_->Allowed() || gate_->Removed()) return false;
     bool ok=true;
 
     // Match SOF post-fw policy ordering: clock gating first, then power gating.
     if(cgChanged_) {
         ULONG current=0;
-        if(!ReadDword(bus,kCgctlOffset,&current)) {
+        if(!gate_->Allowed() || gate_->Removed() ||
+           !ReadDword(bus,kCgctlOffset,&current)) {
             ok=false;
         } else {
             const ULONG desired=(current&~kCgctlAdspDcge)|
                                 (originalCgctl_&kCgctlAdspDcge);
-            if(desired!=current && !WriteDword(bus,kCgctlOffset,desired))
+            if(desired!=current &&
+               (!gate_->Allowed() || gate_->Removed() ||
+                !WriteDword(bus,kCgctlOffset,desired)))
                 ok=false;
             ULONG verify=0;
-            if(!ReadDword(bus,kCgctlOffset,&verify) ||
+            if(!gate_->Allowed() || gate_->Removed() ||
+               !ReadDword(bus,kCgctlOffset,&verify) ||
                (verify&kCgctlAdspDcge)!=(originalCgctl_&kCgctlAdspDcge))
                 ok=false;
             else
@@ -43,15 +48,19 @@ bool PciConfigBootPolicy::RestoreWithBus(BUS_INTERFACE_STANDARD& bus) noexcept {
 
     if(pgChanged_) {
         ULONG current=0;
-        if(!ReadDword(bus,kPgctlOffset,&current)) {
+        if(!gate_->Allowed() || gate_->Removed() ||
+           !ReadDword(bus,kPgctlOffset,&current)) {
             ok=false;
         } else {
             const ULONG desired=(current&~kPgctlAdspPgd)|
                                 (originalPgctl_&kPgctlAdspPgd);
-            if(desired!=current && !WriteDword(bus,kPgctlOffset,desired))
+            if(desired!=current &&
+               (!gate_->Allowed() || gate_->Removed() ||
+                !WriteDword(bus,kPgctlOffset,desired)))
                 ok=false;
             ULONG verify=0;
-            if(!ReadDword(bus,kPgctlOffset,&verify) ||
+            if(!gate_->Allowed() || gate_->Removed() ||
+               !ReadDword(bus,kPgctlOffset,&verify) ||
                (verify&kPgctlAdspPgd)!=(originalPgctl_&kPgctlAdspPgd))
                 ok=false;
             else
@@ -101,6 +110,10 @@ NTSTATUS PciConfigBootPolicy::Apply(
 
     originalPgctl_=pgctl;
     originalCgctl_=cgctl;
+    if(!gate.Allowed() || gate.Removed()) {
+        bus.InterfaceDereference(bus.Context);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
 
     // SOF hda_dsp_pre_fw_run(): disable ADSP clock gating first.
     const ULONG desiredCgctl=cgctl&~kCgctlAdspDcge;
@@ -108,14 +121,19 @@ NTSTATUS PciConfigBootPolicy::Apply(
         // Set dirty before SetBusData: a short write may have changed bytes
         // even though the API reports fewer than four bytes transferred.
         cgChanged_=true;
-        if(!WriteDword(bus,kCgctlOffset,desiredCgctl)) {
-            (void)RestoreWithBus(bus);
+        if(!gate.Allowed() || gate.Removed() ||
+           !WriteDword(bus,kCgctlOffset,desiredCgctl)) {
+            if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
-            return STATUS_DEVICE_CONFIGURATION_ERROR;
+            return gate.Removed()?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR;
+        }
+        if(!gate.Allowed() || gate.Removed()) {
+            bus.InterfaceDereference(bus.Context);
+            return STATUS_DELETE_PENDING;
         }
         ULONG verify=0;
         if(!ReadDword(bus,kCgctlOffset,&verify) || verify!=desiredCgctl) {
-            (void)RestoreWithBus(bus);
+            if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
@@ -125,14 +143,19 @@ NTSTATUS PciConfigBootPolicy::Apply(
     const ULONG desiredPgctl=pgctl|kPgctlAdspPgd;
     if(desiredPgctl!=pgctl) {
         pgChanged_=true;
-        if(!WriteDword(bus,kPgctlOffset,desiredPgctl)) {
-            (void)RestoreWithBus(bus);
+        if(!gate.Allowed() || gate.Removed() ||
+           !WriteDword(bus,kPgctlOffset,desiredPgctl)) {
+            if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
-            return STATUS_DEVICE_CONFIGURATION_ERROR;
+            return gate.Removed()?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR;
+        }
+        if(!gate.Allowed() || gate.Removed()) {
+            bus.InterfaceDereference(bus.Context);
+            return STATUS_DELETE_PENDING;
         }
         ULONG verify=0;
         if(!ReadDword(bus,kPgctlOffset,&verify) || verify!=desiredPgctl) {
-            (void)RestoreWithBus(bus);
+            if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }

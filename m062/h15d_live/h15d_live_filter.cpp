@@ -2,6 +2,10 @@
 #include "h15d_live_filter.h"
 #include <wdmguid.h>
 
+// Kernel-safe placement construction. No CRT allocation or exceptions.
+inline void* operator new(SIZE_T,void* place) noexcept { return place; }
+inline void operator delete(void*,void*) noexcept {}
+
 using namespace phaser360::windows;
 
 const GUID phaser360::windows::kH15dLiveInterfaceGuid={
@@ -9,21 +13,15 @@ const GUID phaser360::windows::kH15dLiveInterfaceGuid={
 };
 
 namespace {
-bool ReadPair(WDFDEVICE device,ULONG* pgctl,ULONG* cgctl) noexcept {
-    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !device || !pgctl || !cgctl) return false;
-    BUS_INTERFACE_STANDARD bus{};
-    const auto status=WdfFdoQueryForInterface(
-        device,&GUID_BUS_INTERFACE_STANDARD,reinterpret_cast<PINTERFACE>(&bus),
-        static_cast<USHORT>(sizeof(bus)),1,nullptr);
-    if(!NT_SUCCESS(status)) return false;
-    bool ok=bus.GetBusData && bus.InterfaceDereference;
-    if(ok) {
-        *pgctl=0; *cgctl=0;
-        ok=bus.GetBusData(bus.Context,PCI_WHICHSPACE_CONFIG,pgctl,0x44,sizeof(*pgctl))==sizeof(*pgctl) &&
-           bus.GetBusData(bus.Context,PCI_WHICHSPACE_CONFIG,cgctl,0x48,sizeof(*cgctl))==sizeof(*cgctl);
-    }
-    if(bus.InterfaceDereference) bus.InterfaceDereference(bus.Context);
-    return ok;
+HardwareAccessGate* LiveGate(H15dLiveDeviceContext* context) noexcept {
+    return context && context->gateConstructed
+        ? reinterpret_cast<HardwareAccessGate*>(context->gateStorage) : nullptr;
+}
+void Store32(UCHAR* p,ULONG value) noexcept {
+    p[0]=static_cast<UCHAR>(value);
+    p[1]=static_cast<UCHAR>(value>>8);
+    p[2]=static_cast<UCHAR>(value>>16);
+    p[3]=static_cast<UCHAR>(value>>24);
 }
 }
 
@@ -42,6 +40,8 @@ NTSTATUS phaser360::windows::H15dLiveEvtDeviceAdd(WDFDRIVER driver,PWDFDEVICE_IN
     WDF_PNPPOWER_EVENT_CALLBACKS pnp;
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
     pnp.EvtDevicePrepareHardware=H15dLiveEvtPrepareHardware;
+    pnp.EvtDeviceReleaseHardware=H15dLiveEvtReleaseHardware;
+    pnp.EvtDeviceSurpriseRemoval=H15dLiveEvtSurpriseRemoval;
     WdfDeviceInitSetPnpPowerEventCallbacks(deviceInit,&pnp);
 
     WDF_FILEOBJECT_CONFIG fileConfig;
@@ -51,9 +51,15 @@ NTSTATUS phaser360::windows::H15dLiveEvtDeviceAdd(WDFDRIVER driver,PWDFDEVICE_IN
 
     WDF_OBJECT_ATTRIBUTES attributes;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes,H15dLiveDeviceContext);
+    attributes.EvtCleanupCallback=H15dLiveEvtContextCleanup;
     WDFDEVICE device=nullptr;
     auto status=WdfDeviceCreate(&deviceInit,&attributes,&device);
     if(!NT_SUCCESS(status)) return status;
+
+    auto* context=H15dLiveGetContext(device);
+    if(!context || context->gateConstructed) return STATUS_INVALID_DEVICE_STATE;
+    (void)::new(context->gateStorage) HardwareAccessGate();
+    context->gateConstructed=TRUE;
 
     WDF_IO_QUEUE_CONFIG queueConfig;
     WDF_IO_QUEUE_CONFIG_INIT(&queueConfig,WdfIoQueueDispatchSequential);
@@ -94,16 +100,47 @@ void phaser360::windows::H15dLiveEvtDeviceFileCreate(
         WdfRequestComplete(request,WdfRequestGetStatus(request));
 }
 
+void phaser360::windows::H15dLiveEvtContextCleanup(WDFOBJECT object) {
+    auto* context=H15dLiveGetContext(object);
+    auto* gate=LiveGate(context);
+    if(!gate) return;
+    gate->~HardwareAccessGate();
+    context->gateConstructed=FALSE;
+}
+
 NTSTATUS phaser360::windows::H15dLiveEvtPrepareHardware(
     WDFDEVICE device,WDFCMRESLIST raw,WDFCMRESLIST translated) {
     UNREFERENCED_PARAMETER(raw);
     UNREFERENCED_PARAMETER(translated);
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !device) return STATUS_INVALID_DEVICE_STATE;
     auto* context=H15dLiveGetContext(device);
-    if(!context) return STATUS_INVALID_DEVICE_STATE;
-    InterlockedExchange(&context->ready,1);
+    auto* gate=LiveGate(context);
+    if(!context || !gate) return STATUS_INVALID_DEVICE_STATE;
+    InterlockedExchange(&context->ready,0);
+    if(gate->Removed() || !gate->OpenForPrepare())
+        return STATUS_SUCCESS;
     InterlockedIncrement(&context->generation);
+    InterlockedExchange(&context->ready,1);
     return STATUS_SUCCESS;
+}
+
+NTSTATUS phaser360::windows::H15dLiveEvtReleaseHardware(
+    WDFDEVICE device,WDFCMRESLIST translated) {
+    UNREFERENCED_PARAMETER(translated);
+    if(!device) return STATUS_INVALID_PARAMETER;
+    auto* context=H15dLiveGetContext(device);
+    auto* gate=LiveGate(context);
+    if(context) InterlockedExchange(&context->ready,0);
+    if(gate) (void)gate->CloseForRelease();
+    return STATUS_SUCCESS;
+}
+
+void phaser360::windows::H15dLiveEvtSurpriseRemoval(WDFDEVICE device) {
+    if(!device) return;
+    auto* context=H15dLiveGetContext(device);
+    auto* gate=LiveGate(context);
+    if(context) InterlockedExchange(&context->ready,0);
+    if(gate) gate->SurpriseRemove();
 }
 
 void phaser360::windows::H15dLiveEvtIoDeviceControl(
@@ -127,12 +164,10 @@ void phaser360::windows::H15dLiveEvtIoDeviceControl(
         return;
     }
     auto* context=H15dLiveGetContext(device);
-    if(!context || InterlockedCompareExchange(&context->ready,0,0)==0) {
+    auto* gate=LiveGate(context);
+    if(!context || !gate || InterlockedCompareExchange(&context->ready,0,0)==0 ||
+       !gate->Allowed() || gate->Removed()) {
         WdfRequestComplete(request,STATUS_DEVICE_NOT_READY);
-        return;
-    }
-    if(InterlockedCompareExchange(&context->consumed,1,0)!=0) {
-        WdfRequestComplete(request,STATUS_INVALID_DEVICE_STATE);
         return;
     }
 
@@ -155,6 +190,16 @@ void phaser360::windows::H15dLiveEvtIoDeviceControl(
         WdfRequestCompleteWithInformation(request,STATUS_SUCCESS,sizeof(result));
         return;
     }
+    if(InterlockedCompareExchange(&context->consumed,1,0)!=0) {
+        WdfRequestComplete(request,STATUS_INVALID_DEVICE_STATE);
+        return;
+    }
+    if(!gate->Allowed() || gate->Removed()) {
+        result.transactionStatus=STATUS_DELETE_PENDING;
+        *out=result;
+        WdfRequestCompleteWithInformation(request,STATUS_SUCCESS,sizeof(result));
+        return;
+    }
 
     PciConfigAttestation before;
     status=before.Capture(device);
@@ -169,21 +214,36 @@ void phaser360::windows::H15dLiveEvtIoDeviceControl(
 
         if(pci.pgctl==kH15dExpectedPgctl && pci.cgctl==kH15dExpectedCgctl) {
             result.flags|=H15dExpectedBaselineMatch;
-            HardwareAccessGate gate;
             PciConfigBootPolicy policy;
-            if(gate.OpenForPrepare()) {
-                const auto apply=policy.Apply(device,pci,gate);
-                if(NT_SUCCESS(apply)) {
-                    result.flags|=H15dApplySucceeded;
-                    if(ReadPair(device,&result.pgctlApplied,&result.cgctlApplied) &&
-                       result.pgctlApplied==kH15dAppliedPgctl &&
-                       result.cgctlApplied==kH15dAppliedCgctl)
-                        result.flags|=H15dAppliedReadbackExact;
-                } else result.transactionStatus=apply;
+            const auto apply=policy.Apply(device,pci,*gate);
+            if(NT_SUCCESS(apply)) {
+                result.flags|=H15dApplySucceeded;
+                if(gate->Allowed() && !gate->Removed()) {
+                    PciConfigAttestation applied;
+                    const auto appliedStatus=applied.Capture(device);
+                    if(NT_SUCCESS(appliedStatus) && applied.Valid()) {
+                        result.pgctlApplied=applied.Snapshot().pgctl;
+                        result.cgctlApplied=applied.Snapshot().cgctl;
+                        UCHAR expected[kPciConfigSnapshotBytes]={};
+                        RtlCopyMemory(expected,before.Snapshot().config,kPciConfigSnapshotBytes);
+                        Store32(expected+PciConfigBootPolicy::CgctlOffset(),kH15dAppliedCgctl);
+                        Store32(expected+PciConfigBootPolicy::PgctlOffset(),kH15dAppliedPgctl);
+                        if(result.pgctlApplied==kH15dAppliedPgctl &&
+                           result.cgctlApplied==kH15dAppliedCgctl &&
+                           RtlCompareMemory(expected,applied.Snapshot().config,
+                                            kPciConfigSnapshotBytes)==kPciConfigSnapshotBytes)
+                            result.flags|=H15dAppliedReadbackExact;
+                    } else if(NT_SUCCESS(result.transactionStatus)) {
+                        result.transactionStatus=appliedStatus;
+                    }
+                } else if(NT_SUCCESS(result.transactionStatus)) {
+                    result.transactionStatus=STATUS_DELETE_PENDING;
+                }
+            } else result.transactionStatus=apply;
 
-                if(policy.Restore()) result.flags|=H15dRestoreSucceeded;
-                (void)gate.CloseForRelease();
+            if(policy.Restore()) result.flags|=H15dRestoreSucceeded;
 
+            if(gate->Allowed() && !gate->Removed()) {
                 PciConfigAttestation after;
                 const auto finalStatus=after.Capture(device);
                 if(NT_SUCCESS(finalStatus) && after.Valid()) {
@@ -196,8 +256,12 @@ void phaser360::windows::H15dLiveEvtIoDeviceControl(
                            before.Snapshot().config,after.Snapshot().config,
                            kPciConfigSnapshotBytes)==kPciConfigSnapshotBytes)
                         result.flags|=H15dFullConfigRestoredExact;
-                } else if(NT_SUCCESS(result.transactionStatus)) result.transactionStatus=finalStatus;
-            } else result.transactionStatus=STATUS_INVALID_DEVICE_STATE;
+                } else if(NT_SUCCESS(result.transactionStatus)) {
+                    result.transactionStatus=finalStatus;
+                }
+            } else if(NT_SUCCESS(result.transactionStatus)) {
+                result.transactionStatus=STATUS_DELETE_PENDING;
+            }
         } else result.transactionStatus=STATUS_DEVICE_CONFIGURATION_ERROR;
     }
 

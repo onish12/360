@@ -7,7 +7,7 @@
 
 namespace phaser360 { namespace windows {
 
-// H15D owns only the APL/GLK DSP power/clock-gating bits proven by H15C.
+// H15D owns only the APL/GLK DSP power/clock-gating bits identified by SOF and gated by H15C.
 // It never writes TCSEL[1:0], LSRMD, MISCBDCGE, the PCI common header,
 // capability space, or any unrelated bit. Every write is read-modify-write,
 // read back, and restored on normal/failed shutdown.
