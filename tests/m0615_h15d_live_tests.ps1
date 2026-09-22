@@ -7,6 +7,25 @@ $proj=Get-Content (Join-Path $root 'm062\h15d_live\phaser360_h15d_live_filter.vc
 $inf=Get-Content (Join-Path $root 'm062\h15d_live\phaser360_h15d_live_filter.inf') -Raw
 $run=Get-Content (Join-Path $root 'm062\h15d_live\Run-H15dLiveR1.ps1') -Raw
 $wf=Get-Content (Join-Path $root '.github\workflows\h15d-live-r1-package.yml') -Raw
+$runnerPath=Join-Path $root 'm062\h15d_live\Run-H15dLiveR1.ps1'
+$ps51=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+if(-not (Test-Path -LiteralPath $ps51 -PathType Leaf)){throw 'H15D_PS51_NOT_FOUND'}
+$parseHarness=Join-Path $env:RUNNER_TEMP 'h15d_ps51_parse.ps1'
+@'
+param([Parameter(Mandatory=$true)][string]$Path)
+$tokens=$null
+$errors=$null
+[System.Management.Automation.Language.Parser]::ParseFile(
+    $Path,[ref]$tokens,[ref]$errors) | Out-Null
+if(@($errors).Count -ne 0){
+    $errors | ForEach-Object { Write-Error $_.Message }
+    exit 1
+}
+Write-Host 'H15D_PS51_PARSE=PASS'
+'@ | Set-Content -LiteralPath $parseHarness -Encoding ASCII
+& $ps51 -NoLogo -NoProfile -ExecutionPolicy Bypass -File $parseHarness -Path $runnerPath
+if($LASTEXITCODE -ne 0){throw 'H15D_PS51_RUNNER_PARSE_FAILED'}
+
 foreach($x in @('0x8338e458u','0x00000010u','0x807b0dffu','0x00000014u','0x807b0dfdu','kH15dRequiredSuccessFlags=0x7ffu','H15dFullConfigRestoredExact','sizeof(H15dLiveResultV1)==52u')){if($hdr.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15D_HDR_MISSING: $x"}}
 foreach($x in @('WdfExecutionLevelPassive','WdfIoQueueDispatchSequential','InterlockedCompareExchange(&context->consumed,1,0)','PciConfigAttestation before','PciConfigBootPolicy policy','policy.Apply(device,pci,gate)','policy.Restore()','H15dAppliedReadbackExact','H15dFinalBaselineExact')){if($src.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15D_SRC_MISSING: $x"}}
 foreach($x in @('READ_REGISTER_','WRITE_REGISTER_','MmMapIoSpace','WdfDma','glk_boot','hda_transport','ipc_interrupt','firmware_source')){if(($src+$proj).IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15D_FORBIDDEN: $x"}}
