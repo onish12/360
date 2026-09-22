@@ -12,12 +12,6 @@ foreach($required in @(
     '-Type CodeSigningCert',
     '-KeyExportPolicy NonExportable',
     'Export-Certificate',
-    'System.Security.Cryptography.X509Certificates.X509Store',
-    'StoreLocation]::CurrentUser',
-    "Add-H14CurrentUserCertificate 'Root'",
-    "Add-H14CurrentUserCertificate 'TrustedPublisher'",
-    "Remove-H14CurrentUserCertificate 'Root'",
-    "Remove-H14CurrentUserCertificate 'TrustedPublisher'",
     'signtool.exe',
     ' sign ',
     '/fd SHA256',
@@ -37,8 +31,9 @@ foreach($required in @(
     'H14_CERT_TRUST_BEGIN',
     'H14_CERT_ROOT_ADD_BEGIN',
     'H14_CERT_ROOT_ADD_END',
-    'H14_CERT_TRUSTEDPUBLISHER_ADD_BEGIN',
-    'H14_CERT_TRUSTEDPUBLISHER_ADD_END',
+    'certutil.exe',
+    '-addstore Root',
+    '-delstore Root',
     'H14_SYS_SIGN_BEGIN',
     'H14_INF2CAT_BEGIN',
     'H14_CAT_SIGN_BEGIN',
@@ -89,16 +84,17 @@ if($signSys -lt 0 -or $inf2cat -lt 0 -or $signCat -lt 0 -or
     throw "H14_SIGNING_ORDER_INVALID: sys=$signSys inf2cat=$inf2cat cat=$signCat"
 }
 
-foreach($store in @('My','Root','TrustedPublisher')) {
-    $needle="Remove-H14CurrentUserCertificate '$store' `$thumb"
-    if($workflow.IndexOf($needle,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
-        throw "H14_CERT_CLEANUP_MISSING: $store"
-    }
+if($workflow.IndexOf('Import-Certificate',[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+   $workflow.IndexOf('X509Store',[StringComparison]::OrdinalIgnoreCase) -ge 0) {
+    throw 'H14_BLOCKING_CERT_STORE_API_FORBIDDEN'
 }
-if($workflow.IndexOf('Import-Certificate',[StringComparison]::OrdinalIgnoreCase) -ge 0) {
-    throw 'H14_IMPORT_CERTIFICATE_FORBIDDEN'
+if($workflow.IndexOf('& $certutil -f -addstore Root $cer',[StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+   $workflow.IndexOf('& $certutil -delstore Root $thumb',[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    throw 'H14_CERTUTIL_ROOT_LIFECYCLE_MISSING'
 }
-
+if($workflow.IndexOf('Cert:\CurrentUser\My\$thumb',[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    throw 'H14_SIGNER_CLEANUP_MISSING'
+}
 $artifactCopies=@(
     $workflow -split "\r?\n" | Where-Object {
         $_ -match '(?i)Copy-Item' -and $_ -match '(?i)_artifact_m062' -and
@@ -109,4 +105,4 @@ if($artifactCopies.Count -ne 0) {
     throw 'H14_SIGNED_OR_KEY_PAYLOAD_COPY_TO_ARTIFACT_FORBIDDEN'
 }
 
-Write-Host 'H14_SIGNING_STATIC_TESTS=PASS; ephemeral_cert=YES; private_key_export=NO; sign_sys_before_cat=YES; authenticode_verify=YES; target_trust=UNCHANGED; install=NO; package_upload=NO; playback=NO'
+Write-Host 'H14_SIGNING_STATIC_TESTS=PASS; ephemeral_cert=YES; ci_root_trust=CERTUTIL_EPHEMERAL; private_key_export=NO; sign_sys_before_cat=YES; authenticode_verify=YES; target_trust=UNCHANGED; install=NO; package_upload=NO; playback=NO'

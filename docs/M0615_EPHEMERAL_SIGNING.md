@@ -1,6 +1,6 @@
-# M0.6.15H14.2 non-interactive trust signing gate
+# M0.6.15H14.3 certutil root-trust signing gate
 
-H14.2 keeps the deterministic H14.1 tool paths and replaces the PKI Import-Certificate calls that timed out on GitHub Actions with direct System.Security.Cryptography.X509Certificates.X509Store writes to the disposable runner CurrentUser stores.
+H14.3 keeps the deterministic H14.1 tool paths. H14.1 timed out in Import-Certificate and H14.2 proved that direct X509Store.Add to the Root store also blocks on this hosted runner. H14.3 therefore uses the Windows certutil command-line path to add the ephemeral public certificate to the disposable runner machine Root store, then removes it by thumbprint before artifact staging.
 
 It does not establish production Windows kernel acceptance on the Lenovo and it
 does not modify target trust.
@@ -19,14 +19,14 @@ GitHub Actions runner CurrentUser certificate store with:
 The private key is never exported. H14 contains no Export-PfxCertificate path
 and no PFX/P12 payload is created.
 
-A public CER copy is exported temporarily only so a public-key-only X509Certificate2 can be added directly to the runner CurrentUser Root and TrustedPublisher stores for local Authenticode verification. The workflow confirms the public copy has no private key and checks each insertion by thumbprint.
+A public CER copy is exported temporarily only for `certutil -f -addstore Root`. TrustedPublisher is no longer modified because SignTool `/pa` verification of the test-signed SYS/CAT requires a trusted root; no additional publisher-store mutation is needed for this CI gate.
 
 This trust modification exists only inside the disposable CI runner. It is not
 a target-side trust procedure.
 
-## H14.1 timeout and H14.2 change
+## H14.1/H14.2 timeout evidence and H14.3 change
 
-The H14.1 run completed deterministic tool discovery and certificate creation, reached H14_CERT_TRUST_BEGIN, then timed out before SYS signing. H14.2 removes Import-Certificate and emits separate begin/end markers for Root and TrustedPublisher add/remove operations.
+H14.1 completed deterministic tool discovery and certificate creation, then timed out in the certificate trust step. H14.2 narrowed this further: `H14_CERT_ROOT_ADD_BEGIN` was emitted and `H14_CERT_ROOT_ADD_END` was not, proving the block occurs in the Root-store add operation itself. H14.3 replaces both PowerShell PKI import and X509Store root insertion with `certutil -f -addstore Root`, and uses `certutil -delstore Root <thumbprint>` for explicit cleanup.
 
 ## Correct signing order
 
