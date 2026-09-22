@@ -10,6 +10,8 @@ $sysproj=Get-Content -LiteralPath (Join-Path $root 'm062\driver\phaser360_m1_boo
 
 foreach($required in @(
  'WdfFdoQueryForInterface',
+ '#include <initguid.h>',
+ '#include <wdmguid.h>',
  'GUID_BUS_INTERFACE_STANDARD',
  'GetBusData',
  'PCI_WHICHSPACE_CONFIG',

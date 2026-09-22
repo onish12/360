@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "pci_config_attestation.h"
+#include <initguid.h>
 #include <wdmguid.h>
 
 namespace phaser360 { namespace windows {
