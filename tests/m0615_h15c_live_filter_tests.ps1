@@ -97,8 +97,11 @@ foreach($forbidden in @('glk_boot.cpp','hda_transport.cpp','ipc_interrupt.cpp','
  }
 }
 
+# PowerShell 5.1 intentionally constructs the vendor IOCTL with Convert.ToUInt32
+# instead of a signed hexadecimal literal. The exact numeric ABI remains
+# compile-time enforced by h15c_live_filter.h.
 foreach($required in @(
- 'DeviceIoControl(','0x83376454','SnapshotBytes=292',
+ 'DeviceIoControl(','SnapshotBytes=292',
  '[Convert]::ToUInt32(''83376454'',16)',
  'WIN32_ERROR=','ACCESS=GENERIC_READ',
  'DevicePathOffset=4','DetailCbSizeX64=8',
