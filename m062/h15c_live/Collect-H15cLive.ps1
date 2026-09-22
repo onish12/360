@@ -91,7 +91,10 @@ namespace Phaser360 {
             out uint BytesReturned,IntPtr Overlapped);
 
         static void Win32(bool ok,string op) {
-            if(!ok) throw new Win32Exception(Marshal.GetLastWin32Error(),op);
+            if(!ok) {
+                int error=Marshal.GetLastWin32Error();
+                throw new Win32Exception(error,op+"; WIN32_ERROR="+error);
+            }
         }
 
         public static string GetSingleInterfacePath(Guid interfaceGuid) {
@@ -135,8 +138,12 @@ namespace Phaser360 {
             using(var handle=CreateFile(
                 path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,IntPtr.Zero,
                 OPEN_EXISTING,0,IntPtr.Zero)) {
-                if(handle.IsInvalid)
-                    throw new Win32Exception(Marshal.GetLastWin32Error(),"CreateFile(H15C live interface)");
+                if(handle.IsInvalid) {
+                    int error=Marshal.GetLastWin32Error();
+                    throw new Win32Exception(
+                        error,"CreateFile(H15C live interface); WIN32_ERROR="+error+
+                        "; ACCESS=GENERIC_READ; PATH="+path);
+                }
                 var output=new byte[expectedBytes];
                 uint returned;
                 Win32(DeviceIoControl(
