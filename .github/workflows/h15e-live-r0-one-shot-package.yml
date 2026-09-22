@@ -1,6 +1,7 @@
 name: H15E-LIVE-R0 transient read-only MMIO signed package
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - codex/audio-auto-20260915
