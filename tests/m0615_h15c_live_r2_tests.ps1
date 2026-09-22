@@ -18,19 +18,28 @@ foreach($required in @(
     'signtool sign','Inf2Cat.exe','phaser360_h15c_live_filter.cer',
     'package_manifest.json','PrivateKeyExported = $false',
     '(Get-Date).AddDays(7)','retention-days: 3','actions/upload-artifact',
-    'PHASER360_H15C_LIVE_R2_SIGNED_TEST_PACKAGE'
+    'PHASER360_H15C_LIVE_R2_SIGNED_TEST_PACKAGE',
+    "'.pfx','.p12','.pvk','.key'",'R2_PRIVATE_KEY_ARTIFACT_FORBIDDEN'
 )){
     if($workflow.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
         throw "R2_WORKFLOW_REQUIRED_MISSING: $required"
     }
 }
 foreach($forbidden in @(
-    'Export-PfxCertificate','.pfx','.p12','-KeyExportPolicy Exportable',
+    'Export-PfxCertificate','-KeyExportPolicy Exportable',
     'certutil -addstore','Import-Certificate','bcdedit','/reboot'
 )){
     if($workflow.IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0){
         throw "R2_WORKFLOW_FORBIDDEN: $forbidden"
     }
+}
+# Private-key filename extensions are expected only inside the explicit deny-list.
+# Reject actual commands or artifact paths that try to create/copy/upload them.
+foreach($pattern in @(
+    '(?im)^\s*(?:Copy-Item|Move-Item|Set-Content|Out-File).*\.p(?:fx|12)\b',
+    '(?im)^\s*path:\s*.*\.p(?:fx|12)\b'
+)){
+    if($workflow -match $pattern){throw "R2_PRIVATE_KEY_ARTIFACT_PATH_FORBIDDEN: $pattern"}
 }
 foreach($required in @(
     'Get-H15cCertificatePresence','Invoke-H15cCertUtil',
