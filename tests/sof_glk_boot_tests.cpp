@@ -31,7 +31,7 @@ static WDFINTERRUPT irqHandle=nullptr;
 static WDFWAITLOCK serialHandle=nullptr;
 static std::vector<UCHAR> hda(0x4000),dsp(0x100000),pciConfig(256);
 static unsigned pciQueryCalls=0,pciReadCalls=0,pciWriteCalls=0,pciDereferenceCalls=0;
-static bool failPciQuery=false,shortPciRead=false;
+static bool failPciQuery=false,shortPciRead=false,shortPciWriteOnce=false,rejectPciWrite=false;
 static bool stuckRun=false,noRun=false,power=true,halt=false,missingReady=false,badReady=false,commandTimeout=false;
 static bool rejectPinnedEnter=false;
 static HardwareAccessGate* removeDuringPinnedEnter=nullptr;
@@ -123,10 +123,15 @@ static ULONG FakeGetBusData(void*,ULONG which,void* buffer,ULONG offset,ULONG le
     RtlCopyMemory(buffer,pciConfig.data()+offset,actual);
     return actual;
 }
-static ULONG FakeSetBusData(void*,ULONG which,void*,ULONG,ULONG length) {
-    CHECK(which==PCI_WHICHSPACE_CONFIG);
+static ULONG FakeSetBusData(void*,ULONG which,void* buffer,ULONG offset,ULONG length) {
+    CHECK(which==PCI_WHICHSPACE_CONFIG && buffer && offset<=pciConfig.size() &&
+          length<=pciConfig.size()-offset);
     ++pciWriteCalls;
-    return length;
+    if(rejectPciWrite) return 0;
+    ULONG actual=length;
+    if(shortPciWriteOnce && actual) { --actual; shortPciWriteOnce=false; }
+    RtlCopyMemory(pciConfig.data()+offset,buffer,actual);
+    return actual;
 }
 static void FakeBusReference(void*) {}
 static void FakeBusDereference(void*) { ++pciDereferenceCalls; }
@@ -274,7 +279,7 @@ static void Reset() {
     stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
     rejectPinnedEnter=false; removeDuringPinnedEnter=nullptr;
     pciQueryCalls=0; pciReadCalls=0; pciWriteCalls=0; pciDereferenceCalls=0;
-    failPciQuery=false; shortPciRead=false;
+    failPciQuery=false; shortPciRead=false; shortPciWriteOnce=false; rejectPciWrite=false;
     ResetPciConfig();
     ResetColdRegisters();
 }
@@ -353,6 +358,57 @@ int main() {
         failPciQuery=true;
         CHECK(attestation.Capture(&checks)==STATUS_NOT_SUPPORTED);
         CHECK(pciReadCalls==0 && pciDereferenceCalls==0 && pciWriteCalls==0);
+    }
+    // H15D: only ADSPPGD (0x44 bit 2) and ADSPDCGE (0x48 bit 1)
+    // may change. Preserve every unrelated bit and restore the exact baseline.
+    Reset(); {
+        Put(pciConfig,0x44,4,0xa5a50000u);
+        Put(pciConfig,0x48,4,0x5a5a0002u);
+        PciConfigAttestation attestation;
+        CHECK(NT_SUCCESS(attestation.Capture(&checks)));
+        const ULONG originalPg=Get(pciConfig,0x44,4);
+        const ULONG originalCg=Get(pciConfig,0x48,4);
+        PciConfigBootPolicy policy;
+        CHECK(NT_SUCCESS(policy.Apply(&checks,attestation.Snapshot(),accessGate)));
+        CHECK(policy.Applied() && policy.Dirty());
+        CHECK((Get(pciConfig,0x44,4)&PciConfigBootPolicy::PgctlOwnedMask())!=0);
+        CHECK((Get(pciConfig,0x48,4)&PciConfigBootPolicy::CgctlOwnedMask())==0);
+        CHECK((Get(pciConfig,0x44,4)&~PciConfigBootPolicy::PgctlOwnedMask())==
+              (originalPg&~PciConfigBootPolicy::PgctlOwnedMask()));
+        CHECK((Get(pciConfig,0x48,4)&~PciConfigBootPolicy::CgctlOwnedMask())==
+              (originalCg&~PciConfigBootPolicy::CgctlOwnedMask()));
+        CHECK(policy.Restore());
+        CHECK(Get(pciConfig,0x44,4)==originalPg && Get(pciConfig,0x48,4)==originalCg);
+        CHECK(!policy.Applied() && !policy.Dirty() && pciWriteCalls==4);
+    }
+    // A short SetBusData is treated as possibly mutating hardware. Dirty state
+    // must already be set so the failed Apply restores the changed bytes.
+    Reset(); {
+        Put(pciConfig,0x44,4,0x00000004u); // already at boot policy
+        Put(pciConfig,0x48,4,0x001b01fbu); // ADSPDCGE set: one write required
+        PciConfigAttestation attestation;
+        CHECK(NT_SUCCESS(attestation.Capture(&checks)));
+        const ULONG originalPg=Get(pciConfig,0x44,4);
+        const ULONG originalCg=Get(pciConfig,0x48,4);
+        shortPciWriteOnce=true;
+        PciConfigBootPolicy policy;
+        CHECK(!NT_SUCCESS(policy.Apply(&checks,attestation.Snapshot(),accessGate)));
+        CHECK(!shortPciWriteOnce);
+        CHECK(Get(pciConfig,0x44,4)==originalPg && Get(pciConfig,0x48,4)==originalCg);
+        CHECK(!policy.Applied() && !policy.Dirty() && pciWriteCalls==2);
+    }
+    // A rejected write must fail closed and leave the captured baseline intact.
+    Reset(); {
+        Put(pciConfig,0x44,4,0x00000004u);
+        Put(pciConfig,0x48,4,0x001b01fbu);
+        PciConfigAttestation attestation;
+        CHECK(NT_SUCCESS(attestation.Capture(&checks)));
+        const ULONG originalCg=Get(pciConfig,0x48,4);
+        rejectPciWrite=true;
+        PciConfigBootPolicy policy;
+        CHECK(!NT_SUCCESS(policy.Apply(&checks,attestation.Snapshot(),accessGate)));
+        CHECK(Get(pciConfig,0x48,4)==originalCg);
+        CHECK(!policy.Applied() && !policy.Dirty() && pciWriteCalls==1);
     }
     Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); CHECK(live==3);
         auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && r.ipcReady && r.commandReady && live==0);
