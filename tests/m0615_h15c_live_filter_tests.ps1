@@ -97,6 +97,8 @@ foreach($forbidden in @('glk_boot.cpp','hda_transport.cpp','ipc_interrupt.cpp','
 foreach($required in @(
  'DeviceIoControl(','0x00226004','SnapshotBytes=292',
  'WIN32_ERROR=','ACCESS=GENERIC_READ',
+ 'DevicePathOffset=4','DetailCbSizeX64=8',
+ 'H15C_LIVE_INTERFACE_PATH_PREFIX_INVALID',
  'pci_config_256.bin','OFFSET_44','OFFSET_48',
  'SetBusDataCalls=0','DRIVER_BIND_REPLACEMENT=NO'
 )){
@@ -119,5 +121,11 @@ if($src.IndexOf('L"\\h15c"',[StringComparison]::Ordinal) -lt 0){
 }
 if(($src.Split('WdfDeviceGetIoTarget(device)').Count-1) -lt 2){
  throw 'H15C_LIVE_CREATE_OR_IOCTL_PASSTHROUGH_INCOMPLETE'
+}
+if($reader.IndexOf('PtrToStringUni(IntPtr.Add(detail,8))',[StringComparison]::Ordinal) -ge 0){
+ throw 'H15C_LIVE_X64_DETAIL_PATH_OFFSET_8_FORBIDDEN'
+}
+if($reader.IndexOf('PtrToStringUni(IntPtr.Add(detail,DevicePathOffset))',[StringComparison]::Ordinal) -lt 0){
+ throw 'H15C_LIVE_X64_DETAIL_PATH_OFFSET_4_REQUIRED'
 }
 Write-Host 'H15C_LIVE_STATIC_TESTS=PASS; role=EXACT_TARGET_EXTENSION_UPPER_FILTER; function_driver_replacement=NO; pci_access=GETBUSDATA_ONLY; setbusdata=FORBIDDEN; mmio=NONE; dma=NONE; irq=NONE; unknown_ioctl=SEND_AND_FORGET; snapshot_sync=WDFSPINLOCK; reader_install_actions=NONE'
