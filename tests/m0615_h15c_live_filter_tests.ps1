@@ -10,6 +10,9 @@ $pci=Get-Content -LiteralPath (Join-Path $root 'm062\driver\pci_config_attestati
 
 foreach($required in @(
  'WdfFdoInitSetFilter(deviceInit)',
+ 'WdfDeviceInitSetDeviceType(deviceInit,kH15cLiveDeviceType)',
+ 'CTL_CODE(kH15cLiveDeviceType,kH15cLiveIoctlFunction,METHOD_BUFFERED,FILE_READ_ACCESS)',
+ '0x83376454u',
  'WDF_FILEOBJECT_CONFIG_INIT',
  'H15cLiveEvtDeviceFileCreate',
  'WdfDeviceInitSetFileObjectConfig',
@@ -95,10 +98,11 @@ foreach($forbidden in @('glk_boot.cpp','hda_transport.cpp','ipc_interrupt.cpp','
 }
 
 foreach($required in @(
- 'DeviceIoControl(','0x00226004','SnapshotBytes=292',
+ 'DeviceIoControl(','0x83376454','SnapshotBytes=292',
  'WIN32_ERROR=','ACCESS=GENERIC_READ',
  'DevicePathOffset=4','DetailCbSizeX64=8',
- 'H15C_LIVE_INTERFACE_PATH_PREFIX_INVALID',
+ 'H15C_LIVE_INTERFACE_PATH_PREFIX_INVALID','H15C_LIVE_ABI_MISMATCH:',
+ 'head36=','ioctl=0x{2:X8}',
  'pci_config_256.bin','OFFSET_44','OFFSET_48',
  'SetBusDataCalls=0','DRIVER_BIND_REPLACEMENT=NO'
 )){
@@ -116,6 +120,9 @@ foreach($forbidden in @(
  }
 }
 
+if(($src+$hdr+$reader).IndexOf('0x00226004',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+ throw 'H15C_LIVE_MICROSOFT_DEVICE_TYPE_IOCTL_FORBIDDEN'
+}
 if($src.IndexOf('L"\\h15c"',[StringComparison]::Ordinal) -lt 0){
  throw 'H15C_LIVE_REFERENCE_CREATE_MATCH_MISSING'
 }
