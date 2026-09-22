@@ -105,12 +105,14 @@ NTSTATUS PciConfigBootPolicy::Apply(
     // SOF hda_dsp_pre_fw_run(): disable ADSP clock gating first.
     const ULONG desiredCgctl=cgctl&~kCgctlAdspDcge;
     if(desiredCgctl!=cgctl) {
+        // Set dirty before SetBusData: a short write may have changed bytes
+        // even though the API reports fewer than four bytes transferred.
+        cgChanged_=true;
         if(!WriteDword(bus,kCgctlOffset,desiredCgctl)) {
             (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
-        cgChanged_=true;
         ULONG verify=0;
         if(!ReadDword(bus,kCgctlOffset,&verify) || verify!=desiredCgctl) {
             (void)RestoreWithBus(bus);
@@ -122,12 +124,12 @@ NTSTATUS PciConfigBootPolicy::Apply(
     // Then prevent opportunistic ADSP power gating while firmware boots.
     const ULONG desiredPgctl=pgctl|kPgctlAdspPgd;
     if(desiredPgctl!=pgctl) {
+        pgChanged_=true;
         if(!WriteDword(bus,kPgctlOffset,desiredPgctl)) {
             (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
-        pgChanged_=true;
         ULONG verify=0;
         if(!ReadDword(bus,kPgctlOffset,&verify) || verify!=desiredPgctl) {
             (void)RestoreWithBus(bus);
