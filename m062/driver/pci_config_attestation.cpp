@@ -8,7 +8,7 @@ namespace phaser360 { namespace windows {
 namespace {
 constexpr USHORT kIntelVendor=0x8086;
 constexpr USHORT kGlkAudioDevice=0x3198;
-constexpr ULONG kConfigBytes=256;
+constexpr ULONG kConfigBytes=kPciConfigSnapshotBytes;
 constexpr ULONG kVendorWindowStart=0x40;
 constexpr ULONG kVendorWindowEnd=0x4f;
 constexpr ULONG kPgctlOffset=0x44;
@@ -89,6 +89,7 @@ NTSTATUS PciConfigAttestation::Capture(WDFDEVICE device) noexcept {
     candidate.firstCapability=config[0x34];
     candidate.pgctl=Load32(config+kPgctlOffset);
     candidate.cgctl=Load32(config+kCgctlOffset);
+    RtlCopyMemory(candidate.config,config,kConfigBytes);
 
     // Type 0 ends at 0x3f. Windows owns the header and every linked
     // capability. Require the complete conventional capability chain to stay

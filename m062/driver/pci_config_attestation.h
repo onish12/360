@@ -5,6 +5,8 @@
 
 namespace phaser360 { namespace windows {
 
+inline constexpr ULONG kPciConfigSnapshotBytes=256u;
+
 struct PciConfigSnapshot {
     USHORT vendorId=0;
     USHORT deviceId=0;
@@ -14,6 +16,7 @@ struct PciConfigSnapshot {
     UCHAR reserved=0;
     ULONG pgctl=0;
     ULONG cgctl=0;
+    UCHAR config[kPciConfigSnapshotBytes]={};
 };
 
 class PciConfigAttestation final {
