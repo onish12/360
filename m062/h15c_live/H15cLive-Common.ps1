@@ -30,8 +30,21 @@ function Get-H15cTargetState {
         if(-not $map.ContainsKey($required)){throw "TARGET_PROPERTY_MISSING: $required"}
     }
     $upper=@()
-    if($map.ContainsKey('DEVPKEY_Device_CompoundUpperFilters')){
-        $upper=@($map['DEVPKEY_Device_CompoundUpperFilters'])
+    $upperSource='ABSENT'
+    $upperQueryError=$null
+    try {
+        $explicit=@(Get-PnpDeviceProperty -InstanceId $id -KeyName 'DEVPKEY_Device_CompoundUpperFilters' -ErrorAction Stop |
+            Where-Object {$_.KeyName -ceq 'DEVPKEY_Device_CompoundUpperFilters'})
+        if($explicit.Count -eq 1){
+            $upper=@($explicit[0].Data)
+            $upperSource='EXPLICIT_KEY_QUERY'
+        }
+    } catch {
+        $upperQueryError=$_.Exception.Message
+        if($map.ContainsKey('DEVPKEY_Device_CompoundUpperFilters')){
+            $upper=@($map['DEVPKEY_Device_CompoundUpperFilters'])
+            $upperSource='ENUMERATION_FALLBACK'
+        }
     }
     [pscustomobject]@{
         InstanceId=$id
@@ -43,6 +56,8 @@ function Get-H15cTargetState {
         DriverProvider=[string]$map['DEVPKEY_Device_DriverProvider']
         HardwareIds=@($map['DEVPKEY_Device_HardwareIds'])
         CompoundUpperFilters=$upper
+        CompoundUpperFiltersSource=$upperSource
+        CompoundUpperFiltersQueryError=$upperQueryError
     }
 }
 
