@@ -3,6 +3,7 @@
 #include "ntddk.h"
 struct FakeObject;
 using WDFDEVICE = void*;
+NTSTATUS WdfFdoQueryForInterface(WDFDEVICE,LPCGUID,PINTERFACE,USHORT,USHORT,void*);
 using WDFDMAENABLER = FakeObject*;
 using WDFCOMMONBUFFER = FakeObject*;
 constexpr void* WDF_NO_OBJECT_ATTRIBUTES = nullptr;

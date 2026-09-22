@@ -43,6 +43,30 @@ ULONGLONG KeQueryInterruptTime();
 
 using BOOLEAN=unsigned char;
 constexpr BOOLEAN TRUE=1;
+struct GUID {
+    uint32_t Data1; uint16_t Data2; uint16_t Data3; UCHAR Data4[8];
+};
+using LPCGUID=const GUID*;
+using PINTERFACE_REFERENCE=void(*)(void*);
+using PINTERFACE_DEREFERENCE=void(*)(void*);
+struct INTERFACE {
+    USHORT Size=0; USHORT Version=0; void* Context=nullptr;
+    PINTERFACE_REFERENCE InterfaceReference=nullptr;
+    PINTERFACE_DEREFERENCE InterfaceDereference=nullptr;
+};
+using PINTERFACE=INTERFACE*;
+using PGET_SET_DEVICE_DATA=ULONG(*)(void*,ULONG,void*,ULONG,ULONG);
+struct BUS_INTERFACE_STANDARD {
+    USHORT Size=0; USHORT Version=0; void* Context=nullptr;
+    PINTERFACE_REFERENCE InterfaceReference=nullptr;
+    PINTERFACE_DEREFERENCE InterfaceDereference=nullptr;
+    void* TranslateBusAddress=nullptr;
+    void* GetDmaAdapter=nullptr;
+    PGET_SET_DEVICE_DATA SetBusData=nullptr;
+    PGET_SET_DEVICE_DATA GetBusData=nullptr;
+};
+constexpr ULONG PCI_WHICHSPACE_CONFIG=0;
+constexpr BOOLEAN TRUE=1;
 constexpr UCHAR CmResourceTypeInterrupt=2;
 struct CM_PARTIAL_RESOURCE_DESCRIPTOR {
     UCHAR Type;
@@ -92,3 +116,4 @@ inline LONG InterlockedCompareExchange(volatile LONG* p,LONG value,LONG compare)
 }
 
 constexpr NTSTATUS STATUS_INVALID_IMAGE_HASH=-6;
+constexpr NTSTATUS STATUS_NOT_SUPPORTED=-7;

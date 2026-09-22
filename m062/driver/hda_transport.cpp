@@ -36,6 +36,8 @@ NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
     if(!base || (reinterpret_cast<ULONG_PTR>(base)&3) || !device || !payload ||
        !bytes || bytes>sof::kMaxDmaBytes) return STATUS_INVALID_PARAMETER;
     attempted_=true; base_=base; length_=length;
+    const auto pciStatus=pci_.Capture(device);
+    if(!NT_SUCCESS(pciStatus)) return pciStatus;
     const sof::RegisterIo io={this,Read,Write,Delay,length_};
     controllerAttempted_=true;
     if(!controller_.Initialize(io)) return STATUS_DEVICE_CONFIGURATION_ERROR;

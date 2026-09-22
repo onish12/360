@@ -47,6 +47,7 @@
   <ItemGroup>
     <ClCompile Include="boot_dma.cpp" />
     <ClCompile Include="hda_transport.cpp" />
+    <ClCompile Include="pci_config_attestation.cpp" />
     <ClCompile Include="glk_boot.cpp" />
     <ClCompile Include="ipc_interrupt.cpp" />
     <ClCompile Include="cold_power.cpp" />

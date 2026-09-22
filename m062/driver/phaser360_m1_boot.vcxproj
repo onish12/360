@@ -68,6 +68,7 @@
     <ClCompile Include="cold_power.cpp" />
     <ClCompile Include="glk_boot.cpp" />
     <ClCompile Include="hda_transport.cpp" />
+    <ClCompile Include="pci_config_attestation.cpp" />
     <ClCompile Include="boot_dma.cpp" />
     <ClCompile Include="cm_resource_abi.cpp" />
     <ClCompile Include="..\..\src\sof\ipc3_command.cpp" />

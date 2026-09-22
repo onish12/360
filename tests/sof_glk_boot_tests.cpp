@@ -29,7 +29,9 @@ static WDF_INTERRUPT_CONFIG irqConfig={};
 static bool irqCreatedWithAssignedDescriptors=false;
 static WDFINTERRUPT irqHandle=nullptr;
 static WDFWAITLOCK serialHandle=nullptr;
-static std::vector<UCHAR> hda(0x4000),dsp(0x100000);
+static std::vector<UCHAR> hda(0x4000),dsp(0x100000),pciConfig(256);
+static unsigned pciQueryCalls=0,pciReadCalls=0,pciWriteCalls=0,pciDereferenceCalls=0;
+static bool failPciQuery=false,shortPciRead=false;
 static bool stuckRun=false,noRun=false,power=true,halt=false,missingReady=false,badReady=false,commandTimeout=false;
 static bool rejectPinnedEnter=false;
 static HardwareAccessGate* removeDuringPinnedEnter=nullptr;
@@ -111,6 +113,38 @@ NTSTATUS KeDelayExecutionThread(unsigned mode,bool alert,LARGE_INTEGER* delay) {
     ticks+=static_cast<uint64_t>(-delay->QuadPart); return STATUS_SUCCESS;
 }
 ULONGLONG KeQueryInterruptTime() { return ticks; }
+
+static ULONG FakeGetBusData(void*,ULONG which,void* buffer,ULONG offset,ULONG length) {
+    CHECK(which==PCI_WHICHSPACE_CONFIG && buffer && offset<=pciConfig.size() &&
+          length<=pciConfig.size()-offset);
+    ++pciReadCalls;
+    ULONG actual=length;
+    if(shortPciRead && actual) --actual;
+    RtlCopyMemory(buffer,pciConfig.data()+offset,actual);
+    return actual;
+}
+static ULONG FakeSetBusData(void*,ULONG which,void*,ULONG,ULONG length) {
+    CHECK(which==PCI_WHICHSPACE_CONFIG);
+    ++pciWriteCalls;
+    return length;
+}
+static void FakeBusReference(void*) {}
+static void FakeBusDereference(void*) { ++pciDereferenceCalls; }
+NTSTATUS WdfFdoQueryForInterface(
+    WDFDEVICE device,LPCGUID guid,PINTERFACE out,USHORT size,USHORT version,void* specific) {
+    CHECK(irql==PASSIVE_LEVEL && device && guid && out && !specific &&
+          size==sizeof(BUS_INTERFACE_STANDARD) && version==1);
+    ++pciQueryCalls;
+    if(failPciQuery) return STATUS_NOT_SUPPORTED;
+    auto* bus=reinterpret_cast<BUS_INTERFACE_STANDARD*>(out);
+    *bus={};
+    bus->Size=size; bus->Version=version; bus->Context=&checks;
+    bus->InterfaceReference=FakeBusReference;
+    bus->InterfaceDereference=FakeBusDereference;
+    bus->SetBusData=FakeSetBusData;
+    bus->GetBusData=FakeGetBusData;
+    return STATUS_SUCCESS;
+}
 struct FakeObject { unsigned id; std::vector<UCHAR> bytes; };
 NTSTATUS WdfDmaEnablerCreate(WDFDEVICE,WDF_DMA_ENABLER_CONFIG*,void*,WDFDMAENABLER* out) {
     *out=new FakeObject{++sequence,{}}; ++live; return STATUS_SUCCESS;
@@ -211,6 +245,18 @@ static void Notify() {
     IpcPut(dsp,0x81000,24); IpcPut(dsp,0x81004,0x90020000); IpcPut(dsp,0x81008,0);
     IpcPut(dsp,0x40,0x90020000); IpcPut(dsp,0xc,1);
 }
+static void ResetPciConfig() {
+    pciConfig.assign(256,0);
+    Put(pciConfig,0x00,2,0x8086);
+    Put(pciConfig,0x02,2,0x3198);
+    Put(pciConfig,0x06,2,0x0010); // conventional capability-list present
+    pciConfig[0x0e]=0x00;         // type-0 function header
+    pciConfig[0x34]=0x50;
+    Put(pciConfig,0x44,4,0x00000004);
+    Put(pciConfig,0x48,4,0x001b01f9);
+    pciConfig[0x50]=0x01; pciConfig[0x51]=0x60;
+    pciConfig[0x60]=0x05; pciConfig[0x61]=0;
+}
 static void ResetColdRegisters() {
     for(auto& v:hda) v=0;
     for(auto& v:dsp) v=0;
@@ -227,6 +273,9 @@ static void Reset() {
     dspWrites=0; irql=0; sequence=0; ticks=100000; sessionMemoryCreates=0;
     stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
     rejectPinnedEnter=false; removeDuringPinnedEnter=nullptr;
+    pciQueryCalls=0; pciReadCalls=0; pciWriteCalls=0; pciDereferenceCalls=0;
+    failPciQuery=false; shortPciRead=false;
+    ResetPciConfig();
     ResetColdRegisters();
 }
 static NTSTATUS Prepare(GlkBoot& boot) {
@@ -253,6 +302,58 @@ NTSTATUS PinnedFirmware::Enter(ColdPower& powerOwner,WDFDEVICE device,UCHAR* map
 }
 } }
 int main() {
+    // H15C: use BUS_INTERFACE_STANDARD GetBusData only, prove the exact target
+    // and the vendor-specific 0x40..0x4f window before any HDA/DSP MMIO.
+    Reset(); {
+        PciConfigAttestation attestation;
+        CHECK(NT_SUCCESS(attestation.Capture(&checks)));
+        const auto& evidence=attestation.Snapshot();
+        CHECK(attestation.Valid() && evidence.vendorId==0x8086 &&
+              evidence.deviceId==0x3198 && (evidence.headerType&0x7f)==0 &&
+              evidence.firstCapability==0x50 && evidence.capabilityCount==2 &&
+              evidence.pgctl==0x00000004 && evidence.cgctl==0x001b01f9);
+        CHECK(pciQueryCalls==1 && pciReadCalls==1 && pciWriteCalls==0 &&
+              pciDereferenceCalls==1);
+        CHECK(!NT_SUCCESS(attestation.Capture(&checks)));
+    }
+    Reset(); {
+        PciConfigAttestation attestation;
+        Put(pciConfig,0x00,2,0x1234);
+        CHECK(!NT_SUCCESS(attestation.Capture(&checks)));
+        CHECK(pciWriteCalls==0 && pciDereferenceCalls==1);
+    }
+    Reset(); {
+        PciConfigAttestation attestation;
+        pciConfig[0x34]=0x40;
+        pciConfig[0x40]=0x01; pciConfig[0x41]=0;
+        CHECK(!NT_SUCCESS(attestation.Capture(&checks)));
+        CHECK(pciWriteCalls==0);
+    }
+    Reset(); {
+        PciConfigAttestation attestation;
+        pciConfig[0x61]=0x40;
+        pciConfig[0x40]=0x01; pciConfig[0x41]=0;
+        CHECK(!NT_SUCCESS(attestation.Capture(&checks)));
+        CHECK(pciWriteCalls==0);
+    }
+    Reset(); {
+        PciConfigAttestation attestation;
+        pciConfig[0x61]=0x50;
+        CHECK(!NT_SUCCESS(attestation.Capture(&checks)));
+        CHECK(pciWriteCalls==0);
+    }
+    Reset(); {
+        PciConfigAttestation attestation;
+        shortPciRead=true;
+        CHECK(!NT_SUCCESS(attestation.Capture(&checks)));
+        CHECK(pciReadCalls==1 && pciDereferenceCalls==1 && pciWriteCalls==0);
+    }
+    Reset(); {
+        PciConfigAttestation attestation;
+        failPciQuery=true;
+        CHECK(attestation.Capture(&checks)==STATUS_NOT_SUPPORTED);
+        CHECK(pciReadCalls==0 && pciDereferenceCalls==0 && pciWriteCalls==0);
+    }
     Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); CHECK(live==3);
         auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && r.ipcReady && r.commandReady && live==0);
         std::vector<uint8_t> request(8,0),reply(12,0);

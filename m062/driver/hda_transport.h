@@ -2,6 +2,7 @@
 #pragma once
 #include "boot_dma.h"
 #include "hardware_access_gate.h"
+#include "pci_config_attestation.h"
 #include "../../src/sof/hda_controller.h"
 #include "../../src/sof/hda_stream.h"
 namespace phaser360 { namespace windows {
@@ -26,6 +27,7 @@ public:
     UCHAR Tag() const noexcept { return stream_.Tag(); }
 private:
     BootDma dma_;
+    PciConfigAttestation pci_;
     sof::HdaController controller_;
     sof::BootStream stream_;
     HardwareAccessGate* gate_=nullptr;
