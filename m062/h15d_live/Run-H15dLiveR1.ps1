@@ -39,7 +39,7 @@ function WaitHealthy([string]$id){
  $end=(Get-Date).AddSeconds(15);do{Start-Sleep -Milliseconds 500;try{$s=Target}catch{$s=$null};if($s -and $s.InstanceId -ceq $id -and $s.Status -ceq 'OK' -and $s.ProblemCode -eq 0 -and $s.Service -ceq 'IntcAudioBus'){return $s}}while((Get-Date) -lt $end);throw 'TARGET_DID_NOT_RETURN_HEALTHY'
 }
 function CodeIntegrity {
- if( -not ('Phaser360.H15dCi'-as[type])){Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;namespace Phaser360{public static class H15dCi{[StructLayout(LayoutKind.Sequential)]struct CI{public UInt32 Length;public UInt32 Options;}[DllImport("ntdll.dll")]static extern Int32 NtQuerySystemInformation(Int32 c,ref CI i,UInt32 l,IntPtr r);public static UInt32 Get(){CI i=new CI();i.Length=(UInt32)Marshal.SizeOf(typeof(CI));Int32 s=NtQuerySystemInformation(103,ref i,i.Length,IntPtr.Zero);if(s<0)throw new InvalidOperationException("CI=0x"+unchecked((UInt32)s).ToString("X8"));return i.Options;}}}' -Language CSharp}
+ if( -not ('Phaser360.H15dCi' -as [type])){Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;namespace Phaser360{public static class H15dCi{[StructLayout(LayoutKind.Sequential)]struct CI{public UInt32 Length;public UInt32 Options;}[DllImport("ntdll.dll")]static extern Int32 NtQuerySystemInformation(Int32 c,ref CI i,UInt32 l,IntPtr r);public static UInt32 Get(){CI i=new CI();i.Length=(UInt32)Marshal.SizeOf(typeof(CI));Int32 s=NtQuerySystemInformation(103,ref i,i.Length,IntPtr.Zero);if(s<0)throw new InvalidOperationException("CI=0x"+unchecked((UInt32)s).ToString("X8"));return i.Options;}}}' -Language CSharp}
  [uint32][Phaser360.H15dCi]::Get()
 }
 function Trust([string]$thumb){$t=$thumb.Replace(' ','').ToUpperInvariant();[pscustomobject]@{Root=(Test-Path "Cert:\LocalMachine\Root\$t");TrustedPublisher=(Test-Path "Cert:\LocalMachine\TrustedPublisher\$t")}}
@@ -59,7 +59,7 @@ function Package([string]$root,[switch]$Trusted){
  [pscustomobject]@{Root=$r;Inf=$inf;Sys=$sys;Cat=$cat;Cer=$cer;Thumb=[string]$c.Thumbprint;Manifest=$m}
 }
 function Native {
- if('Phaser360.H15dNative'-as[type]){return}
+ if('Phaser360.H15dNative' -as [type]){return}
  $src=@'
 using System;using System.ComponentModel;using System.Runtime.InteropServices;using Microsoft.Win32.SafeHandles;
 namespace Phaser360{public static class H15dNative{
@@ -84,12 +84,12 @@ function Put32([byte[]]$b,[int]$o,[uint32]$v){[Array]::Copy([BitConverter]::GetB
 if( -not (Admin)){throw 'ADMINISTRATOR_REQUIRED'};if( -not [Environment]::Is64BitProcess){throw 'WINDOWS_X64_PROCESS_REQUIRED'}
 $before=Target;AssertTarget $before;if(@(Published).Count -ne 0){throw 'H15D_LIVE_FILTER_ALREADY_PRESENT'}
 $ci=CodeIntegrity;if(($ci -band 2) -eq 0){throw 'CODE_INTEGRITY_TESTSIGN_NOT_ALLOWED'}
-$re=& (Join-Path $env:SystemRoot 'System32\reagentc.exe') /info 2>&1|Out-String;if($LASTEXITCODE -ne 0 -or $re -not match '(?im)Windows\s+RE.*(?:Enabled|Activat)'){throw 'WINRE_NOT_READY'}
+$re=& (Join-Path $env:SystemRoot 'System32\reagentc.exe') /info 2>&1|Out-String;if($LASTEXITCODE -ne 0 -or $re -notmatch '(?im)Windows\s+RE.*(?:Enabled|Activat)'){throw 'WINRE_NOT_READY'}
 $pkg=Package $PackageRoot;$tb=Trust $pkg.Thumb;if($tb.Root -or $tb.TrustedPublisher){throw 'H15D_LIVE_PACKAGE_CERT_ALREADY_TRUSTED'}
 if([string]::IsNullOrWhiteSpace($OutputRoot)){$OutputRoot=$PSScriptRoot};$stamp=Get-Date -Format 'yyyyMMdd_HHmmss';$suffix=[Guid]::NewGuid().ToString('N').Substring(0,8);$dir=Join-Path $OutputRoot ('H15D_LIVE_R1_TRANSACTION_'+$stamp+'_'+$suffix);$backup=Join-Path $dir 'intel_baseline_export';New-Item -ItemType Directory -Path $dir,$backup -Force|Out-Null
 $before|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'target_before.json') -Encoding UTF8
 Copy-Item (Join-Path $PSScriptRoot 'H15D_LIVE_WINRE_ROLLBACK.txt') $dir
-$ex=PnP @('/export-driver',$before.DriverInfPath,$backup);$ex.Output|Set-Content (Join-Path $dir 'pnputil_export_intel.txt');if($ex.ExitCode -ne 0-or@(Get-ChildItem $backup -Recurse -File).Count -eq 0){throw 'BASELINE_EXPORT_FAILED'}
+$ex=PnP @('/export-driver',$before.DriverInfPath,$backup);$ex.Output|Set-Content (Join-Path $dir 'pnputil_export_intel.txt');if($ex.ExitCode -ne 0 -or @(Get-ChildItem $backup -Recurse -File).Count -eq 0){throw 'BASELINE_EXPORT_FAILED'}
 
 $rootAdded=$false;$pubAdded=$false;$installed=$false;$publishedInf=$null;$ioComplete=$false;$normal=$false;$err=$null
 try{
@@ -101,7 +101,7 @@ try{
  $x=PnP @('/restart-device',$before.InstanceId);if($x.ExitCode -ne 0){throw 'FILTER_DEVICE_RESTART_FAILED'};$with=WaitHealthy $before.InstanceId;$with|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'target_with_filter.json')
  Native;$req=[byte[]]::new(16);Put32 $req 0 1;Put32 $req 4 16;Put32 $req 8 $ExpectedPg;Put32 $req 12 $ExpectedCg;$r=[Phaser360.H15dNative]::Go($InterfaceGuid,$Ioctl,$req,52)
  $v=U32 $r 0;$sz=U32 $r 4;$nt=I32 $r 8;$fl=U32 $r 12;$gen=U32 $r 16;$ven=U16 $r 20;$dev=U16 $r 22;$pg0=U32 $r 28;$cg0=U32 $r 32;$pg1=U32 $r 36;$cg1=U32 $r 40;$pg2=U32 $r 44;$cg2=U32 $r 48
- [ordered]@{Version=$v;Size=$sz;NtStatus=('0x{0:X8}'-f([uint32]$nt));Flags=('0x{0:X8}'-f$fl);Generation=$gen;Vendor=('0x{0:X4}'-f$ven);Device=('0x{0:X4}'-f$dev);PgBefore=('0x{0:X8}'-f$pg0);CgBefore=('0x{0:X8}'-f$cg0);PgApplied=('0x{0:X8}'-f$pg1);CgApplied=('0x{0:X8}'-f$cg1);PgRestored=('0x{0:X8}'-f$pg2);CgRestored=('0x{0:X8}'-f$cg2)}|ConvertTo-Json|Set-Content (Join-Path $dir 'pci_transaction.json') -Encoding UTF8
+ [ordered]@{Version=$v;Size=$sz;NtStatus=('0x{0:X8}' -f ([uint32]$nt));Flags=('0x{0:X8}' -f $fl);Generation=$gen;Vendor=('0x{0:X4}' -f $ven);Device=('0x{0:X4}' -f $dev);PgBefore=('0x{0:X8}' -f $pg0);CgBefore=('0x{0:X8}' -f $cg0);PgApplied=('0x{0:X8}' -f $pg1);CgApplied=('0x{0:X8}' -f $cg1);PgRestored=('0x{0:X8}' -f $pg2);CgRestored=('0x{0:X8}' -f $cg2)}|ConvertTo-Json|Set-Content (Join-Path $dir 'pci_transaction.json') -Encoding UTF8
  if($v -ne 1 -or $sz -ne 52 -or $nt -lt 0 -or ($fl -band $RequiredFlags) -ne $RequiredFlags -or $ven -ne 0x8086 -or $dev -ne 0x3198 -or $pg0 -ne $ExpectedPg -or $cg0 -ne $ExpectedCg -or $pg1 -ne $AppliedPg -or $cg1 -ne $AppliedCg -or $pg2 -ne $ExpectedPg -or $cg2 -ne $ExpectedCg){throw 'H15D_LIVE_TRANSACTION_VALIDATION_FAILED'}
  $ioComplete=$true
  $x=PnP @('/delete-driver',$publishedInf,'/uninstall','/force');if($x.ExitCode -ne 0){throw 'FILTER_UNINSTALL_FAILED'}
@@ -118,7 +118,7 @@ try{
  $log|Set-Content (Join-Path $dir 'emergency_rollback.txt') -Encoding UTF8
  }
 }
-$final=$null;try{$final=Target}catch{};$rem=@(Published);$ft=Trust $pkg.Thumb;$baseline=$false;if($final){$baseline=$final.Status -ceq 'OK' -and $final.ProblemCode -eq 0 -and $final.InstanceId -ceq $before.InstanceId -and $final.Service -ceq $before.Service -and $final.DriverInfPath -ceq $before.DriverInfPath -and $rem.Count -eq 0-and -not $ft.Root-and -not $ft.TrustedPublisher}
+$final=$null;try{$final=Target}catch{};$rem=@(Published);$ft=Trust $pkg.Thumb;$baseline=$false;if($final){$baseline=$final.Status -ceq 'OK' -and $final.ProblemCode -eq 0 -and $final.InstanceId -ceq $before.InstanceId -and $final.Service -ceq $before.Service -and $final.DriverInfPath -ceq $before.DriverInfPath -and $rem.Count -eq 0 -and -not $ft.Root-and -not $ft.TrustedPublisher}
 [ordered]@{Status=$(if($normal -and $baseline -and $ioComplete-and -not $err){'H15D_LIVE_R1_WRITE_RESTORE_AND_ROLLBACK_COMPLETE'}else{'H15D_LIVE_R1_TRANSACTION_FAILED'});PublishedInf=$publishedInf;WriteRestoreCompleted=$ioComplete;BaselineRestored=$baseline;TrustRestored=( -not $ft.Root-and -not $ft.TrustedPublisher);TransactionError=$(if($err){$err.Message}else{$null});PciConfigWrite='ONLY_0x44_BIT2_AND_0x48_BIT1_WITH_EXACT_RESTORE';Mmio='NO';Dma='NO';DspBoot='NO';AudioPlayback='NO';SystemReboot='NO';BcdWrite='NO';DeviceRestarts='TARGET_DEV3198_ONLY'}|ConvertTo-Json -Depth 6|Set-Content (Join-Path $dir 'transaction.json') -Encoding UTF8
 Hashes $dir;$zip=Join-Path $OutputRoot ('RESULT_H15D_LIVE_R1_TRANSACTION_'+$stamp+'_'+$suffix+'.zip');Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $zip -Force
 Write-Host $(if($normal -and $baseline -and $ioComplete-and -not $err){'STATUS=H15D_LIVE_R1_WRITE_RESTORE_AND_ROLLBACK_COMPLETE'}else{'STATUS=H15D_LIVE_R1_TRANSACTION_FAILED'})
