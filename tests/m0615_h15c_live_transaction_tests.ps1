@@ -10,7 +10,7 @@ foreach($required in @(
  'Get-H15cCertificatePresence',
  'Invoke-H15cCertUtil',
  'Assert-H15cPackage([string]$PackageRoot,[switch]$RequireTrusted)',
- 'SYS_SIGNER_CERT_MISMATCH','CAT_SIGNER_CERT_MISMATCH',
+ 'SIGNER_CERT_MISMATCH',`n "foreach(`$pair in @(@('SYS',`$sysSig),@('CAT',`$catSig)))",
  'MANIFEST_HASH_MISMATCH',
  'phaser360_h15c_live_filter.cer',
  'package_manifest.json',
