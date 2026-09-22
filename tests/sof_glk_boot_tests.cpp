@@ -417,6 +417,18 @@ int main() {
         CHECK(Get(pciConfig,0x48,4)==originalCg);
         CHECK(!policy.Applied() && !policy.Dirty() && pciWriteCalls==1);
     }
+    // H15D pre-write TOCTOU fence: all 256 attested bytes must still
+    // match immediately before the first SetBusData.
+    Reset(); {
+        PciConfigAttestation attestation;
+        CHECK(NT_SUCCESS(attestation.Capture(&checks)));
+        pciConfig[0x3c]^=1u;
+        const auto writesBefore=pciWriteCalls;
+        PciConfigBootPolicy policy;
+        CHECK(policy.Apply(&checks,attestation.Snapshot(),accessGate)==
+              STATUS_DEVICE_CONFIGURATION_ERROR);
+        CHECK(pciWriteCalls==writesBefore && !policy.Dirty() && !policy.Applied());
+    }
     // Surprise removal after the first PCI write terminally closes the gate.
     // The policy must not read back, issue the second write, or query again to restore.
     Reset(); {
@@ -433,7 +445,7 @@ int main() {
         CHECK(policy.Apply(&checks,attestation.Snapshot(),removalGate)==STATUS_DELETE_PENDING);
         CHECK(removalGate.Removed());
         CHECK(pciWriteCalls==1);
-        CHECK(pciReadCalls==readsBeforeApply+2);
+        CHECK(pciReadCalls==readsBeforeApply+1);
         CHECK(pciQueryCalls==queriesBeforeApply+1);
         CHECK(policy.Dirty() && !policy.Applied());
         CHECK(!policy.Restore());
