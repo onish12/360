@@ -1,0 +1,22 @@
+PHASER360 H15E-LIVE R0 OFFLINE ROLLBACK
+
+Use only if Windows cannot boot after the H15E Extension-filter transaction.
+
+1. Enter Windows Recovery Environment -> Command Prompt.
+2. Identify the offline Windows volume. Do NOT assume C:.
+3. Read the transaction evidence and note H15ePublishedInf=oemNN.inf.
+4. Confirm the package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
+5. Remove ONLY the recorded PHASER360 H15E-LIVE package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
+6. Reboot only after DISM reports success.
+
+Do not remove the Intel IntcAudioBus package.
+
+H15E temporarily trusts one unique public test certificate. After Windows boots
+and DEV_3198 is healthy on IntcAudioBus, remove only the exact thumbprint
+recorded by the package:
+  certutil -delstore TrustedPublisher <THUMBPRINT>
+  certutil -delstore Root <THUMBPRINT>
+
+Never remove another certificate by subject-name wildcard.

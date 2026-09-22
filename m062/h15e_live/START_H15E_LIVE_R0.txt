@@ -1,0 +1,19 @@
+PHASER360 H15E-LIVE R0 TRANSIENT READ-ONLY MMIO PACKAGE
+
+Purpose:
+- temporarily install an exact-target Extension upper filter;
+- map the assigned HDA/DSP resources PAGE_READONLY | PAGE_NOCACHE;
+- read only the reviewed HDA/DSP registers;
+- unmap before PrepareHardware returns;
+- expose the copied snapshot;
+- remove the filter and restore Intel/trust baseline.
+
+Run only RUN_H15E_LIVE_R0.cmd as Administrator.
+Do not manually import the certificate.
+Success requires:
+  STATUS=H15E_LIVE_R0_CAPTURE_AND_ROLLBACK_COMPLETE
+  CAPTURE_COMPLETED=TRUE
+  BASELINE_RESTORED=TRUE
+  TRUST_RESTORED=TRUE
+
+Then send RESULT_H15E_LIVE_R0_TRANSACTION_*.zip for audit.

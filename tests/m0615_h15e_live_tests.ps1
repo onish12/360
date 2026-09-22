@@ -47,3 +47,26 @@ foreach($x in @('PAGE_READONLY | PAGE_NOCACHE','no WRITE_REGISTER_* path',
 }
 
 Write-Host 'H15E_LIVE_R0_STATIC_TESTS=PASS; mmio=READ_ONLY_TRANSIENT; mapping=PAGE_READONLY_NOCACHE; hda=0x4000; dsp=0x100000; pci_write=NO; mmio_write=NO; dma=NO; irq=NO; dsp_boot=NO; playback=NO'
+
+$run=Get-Content -LiteralPath (Join-Path $root 'm062\h15e_live\Run-H15eLiveR0.ps1') -Raw
+$wf=Get-Content -LiteralPath (Join-Path $root '.github\workflows\h15e-live-r0-one-shot-package.yml') -Raw
+foreach($x in @(
+ "[Convert]::ToUInt32('8339645C',16)","[Convert]::ToUInt32('000007FF',16)",
+ "[Convert]::ToUInt32('00000010',16)","[Convert]::ToUInt32('807B0DFF',16)",
+ 'CreateFile H15E GENERIC_READ','DeviceIoControl H15E snapshot',
+ 'SnapshotBytes=104','H15E_LIVE_SNAPSHOT_VALIDATION_FAILED',
+ 'MmioRead=''REVIEWED_REGISTERS_ONLY''','MmioWrite=''NO''','PciConfigWrite=''NO''',
+ 'BASELINE_RESTORED','TRUST_RESTORED','PHASER_DIAGNOSTIC_FILTER_ALREADY_ATTACHED'
+)){if($run.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15E_RUNNER_MISSING: $x"}}
+foreach($x in @('GENERIC_WRITE','bcdedit','/reboot')){
+ if($run.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15E_RUNNER_FORBIDDEN: $x"}
+}
+foreach($x in @(
+ '-KeyExportPolicy NonExportable','H15E_LIVE_R0_TRANSIENT_READONLY_MMIO_PACKAGE',
+ "Mapping='PAGE_READONLY_NOCACHE_TRANSIENT'","MmioWrite='NO'","PciWrite='NO'",
+ 'PrivateKeyExported=$false','PHASER360_H15E_LIVE_R0_TRANSIENT_READONLY_MMIO_PACKAGE',
+ 'retention-days: 3'
+)){if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15E_WORKFLOW_MISSING: $x"}}
+foreach($x in @('Export-PfxCertificate','-KeyExportPolicy Exportable','bcdedit','/reboot')){
+ if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15E_WORKFLOW_FORBIDDEN: $x"}
+}
