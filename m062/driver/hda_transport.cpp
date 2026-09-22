@@ -51,11 +51,17 @@ NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
     published_=true;
     if(!stream_.Configure(view.bdlLogical,view.payloadBytes,view.lastValidIndex))
         return STATUS_DEVICE_CONFIGURATION_ERROR;
+
+    // H15D: after HDA is cold/owned but before any DSP MMIO, apply only the
+    // two SOF pre-fw PCI policy bits attested by H15C. Any failure is cleaned
+    // by the mandatory Shutdown -> QuiesceController path.
+    status=pciPolicy_.Apply(device,pci_.Snapshot(),*gate_);
+    if(!NT_SUCCESS(status)) return status;
     return STATUS_SUCCESS;
 }
 bool HdaTransport::Start() noexcept {
     return KeGetCurrentIrql()==PASSIVE_LEVEL && controller_.Ready() &&
-        allocated_ && published_ && stream_.Start();
+        pciPolicy_.Applied() && allocated_ && published_ && stream_.Start();
 }
 bool HdaTransport::StopAndRelease() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
@@ -69,8 +75,15 @@ bool HdaTransport::StopAndRelease() noexcept {
 
 bool phaser360::windows::HdaTransport::QuiesceController() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
-    if(!controllerAttempted_) return true;
-    if(!controller_.Quiesce()) return false;
-    controllerAttempted_=false;
-    return true;
+
+    bool controllerOk=true;
+    if(controllerAttempted_) {
+        controllerOk=controller_.Quiesce();
+        if(controllerOk) controllerAttempted_=false;
+    }
+
+    // Restore H15D-owned PCI bits even when HDA quiesce reported failure.
+    // Restore itself is fail-closed behind the terminal hardware-access gate.
+    const bool pciOk=pciPolicy_.Restore();
+    return controllerOk && pciOk;
 }
