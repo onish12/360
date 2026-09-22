@@ -6,7 +6,11 @@
 
 namespace phaser360 { namespace windows {
 
-inline constexpr ULONG IOCTL_PHASER360_H15C_LIVE_SNAPSHOT=0x00226004u;
+inline constexpr DEVICE_TYPE kH15cLiveDeviceType=0x8337u;
+inline constexpr ULONG kH15cLiveIoctlFunction=0x915u;
+inline constexpr ULONG IOCTL_PHASER360_H15C_LIVE_SNAPSHOT=
+    CTL_CODE(kH15cLiveDeviceType,kH15cLiveIoctlFunction,METHOD_BUFFERED,FILE_READ_ACCESS);
+static_assert(IOCTL_PHASER360_H15C_LIVE_SNAPSHOT==0x83376454u,"H15C vendor IOCTL ABI");
 
 enum H15cLiveFlags : ULONG {
     H15cLiveCaptureAttempted=1u<<0,
