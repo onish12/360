@@ -73,3 +73,23 @@ a dedicated H15C-LIVE install/uninstall rollback gate must be completed.
 - Microsoft Learn: Device Filter Driver Ordering.
 - Microsoft Learn: Using an Extension INF File.
 - Microsoft Windows-driver-samples: KMDF filter examples.
+
+
+## H15C-LIVE forwarding and snapshot synchronization hardening
+
+The filter intercepts only DeviceControl requests so it can expose the private
+read-only snapshot IOCTL. Every other DeviceControl request is formatted using
+its current type and forwarded to the next-lower target with
+WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET. This matches KMDF's transparent filter
+forwarding contract and avoids retaining an asynchronously forwarded request
+without a completion routine.
+
+The snapshot is protected by a WDF spin lock. EvtDevicePrepareHardware marks
+the snapshot unavailable under the lock before recapturing PCI configuration,
+then publishes the complete 292-byte snapshot atomically under the same lock.
+The IOCTL handler copies the snapshot only while holding that lock. Therefore a
+device restart or resource rebalance cannot expose a torn mixture of old and
+new PCI evidence.
+
+These changes do not add any PCI write, MMIO, DMA, IRQ, DSP boot, device
+restart, installation or audio path.

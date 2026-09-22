@@ -35,6 +35,7 @@ static_assert(sizeof(H15cLiveSnapshotV1)==292u,"H15C live snapshot ABI");
 
 struct H15cLiveDeviceContext {
     H15cLiveSnapshotV1 snapshot{};
+    WDFSPINLOCK snapshotLock=nullptr;
     volatile LONG ready=0;
     volatile LONG generation=0;
 };

@@ -37,6 +37,15 @@ NTSTATUS phaser360::windows::H15cLiveEvtDeviceAdd(
     auto status=WdfDeviceCreate(&deviceInit,&attributes,&device);
     if(!NT_SUCCESS(status)) return status;
 
+    auto* context=H15cLiveGetContext(device);
+    if(!context) return STATUS_INVALID_DEVICE_STATE;
+
+    WDF_OBJECT_ATTRIBUTES lockAttributes;
+    WDF_OBJECT_ATTRIBUTES_INIT(&lockAttributes);
+    lockAttributes.ParentObject=device;
+    status=WdfSpinLockCreate(&lockAttributes,&context->snapshotLock);
+    if(!NT_SUCCESS(status)) return status;
+
     WDF_IO_QUEUE_CONFIG queueConfig;
     WDF_IO_QUEUE_CONFIG_INIT(&queueConfig,WdfIoQueueDispatchParallel);
     queueConfig.PowerManaged=WdfFalse;
@@ -67,6 +76,10 @@ NTSTATUS phaser360::windows::H15cLiveEvtPrepareHardware(
     auto* context=H15cLiveGetContext(device);
     if(!context) return STATUS_INVALID_DEVICE_STATE;
 
+    WdfSpinLockAcquire(context->snapshotLock);
+    InterlockedExchange(&context->ready,0);
+    WdfSpinLockRelease(context->snapshotLock);
+
     H15cLiveSnapshotV1 snapshot{};
     snapshot.flags=H15cLiveCaptureAttempted|
                    H15cLiveGetBusDataOnly|
@@ -91,9 +104,10 @@ NTSTATUS phaser360::windows::H15cLiveEvtPrepareHardware(
             snapshot.config,pci.config,kPciConfigSnapshotBytes);
     }
 
+    WdfSpinLockAcquire(context->snapshotLock);
     context->snapshot=snapshot;
-    KeMemoryBarrier();
     InterlockedExchange(&context->ready,1);
+    WdfSpinLockRelease(context->snapshotLock);
 
     // A read-only diagnostic filter must never prevent the Intel function
     // driver from starting merely because evidence capture failed.
@@ -109,9 +123,12 @@ void phaser360::windows::H15cLiveEvtIoDeviceControl(
     const auto device=WdfIoQueueGetDevice(queue);
     if(ioControlCode!=IOCTL_PHASER360_H15C_LIVE_SNAPSHOT) {
         // Preserve the function driver's IOCTL surface exactly.
+        WDF_REQUEST_SEND_OPTIONS options;
+        WDF_REQUEST_SEND_OPTIONS_INIT(
+            &options,WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
         WdfRequestFormatRequestUsingCurrentType(request);
         if(!WdfRequestSend(
-            request,WdfDeviceGetIoTarget(device),WDF_NO_SEND_OPTIONS)) {
+            request,WdfDeviceGetIoTarget(device),&options)) {
             WdfRequestComplete(request,WdfRequestGetStatus(request));
         }
         return;
@@ -123,7 +140,7 @@ void phaser360::windows::H15cLiveEvtIoDeviceControl(
     }
 
     auto* context=H15cLiveGetContext(device);
-    if(!context || InterlockedCompareExchange(&context->ready,0,0)==0) {
+    if(!context || !context->snapshotLock) {
         WdfRequestComplete(request,STATUS_DEVICE_NOT_READY);
         return;
     }
@@ -138,8 +155,14 @@ void phaser360::windows::H15cLiveEvtIoDeviceControl(
         return;
     }
 
-    KeMemoryBarrier();
+    WdfSpinLockAcquire(context->snapshotLock);
+    if(InterlockedCompareExchange(&context->ready,0,0)==0) {
+        WdfSpinLockRelease(context->snapshotLock);
+        WdfRequestComplete(request,STATUS_DEVICE_NOT_READY);
+        return;
+    }
     *out=context->snapshot;
+    WdfSpinLockRelease(context->snapshotLock);
     WdfRequestCompleteWithInformation(
         request,STATUS_SUCCESS,sizeof(H15cLiveSnapshotV1));
 }

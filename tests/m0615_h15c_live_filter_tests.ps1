@@ -14,8 +14,12 @@ foreach($required in @(
  'WdfDeviceConfigureRequestDispatching',
  'WdfRequestTypeDeviceControl',
  'WdfRequestFormatRequestUsingCurrentType(request)',
+ 'WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET',
  'WdfRequestSend(',
  'WdfDeviceGetIoTarget(device)',
+ 'WdfSpinLockCreate',
+ 'WdfSpinLockAcquire',
+ 'WdfSpinLockRelease',
  'queueConfig.PowerManaged=WdfFalse',
  'H15cLiveGetBusDataOnly',
  'H15cLiveNoPciWrite'
@@ -24,6 +28,14 @@ foreach($required in @(
   throw "H15C_LIVE_FILTER_REQUIRED_MISSING: $required"
  }
 }
+if($src.IndexOf('WDF_NO_SEND_OPTIONS',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+ throw 'H15C_LIVE_ASYNC_FORWARD_WITHOUT_COMPLETION_FORBIDDEN'
+}
+if(($src.Split('WdfSpinLockAcquire').Count-1) -lt 2 -or
+   ($src.Split('WdfSpinLockRelease').Count-1) -lt 3){
+ throw 'H15C_LIVE_SNAPSHOT_LOCKING_INCOMPLETE'
+}
+
 foreach($forbidden in @(
  'SetBusData(','READ_REGISTER_','WRITE_REGISTER_','MmMapIoSpace',
  'WdfInterruptCreate','WdfDmaEnablerCreate','WdfCommonBufferCreate',
@@ -93,4 +105,4 @@ foreach($forbidden in @(
  }
 }
 
-Write-Host 'H15C_LIVE_STATIC_TESTS=PASS; role=EXACT_TARGET_EXTENSION_UPPER_FILTER; function_driver_replacement=NO; pci_access=GETBUSDATA_ONLY; setbusdata=FORBIDDEN; mmio=NONE; dma=NONE; irq=NONE; unknown_ioctl=FORWARDED; reader_install_actions=NONE'
+Write-Host 'H15C_LIVE_STATIC_TESTS=PASS; role=EXACT_TARGET_EXTENSION_UPPER_FILTER; function_driver_replacement=NO; pci_access=GETBUSDATA_ONLY; setbusdata=FORBIDDEN; mmio=NONE; dma=NONE; irq=NONE; unknown_ioctl=SEND_AND_FORGET; snapshot_sync=WDFSPINLOCK; reader_install_actions=NONE'
