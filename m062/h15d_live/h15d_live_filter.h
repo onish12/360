@@ -69,6 +69,7 @@ struct H15dLiveDeviceContext {
     alignas(HardwareAccessGate) UCHAR gateStorage[sizeof(HardwareAccessGate)]={};
     BOOLEAN gateConstructed=FALSE;
     volatile LONG ready=0;
+    volatile LONG d0=0;
     volatile LONG consumed=0;
     volatile LONG generation=0;
 };
@@ -77,6 +78,8 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(H15dLiveDeviceContext,H15dLiveGetContext)
 EVT_WDF_DRIVER_DEVICE_ADD H15dLiveEvtDeviceAdd;
 EVT_WDF_DEVICE_PREPARE_HARDWARE H15dLiveEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE H15dLiveEvtReleaseHardware;
+EVT_WDF_DEVICE_D0_ENTRY H15dLiveEvtDeviceD0Entry;
+EVT_WDF_DEVICE_D0_EXIT H15dLiveEvtDeviceD0Exit;
 EVT_WDF_DEVICE_SURPRISE_REMOVAL H15dLiveEvtSurpriseRemoval;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP H15dLiveEvtContextCleanup;
 EVT_WDF_DEVICE_FILE_CREATE H15dLiveEvtDeviceFileCreate;

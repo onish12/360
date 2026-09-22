@@ -41,6 +41,8 @@ NTSTATUS phaser360::windows::H15dLiveEvtDeviceAdd(WDFDRIVER driver,PWDFDEVICE_IN
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
     pnp.EvtDevicePrepareHardware=H15dLiveEvtPrepareHardware;
     pnp.EvtDeviceReleaseHardware=H15dLiveEvtReleaseHardware;
+    pnp.EvtDeviceD0Entry=H15dLiveEvtDeviceD0Entry;
+    pnp.EvtDeviceD0Exit=H15dLiveEvtDeviceD0Exit;
     pnp.EvtDeviceSurpriseRemoval=H15dLiveEvtSurpriseRemoval;
     WdfDeviceInitSetPnpPowerEventCallbacks(deviceInit,&pnp);
 
@@ -52,6 +54,8 @@ NTSTATUS phaser360::windows::H15dLiveEvtDeviceAdd(WDFDRIVER driver,PWDFDEVICE_IN
     WDF_OBJECT_ATTRIBUTES attributes;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes,H15dLiveDeviceContext);
     attributes.EvtCleanupCallback=H15dLiveEvtContextCleanup;
+    attributes.ExecutionLevel=WdfExecutionLevelPassive;
+    attributes.SynchronizationScope=WdfSynchronizationScopeDevice;
     WDFDEVICE device=nullptr;
     auto status=WdfDeviceCreate(&deviceInit,&attributes,&device);
     if(!NT_SUCCESS(status)) return status;
@@ -117,6 +121,7 @@ NTSTATUS phaser360::windows::H15dLiveEvtPrepareHardware(
     auto* gate=LiveGate(context);
     if(!context || !gate) return STATUS_INVALID_DEVICE_STATE;
     InterlockedExchange(&context->ready,0);
+    InterlockedExchange(&context->d0,0);
     if(gate->Removed() || !gate->OpenForPrepare())
         return STATUS_SUCCESS;
     InterlockedIncrement(&context->generation);
@@ -130,8 +135,35 @@ NTSTATUS phaser360::windows::H15dLiveEvtReleaseHardware(
     if(!device) return STATUS_INVALID_PARAMETER;
     auto* context=H15dLiveGetContext(device);
     auto* gate=LiveGate(context);
-    if(context) InterlockedExchange(&context->ready,0);
+    if(context) {
+        InterlockedExchange(&context->d0,0);
+        InterlockedExchange(&context->ready,0);
+    }
     if(gate) (void)gate->CloseForRelease();
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS phaser360::windows::H15dLiveEvtDeviceD0Entry(
+    WDFDEVICE device,WDF_POWER_DEVICE_STATE previousState) {
+    UNREFERENCED_PARAMETER(previousState);
+    if(!device) return STATUS_SUCCESS;
+    auto* context=H15dLiveGetContext(device);
+    auto* gate=LiveGate(context);
+    if(context) {
+        const bool usable=gate && gate->Allowed() && !gate->Removed() &&
+            InterlockedCompareExchange(&context->ready,0,0)!=0;
+        InterlockedExchange(&context->d0,usable?1:0);
+    }
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS phaser360::windows::H15dLiveEvtDeviceD0Exit(
+    WDFDEVICE device,WDF_POWER_DEVICE_STATE targetState) {
+    UNREFERENCED_PARAMETER(targetState);
+    if(device) {
+        auto* context=H15dLiveGetContext(device);
+        if(context) InterlockedExchange(&context->d0,0);
+    }
     return STATUS_SUCCESS;
 }
 
@@ -139,7 +171,10 @@ void phaser360::windows::H15dLiveEvtSurpriseRemoval(WDFDEVICE device) {
     if(!device) return;
     auto* context=H15dLiveGetContext(device);
     auto* gate=LiveGate(context);
-    if(context) InterlockedExchange(&context->ready,0);
+    if(context) {
+        InterlockedExchange(&context->d0,0);
+        InterlockedExchange(&context->ready,0);
+    }
     if(gate) gate->SurpriseRemove();
 }
 
@@ -166,6 +201,7 @@ void phaser360::windows::H15dLiveEvtIoDeviceControl(
     auto* context=H15dLiveGetContext(device);
     auto* gate=LiveGate(context);
     if(!context || !gate || InterlockedCompareExchange(&context->ready,0,0)==0 ||
+       InterlockedCompareExchange(&context->d0,0,0)==0 ||
        !gate->Allowed() || gate->Removed()) {
         WdfRequestComplete(request,STATUS_DEVICE_NOT_READY);
         return;
