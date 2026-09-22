@@ -106,4 +106,16 @@ foreach($required in @(
         throw "R2_START_REQUIRED_MISSING: $required"
     }
 }
+
+# Launchers must normalize their own directory. %~dp0 ends with a backslash;
+# passing it quoted as PackageRoot can leak the closing quote into argv.
+foreach($launcherName in @('RUN_H15C_LIVE_TRANSACTION.cmd','RUN_H15C_LIVE_PREFLIGHT.cmd','CHECK_H15C_LIVE_R2_TRUST.cmd')){
+    $launcher=Get-Content -LiteralPath (Join-Path $root ('m062\\h15c_live\\'+$launcherName)) -Raw
+    if($launcher.IndexOf('for %%I in ("%~dp0.") do set "PHASER_PACKAGE=%%~fI"',[StringComparison]::OrdinalIgnoreCase) -lt 0){
+        throw "R2_LAUNCHER_SELF_PATH_NORMALIZATION_MISSING: $launcherName"
+    }
+    if($launcher.IndexOf('set "PHASER_PACKAGE=%~dp0"',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+        throw "R2_LAUNCHER_TRAILING_BACKSLASH_PATH_FORBIDDEN: $launcherName"
+    }
+}
 Write-Host 'H15C_LIVE_R2_STATIC_TESTS=PASS; package_trigger=MANUAL_ONLY; signer=EPHEMERAL_NONEXPORTABLE_7D; private_key_artifact=NO; pretrust_checker=READ_ONLY_AND_REQUIRES_ABSENCE; target_trust_change=TRANSACTIONAL_EXACT_CERT; trust_rollback=REQUIRED; bcd_write=NO; pci_write=NO; mmio=NO'
