@@ -53,5 +53,4 @@ from repeating the H15J cleanup failure after a proven exact MMIO rollback.
 - PHASER360 src/sof/glk_rom.cpp: existing independent GLK cold-state model.
 - Verified Lenovo H15J physical result: ADSPCS=0x001D003C and HDA transport idle.
 
-Passing H15K authorizes only a separately bounded H15L power-state gate. It does
-not authorize firmware, DMA, IRQ ownership or playback.
+Passing H15K authorizes only a separately bounded H15L power-state gate. It does not authorize firmware, DMA, IRQ ownership or playback.
