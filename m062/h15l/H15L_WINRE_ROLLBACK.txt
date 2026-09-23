@@ -1,0 +1,24 @@
+PHASER360 H15L OFFLINE ROLLBACK
+
+Use only if Windows cannot boot after the H15L core1 SPA/CPA handshake transaction.
+
+1. Enter Windows Recovery Environment -> Command Prompt.
+2. Identify the offline Windows volume. Do NOT assume C:.
+3. Read H15lPublishedInf.txt and note the PHASER360 oemNN.inf.
+4. Confirm it:
+   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
+5. Remove ONLY that H15L package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
+6. Reboot.
+
+Do NOT remove oem14.inf.
+
+Verified Intel baseline:
+  Service=IntcAudioBus
+  INF=oem14.inf
+  Version=9.22.0.4832
+  Provider=Intel(R) Corporation
+
+H15L writes only DSP ADSPCS CSTALL1, CRST1 and SPA1. CPA1 is read/polled only; core0 and HDA MMIO are never written. Exact rollback target is ADSPCS=0x001D003C.
+If the runner cannot prove restoration after the write is attempted, it
+intentionally blocks automatic package removal and retains trust for recovery.
