@@ -52,17 +52,17 @@ jobs:
           $ErrorActionPreference='Stop'
           $package=Join-Path $env:GITHUB_WORKSPACE '_h15or_r2_package';New-Item -ItemType Directory -Path $package -Force|Out-Null
           $sys=(Resolve-Path .\m062\h15or\out\phaser360_h15or_readonly_recovery_probe.sys).Path
-          $pkgSys=Join-Path $package 'phaser360_h15or_readonly_recovery_probe.sys';Copy-Item $sys $pkgSys
+          $pkgSys=Join-Path $package 'phaser360_h15or_r2_readonly_recovery_probe.sys';Copy-Item $sys $pkgSys
           $runner=(Resolve-Path .\m062\h15or_r2\Run-H15orR2Recovery.ps1).Path
           Copy-Item $runner $package;Copy-Item .\m062\h15or_r2\RUN_H15OR_R2_RECOVERY.cmd $package;Copy-Item .\H15OR_R2_IMPORTS.txt $package
           $buildTools=(Resolve-Path .\m062\packages\Microsoft.Windows.SDK.BuildTools.10.0.28000.2526).Path;$signtool=Join-Path $buildTools 'bin\10.0.28000.0\x64\signtool.exe'
           $subject='CN=PHASER360 H15OR R2 Readonly Recovery Signing';$cert=$null
           try{
             $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(7)
-            $cer=Join-Path $package 'phaser360_h15or_readonly_recovery_probe.cer';Export-Certificate -Cert $cert -FilePath $cer -Type CERT|Out-Null
+            $cer=Join-Path $package 'phaser360_h15or_r2_readonly_recovery_probe.cer';Export-Certificate -Cert $cert -FilePath $cer -Type CERT|Out-Null
             & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint /s My /v $pkgSys;if($LASTEXITCODE-ne0){throw 'H15OR_R2_SYS_SIGN_FAILED'}
             $runnerSha=(Get-FileHash (Join-Path $package 'Run-H15orR2Recovery.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
-            [ordered]@{Schema=2;Purpose='H15OR_R2_READONLY_RECOVERY_PACKAGE';SourceCommit=$env:GITHUB_SHA;RunnerBuild='h15or-r2.1-sc-alias-fix-20260923';RunnerSha256=$runnerSha;CertificateSubject=$subject;CertificateThumbprint=$cert.Thumbprint;PrivateKeyExported=$false;MmioWrite='NO';PciWrite='NO';SysSha256=(Get-FileHash $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant();CerSha256=(Get-FileHash $cer -Algorithm SHA256).Hash.ToLowerInvariant()}|ConvertTo-Json -Depth 5 | Out-File (Join-Path $package 'package_manifest.json') -Encoding utf8
+            [ordered]@{Schema=2;Purpose='H15OR_R2_READONLY_RECOVERY_PACKAGE';SourceCommit=$env:GITHUB_SHA;RunnerBuild='h15or-r2.2-package-contract-fix-20260923';RunnerSha256=$runnerSha;CertificateSubject=$subject;CertificateThumbprint=$cert.Thumbprint;PrivateKeyExported=$false;MmioWrite='NO';PciWrite='NO';SysSha256=(Get-FileHash $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant();CerSha256=(Get-FileHash $cer -Algorithm SHA256).Hash.ToLowerInvariant()}|ConvertTo-Json -Depth 5 | Out-File (Join-Path $package 'package_manifest.json') -Encoding utf8
             $lines=@(Get-ChildItem $package -File|Sort-Object Name|ForEach-Object{(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+'  '+$_.Name})
             [IO.File]::WriteAllLines((Join-Path $package 'SHA256SUMS.txt'),$lines,[Text.Encoding]::ASCII)
           }finally{if($cert){Remove-Item ("Cert:\CurrentUser\My\{0}"-f$cert.Thumbprint) -Force -ErrorAction SilentlyContinue}}
