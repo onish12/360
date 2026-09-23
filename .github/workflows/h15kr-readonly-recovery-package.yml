@@ -9,7 +9,7 @@ on:
       - 'm062/h15kr/**'
       - 'tests/m0615_h15kr_readonly_recovery_tests.ps1'
       - 'docs/M0615_H15KR_READONLY_RECOVERY.md'
-      - '.github/workflows/h15kr-function-mmio-package.yml'
+      - '.github/workflows/h15kr-readonly-recovery-package.yml'
 
 permissions:
   contents: read
