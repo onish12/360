@@ -1,0 +1,23 @@
+PHASER360 H15H FUNCTION-DRIVER PCI POLICY GATE
+
+This package temporarily replaces IntcAudioBus as function driver.
+BAR0/BAR4 stay PAGE_READONLY | PAGE_NOCACHE.
+
+Only after the userspace IOCTL is issued, H15H:
+1. captures PCI config and MMIO;
+2. clears CGCTL bit 1 and sets PGCTL bit 2;
+3. verifies the applied PCI image;
+4. reads the reviewed MMIO register set;
+5. restores PCI config exactly;
+6. verifies the full 256-byte PCI config and reads MMIO again.
+
+No MMIO write, DMA, interrupt ownership, firmware load, DSP boot or playback.
+
+Run only RUN_H15H_TRANSACTION.cmd as Administrator.
+
+Expected success:
+  STATUS=H15H_FUNCTION_PCI_POLICY_AND_ROLLBACK_COMPLETE
+  HANDOFF_COMPLETED=TRUE
+  SNAPSHOT_COMPLETED=TRUE
+  BASELINE_RESTORED=TRUE
+  TRUST_RESTORED=TRUE
