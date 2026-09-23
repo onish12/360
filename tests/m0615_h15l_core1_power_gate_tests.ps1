@@ -60,6 +60,11 @@ foreach($x in @(
 }
 
 foreach($x in @(
+ "$CertSubject='CN=PHASER360 H15L R2 Ephemeral Test Signing'",
+ "'H15L_R2_CORE1_SPA_CPA_HANDSHAKE_TRANSACTION_PACKAGE'",
+ '$m.CertificateSubject -cne $CertSubject',
+ '$m.CstallWrite -cne ''NO''',
+ '$m.CrstWrite -cne ''NO''',
  "[Convert]::ToUInt32('833FE47C',16)",
  "[Convert]::ToUInt32('FFFFFFFF',16)",
  '$ResultBytes=304',

@@ -5,7 +5,7 @@ Set-StrictMode -Version 2
 
 $ExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $Service='Phaser360H15l'
-$CertSubject='CN=PHASER360 H15L Ephemeral Test Signing'
+$CertSubject='CN=PHASER360 H15L R2 Ephemeral Test Signing'
 $InterfaceGuid=[Guid]'8c1b3150-6d12-4f88-9d36-15f600319802'
 $Ioctl=[Convert]::ToUInt32('833FE47C',16)
 $RequiredFlags=[Convert]::ToUInt32('FFFFFFFF',16)
@@ -129,7 +129,8 @@ function Package([string]$root,[switch]$Trusted){
   if([string]$m.CertificateThumbprint -cne [string]$c.Thumbprint){
     throw 'MANIFEST_CERTIFICATE_THUMBPRINT_MISMATCH'
   }
-  if([string]$m.Purpose -cne 'H15L_CORE1_POWER_HANDSHAKE_TRANSACTION_PACKAGE' -or
+  if([string]$m.Purpose -cne 'H15L_R2_CORE1_SPA_CPA_HANDSHAKE_TRANSACTION_PACKAGE' -or
+     [string]$m.CertificateSubject -cne $CertSubject -or
      [string]$m.ExactHardwareId -cne $ExactHwid -or
      [string]$m.ExpectedBaselineInf -cne $BaselineInf -or
      [string]$m.ExpectedBaselineVersion -cne $BaselineVersion -or
@@ -140,7 +141,14 @@ function Package([string]$root,[switch]$Trusted){
      [string]$m.MmioWrite -cne 'ONLY_DSP_ADSPCS_CORE1_SPA_WITH_CPA_READONLY_ROLLBACK' -or
      [string]$m.Core0Write -cne 'NO' -or
      [string]$m.CpaWrite -cne 'NO' -or
+     [string]$m.CstallWrite -cne 'NO' -or
+     [string]$m.CrstWrite -cne 'NO' -or
      [string]$m.PciConfigWrite -cne 'NO' -or
+     [string]$m.Dma -cne 'NO' -or
+     [string]$m.IrqOwnership -cne 'NO' -or
+     [string]$m.Firmware -cne 'NO' -or
+     [string]$m.DspBoot -cne 'NO' -or
+     [string]$m.Playback -cne 'NO' -or
      [string]$m.ExpectedPgctl -cne '0x00000010' -or
      [string]$m.ExpectedCgctl -cne '0x807B0DFF'){
     throw 'MANIFEST_H15L_CONTRACT_MISMATCH'
@@ -538,7 +546,7 @@ $status=if($normal -and $baseline -and $handoffComplete -and $snapshotComplete -
   MmioRead='HDA_IDLE_AND_DSP_STATUS';MmioWrite='ONLY_DSP_ADSPCS_CORE1_SPA_WITH_CPA_READONLY_ROLLBACK'
   HdaQuiescence='CORB_RIRB_ALL_STREAM_RUN_ZERO_BEFORE_ADSPCS_WRITE'
   DspStatusRead='ADSPCS_ADSPIC_ADSPIS_HIPCI_HIPCIE_HIPCCTL_ROM'
-  HdaMmioWrite='NO';Core0Write='NO';CpaWrite='NO'
+  HdaMmioWrite='NO';Core0Write='NO';CpaWrite='NO';CstallWrite='NO';CrstWrite='NO'
   PciConfigWrite='NO';Dma='NO'
   IrqOwnership='NO';Firmware='NO';DspBoot='NO';Playback='NO'
   SystemReboot='NO';BcdWrite='NO'
