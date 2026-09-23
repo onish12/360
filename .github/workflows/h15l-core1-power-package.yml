@@ -1,0 +1,175 @@
+name: H15L reversible core1 SPA/CPA power handshake signed package
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/audio-auto-20260915
+    paths:
+      - 'm062/h15l/**'
+      - 'tests/m0615_h15l_core1_power_gate_tests.ps1'
+      - 'docs/M0615_H15L_CORE1_POWER_GATE.md'
+      - '.github/workflows/h15l-core1-power-package.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore pinned WDK packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          nuget restore .\m062\packages.config -PackagesDirectory .\m062\packages -NonInteractive
+          if($LASTEXITCODE -ne 0){throw 'H15L_RESTORE_FAILED'}
+
+      - name: Build H15L reversible core1 SPA/CPA power handshake probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          msbuild .\m062\h15l\phaser360_h15l_core1_power_gate.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if($LASTEXITCODE -ne 0){throw 'H15L_BUILD_FAILED'}
+
+      - name: Validate H15L static core1 power gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\tests\m0615_h15l_core1_power_gate_tests.ps1
+          if(-not $?){throw 'H15L_STATIC_TESTS_FAILED'}
+
+      - name: Audit compiled H15L imports
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $sys=(Resolve-Path .\m062\h15l\out\phaser360_h15l_core1_power_gate.sys).Path
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsRoot=(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath|Select-Object -First 1)
+          if(-not $vsRoot){throw 'H15L_VS_NOT_FOUND'}
+          $dumpbin=(Get-ChildItem (Join-Path $vsRoot 'VC\Tools\MSVC') -Filter dumpbin.exe -Recurse -File |
+            Where-Object {$_.FullName -match '\\bin\\Hostx64\\x64\\dumpbin\.exe$'} |
+            Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          if(-not $dumpbin){throw 'H15L_DUMPBIN_NOT_FOUND'}
+          $imports=(& $dumpbin /imports $sys 2>&1|Out-String)
+          if($LASTEXITCODE -ne 0){throw 'H15L_DUMPBIN_FAILED'}
+          foreach($token in @(
+            'WRITE_REGISTER_UCHAR','WRITE_REGISTER_USHORT',
+            'WdfInterruptCreate','WdfDma','WdfCommonBuffer',
+            'BCrypt','ZwCreateFile','ZwReadFile'
+          )){
+            if($imports.IndexOf($token,[StringComparison]::OrdinalIgnoreCase)-ge0){
+              throw "H15L_FORBIDDEN_IMPORT: $token"
+            }
+          }
+          $imports|Set-Content .\H15L_IMPORTS.txt
+          Write-Host 'H15L_IMPORT_AUDIT=PASS'
+
+      - name: Create ephemeral signer and signed package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $package=Join-Path $env:GITHUB_WORKSPACE '_h15l_package'
+          New-Item -ItemType Directory -Path $package -Force|Out-Null
+          $sys=(Resolve-Path .\m062\h15l\out\phaser360_h15l_core1_power_gate.sys).Path
+          $pkgSys=Join-Path $package 'phaser360_h15l_core1_power_gate.sys'
+          $inf=Join-Path $package 'phaser360_h15l_core1_power_gate.inf'
+          $cat=Join-Path $package 'phaser360_h15l_core1_power_gate.cat'
+          $cer=Join-Path $package 'phaser360_h15l_core1_power_gate.cer'
+          Copy-Item $sys $pkgSys
+          Copy-Item .\m062\h15l\phaser360_h15l_core1_power_gate.inf $inf
+
+          $buildTools=(Resolve-Path .\m062\packages\Microsoft.Windows.SDK.BuildTools.10.0.28000.2526).Path
+          $signtool=Join-Path $buildTools 'bin\10.0.28000.0\x64\signtool.exe'
+          $wdk=(Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
+          $inf2cat=Join-Path $wdk 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
+          if(-not (Test-Path $signtool)){throw 'H15L_SIGNTOOL_NOT_FOUND'}
+          if(-not (Test-Path $inf2cat)){throw 'H15L_INF2CAT_NOT_FOUND'}
+
+          $subject='CN=PHASER360 H15L Ephemeral Test Signing'
+          $cert=$null
+          try {
+            $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(7)
+            if(-not $cert -or -not $cert.HasPrivateKey){throw 'H15L_CERT_CREATE_FAILED'}
+            $thumb=[string]$cert.Thumbprint
+            Export-Certificate -Cert $cert -FilePath $cer -Type CERT|Out-Null
+            $public=Get-PfxCertificate $cer
+            if(-not $public -or $public.HasPrivateKey){throw 'H15L_PUBLIC_CERT_CHECK_FAILED'}
+
+            & $signtool sign /fd SHA256 /sha1 $thumb /s My /v $pkgSys
+            if($LASTEXITCODE -ne 0){throw 'H15L_SYS_SIGN_FAILED'}
+            & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+            if($LASTEXITCODE -ne 0){throw 'H15L_INF2CAT_FAILED'}
+            & $signtool sign /fd SHA256 /sha1 $thumb /s My /v $cat
+            if($LASTEXITCODE -ne 0){throw 'H15L_CAT_SIGN_FAILED'}
+
+            $manifest=[ordered]@{
+              Schema=1
+              Purpose='H15L_CORE1_POWER_HANDSHAKE_TRANSACTION_PACKAGE'
+              SourceCommit=$env:GITHUB_SHA
+              CertificateSubject=$subject
+              CertificateThumbprint=$thumb
+              CertificateNotAfterUtc=$cert.NotAfter.ToUniversalTime().ToString('o')
+              PrivateKeyExported=$false
+              ExactHardwareId='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
+              ExpectedBaselineService='IntcAudioBus'
+              ExpectedBaselineInf='oem14.inf'
+              ExpectedBaselineVersion='9.22.0.4832'
+              ExpectedBaselineProvider='Intel(R) Corporation'
+              ExpectedHdaPhysical='0x00000000CEEE0000'
+              ExpectedDspPhysical='0x00000000CEF00000'
+              ExpectedHdaLength='0x00004000'
+              ExpectedDspLength='0x00100000'
+              ExpectedInterruptCount=1
+              Mapping='HDA_PAGE_READONLY_DSP_PAGE_READWRITE'
+              MmioRead='HDA_IDLE_AND_DSP_STATUS'
+              MmioWrite='ONLY_DSP_ADSPCS_CORE1_CSTALL_CRST_SPA_WITH_CPA_READONLY_ROLLBACK'
+              HdaQuiescence='CORB_RIRB_ALL_STREAM_RUN_ZERO_BEFORE_ADSPCS_WRITE'
+              DspStatusRead='ADSPCS_ADSPIC_ADSPIS_HIPCI_HIPCIE_HIPCCTL_ROM'
+              HdaMmioWrite='NO';Core0Write='NO';CpaWrite='NO'
+              PciConfigWrite='NO'
+              ExpectedPgctl='0x00000010';ExpectedCgctl='0x807B0DFF'
+              Dma='NO';IrqOwnership='NO';Firmware='NO';DspBoot='NO';Playback='NO'
+              InfSha256=(Get-FileHash $inf -Algorithm SHA256).Hash.ToLowerInvariant()
+              SysSha256=(Get-FileHash $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant()
+              CatSha256=(Get-FileHash $cat -Algorithm SHA256).Hash.ToLowerInvariant()
+              CerSha256=(Get-FileHash $cer -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $manifest|ConvertTo-Json -Depth 6|Set-Content (Join-Path $package 'package_manifest.json') -Encoding UTF8
+
+            Copy-Item .\m062\h15l\Run-H15lTransaction.ps1 $package
+            Copy-Item .\m062\h15l\RUN_H15L_TRANSACTION.cmd $package
+            Copy-Item .\m062\h15l\H15L_WINRE_ROLLBACK.txt $package
+            Copy-Item .\m062\h15l\START_H15L.txt $package
+            Copy-Item .\H15L_IMPORTS.txt $package
+
+            Get-ChildItem $package -File|Sort-Object Name|ForEach-Object {
+              (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+'  '+$_.Name
+            }|Set-Content (Join-Path $package 'SHA256SUMS.txt') -Encoding ASCII
+
+            if(Get-ChildItem $package -File|Where-Object {$_.Extension -in @('.pfx','.p12','.pvk','.key')}){
+              throw 'H15L_PRIVATE_KEY_ARTIFACT_FORBIDDEN'
+            }
+          } finally {
+            if($cert){
+              Remove-Item ("Cert:\CurrentUser\My\{0}" -f $cert.Thumbprint) -Force -ErrorAction SilentlyContinue
+              if(Test-Path ("Cert:\CurrentUser\My\{0}" -f $cert.Thumbprint)){
+                throw 'H15L_CERT_CLEANUP_FAILED'
+              }
+            }
+          }
+
+      - name: Upload signed H15L package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: PHASER360_H15L_CORE1_POWER_HANDSHAKE_TRANSACTION_PACKAGE
+          path: _h15l_package/
+          if-no-files-found: error
+          retention-days: 3
