@@ -60,7 +60,7 @@ foreach($x in @(
 }
 
 foreach($x in @(
- "$CertSubject='CN=PHASER360 H15L R2 Ephemeral Test Signing'",
+ '$CertSubject=''CN=PHASER360 H15L R2 Ephemeral Test Signing''',
  "'H15L_R2_CORE1_SPA_CPA_HANDSHAKE_TRANSACTION_PACKAGE'",
  '$m.CertificateSubject -cne $CertSubject',
  '$m.CstallWrite -cne ''NO''',
