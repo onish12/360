@@ -161,6 +161,10 @@ WriteUtf8 (Join-Path $dir 'code_integrity.txt') ("0x{0:X8}"-f$ci)
 WriteUtf8 (Join-Path $dir 'reagentc_info.txt') $re.Output
 $ex=PnP @('/export-driver',$before.DriverInfPath,$backup);WriteUtf8 (Join-Path $dir 'pnputil_export_intel.txt') $ex.Output
 if($ex.ExitCode-ne0 -or @(Get-ChildItem $backup -Recurse -File).Count-eq0){throw 'BASELINE_EXPORT_FAILED'}
+$baselineExportInfs=@(Get-ChildItem $backup -Recurse -Filter '*.inf' -File)
+if($baselineExportInfs.Count-ne1){throw "BASELINE_EXPORT_INF_COUNT_INVALID: count=$($baselineExportInfs.Count)"}
+$baselineExportInf=$baselineExportInfs[0].FullName
+WriteUtf8 (Join-Path $dir 'baseline_export_inf.txt') $baselineExportInf
 
 $rootAdded=$false;$pubAdded=$false;$published=$false;$publishedInf=$null;$bindAttempted=$false;$m1Bound=$false;$bootProved=$false;$rollbackComplete=$false;$fallbackIntel=$false;$err=$null
 try{
@@ -195,9 +199,8 @@ try{
   Start-Sleep -Milliseconds 500
   if(@(PublishedM1).Count-ne0){throw 'M1_PACKAGE_REMAINS_AFTER_UNINSTALL'}
   try{$after=WaitIntel $before.InstanceId 20}catch{
-    $baselinePath=Join-Path (Join-Path $env:SystemRoot 'INF') $BaselineInf
-    if(-not(Test-Path $baselinePath -PathType Leaf)){throw}
-    $rb=[Phaser360.M1FastNative]::ForceUpdate($ExactHwid,$baselinePath);if($rb){throw 'INTEL_FALLBACK_REQUIRES_REBOOT'}
+    if(-not(Test-Path $baselineExportInf -PathType Leaf)){throw}
+    $rb=[Phaser360.M1FastNative]::ForceUpdate($ExactHwid,$baselineExportInf);if($rb){throw 'INTEL_FALLBACK_REQUIRES_REBOOT'}
     $fallbackIntel=$true;$after=WaitIntel $before.InstanceId 20
   }
   WriteUtf8 (Join-Path $dir 'target_after.json') ($after|ConvertTo-Json -Depth 8)
