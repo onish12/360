@@ -7,7 +7,7 @@ foreach($x in @(
  'm1-fast-safe-20260923-r2-interface-wait','EXACT_WINDOWS_BUILD_19044_REQUIRED','PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
  "BaselineInf='oem14.inf'","BaselineVersion='9.22.0.4832'",'/export-driver',
  'M1_FAST_RECOVERY_POINTER.txt','/add-driver','$bindAttempted=$true','ForceUpdate($ExactHwid,$pkg.Inf)',
- '[Phaser360.M1FastNative]::Query($TelemetryGuid,$TelemetryIoctl,32)',''WaitTelemetry([int]$seconds=15)','telemetry_interface_wait.json','Start-Sleep -Milliseconds 500',
+ '[Phaser360.M1FastNative]::Query($TelemetryGuid,$TelemetryIoctl,32)','WaitTelemetry([int]$seconds=15)','telemetry_interface_wait.json','Start-Sleep -Milliseconds 500',
  '/delete-driver',$null,'BASELINE_RESTORED','TRUST_RETAINED_FOR_SAFETY=TRUE','DO_NOT_REBOOT_UNTIL_TARGET_STATE_IS_REVIEWED=TRUE',
  "AudioPlayback='NO'","CodecProgramming='NO'","SpeakerEnable='NO'","AutomaticReboot='NO'","BcdWrite='NO'"
 )){
