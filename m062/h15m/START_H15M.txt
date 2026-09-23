@@ -1,0 +1,15 @@
+PHASER360 H15M - PP capability discovery
+
+Scop:
+- foloseste numai tranzitia HDA GCTL.CRST 0->1->0 deja validata de H15I;
+- cu GCTL ready, citeste LLCH si parcurge bounded lista HDA extended capabilities;
+- identifica Processing Pipe capability (ID 3);
+- captureaza PPCTL si PPSTS;
+- raporteaza explicit starea PPCTL.GPROCEN bit30 si PIE bit31;
+- restaureaza GCTL exact la 0.
+
+NU scrie PPCTL, EM2, DSP BAR sau PCI config.
+NU foloseste DMA, IRQ ownership, firmware, DSP boot sau playback.
+
+Pornire: RUN_H15M_TRANSACTION.cmd
+Trimite RESULT_H15M_TRANSACTION_*.zip.
