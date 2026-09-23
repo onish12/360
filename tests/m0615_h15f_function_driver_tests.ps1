@@ -27,7 +27,7 @@ foreach($x in @(
  'WdfFdoInitSetFilter','MmMapIoSpace','MmUnmapIoSpace','READ_REGISTER_',
  'WRITE_REGISTER_','GetBusData','SetBusData','BUS_INTERFACE_STANDARD',
  'WdfInterruptCreate','WdfCommonBuffer','WdfDma',
- 'firmware','GlkBoot','ColdPower','HdaTransport','KeStallExecutionProcessor'
+ 'firmware_source','PinnedFirmware','GlkBoot','ColdPower','HdaTransport','KeStallExecutionProcessor'
 )){if(($src+$hdr+$proj).IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15F_FORBIDDEN: $x"}}
 
 foreach($x in @('KMDF_VERSION_MINOR>31','h15f_function_driver.cpp')){
@@ -44,3 +44,31 @@ foreach($x in @(
 )){if($doc.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15F_DOC_MISSING: $x"}}
 
 Write-Host 'H15F_STATIC_TESTS=PASS; role=FUNCTION_DRIVER; pnp_prepare=YES; d0_entry=YES; resource_metadata=READ_ONLY; mmio=NONE; pci_write=NONE; dma=NONE; irq_ownership=NONE; firmware=NONE; playback=NO'
+
+$run=Get-Content -LiteralPath (Join-Path $root 'm062\h15f\Run-H15fHandoff.ps1') -Raw
+$wf=Get-Content -LiteralPath (Join-Path $root '.github\workflows\h15f-function-driver-package.yml') -Raw
+foreach($x in @(
+ 'UpdateDriverForPlugAndPlayDevicesW','INSTALLFLAG_FORCE',
+ "[Convert]::ToUInt32('833A6460',16)",
+ "[Convert]::ToUInt32('000003FF',16)",
+ '$BaselineInf=''oem14.inf''','$BaselineVersion=''9.22.0.4832''',
+ '$BaselineProvider=''Intel(R) Corporation''',
+ "[Convert]::ToUInt64('00000000CEEE0000',16)",
+ "[Convert]::ToUInt64('00000000CEF00000',16)",
+ 'H15F_HANDOFF_REQUIRES_SYSTEM_REBOOT',
+ 'H15F_LIVE_SNAPSHOT_VALIDATION_FAILED',
+ 'H15F_FUNCTION_DRIVER_HANDOFF_AND_ROLLBACK_COMPLETE'
+)){if($run.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15F_RUNNER_MISSING: $x"}}
+foreach($x in @('bcdedit','/reboot','MmMapIoSpace','READ_REGISTER_','WRITE_REGISTER_')){
+ if($run.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15F_RUNNER_FORBIDDEN: $x"}
+}
+foreach($x in @(
+ '-KeyExportPolicy NonExportable',
+ 'H15F_FUNCTION_DRIVER_OWNERSHIP_HANDOFF_PACKAGE',
+ "HardwareAccess='NONE'","Mmio='NO'","PciWrite='NO'",
+ "Dma='NO'","IrqOwnership='NO'","Firmware='NO'","DspBoot='NO'","Playback='NO'",
+ 'PHASER360_H15F_FUNCTION_DRIVER_HANDOFF_PACKAGE'
+)){if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15F_WORKFLOW_MISSING: $x"}}
+foreach($x in @('Export-PfxCertificate','-KeyExportPolicy Exportable','/reboot')){
+ if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15F_WORKFLOW_FORBIDDEN: $x"}
+}

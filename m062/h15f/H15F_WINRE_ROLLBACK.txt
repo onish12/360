@@ -1,0 +1,22 @@
+PHASER360 H15F OFFLINE ROLLBACK
+
+Use only if Windows cannot boot after the H15F function-driver handoff.
+
+1. Enter Windows Recovery Environment -> Command Prompt.
+2. Identify the offline Windows volume. Do NOT assume C:.
+3. Read H15fPublishedInf.txt from the result/evidence directory and note oemNN.inf.
+4. Confirm the PHASER360 package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
+5. Remove ONLY that PHASER360 H15F package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
+6. Reboot. The original Intel package must remain installed.
+
+Do NOT remove oem14.inf. The verified baseline is:
+  Service=IntcAudioBus
+  INF=oem14.inf
+  Version=9.22.0.4832
+  Provider=Intel(R) Corporation
+
+After Windows boots and DEV_3198 is healthy on the Intel baseline, remove only
+the exact H15F certificate thumbprint if it remains in TrustedPublisher/Root.
+Never remove certificates by subject wildcard.
