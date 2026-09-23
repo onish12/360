@@ -38,3 +38,35 @@ foreach($x in @('writes only GCTL bit 0 from 0 to 1','writes only GCTL bit 0 bac
  if($doc.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15I_DOC_MISSING: $x"}
 }
 Write-Host 'H15I_STATIC_TESTS=PASS; hda_gctl_crst=ONLY_MMIO_WRITE; dsp_mmio_write=NO; pci_write=NO; dma=NO; irq=NO; firmware=NO; dsp_boot=NO'
+
+$run=Get-Content (Join-Path $root 'm062\h15i\Run-H15iTransaction.ps1') -Raw
+$wf=Get-Content (Join-Path $root '.github\workflows\h15i-hda-crst-package.yml') -Raw
+foreach($x in @(
+ 'UpdateDriverForPlugAndPlayDevicesW','INSTALLFLAG_FORCE',
+ "[Convert]::ToUInt32('833DE46C',16)",
+ "[Convert]::ToUInt32('0003FFFF',16)",
+ '$ResultBytes=160',
+ '$ExpectedPg=[Convert]::ToUInt32(''00000010'',16)',
+ '$ExpectedCg=[Convert]::ToUInt32(''807B0DFF'',16)',
+ 'H15I_LIVE_TRANSACTION_VALIDATION_FAILED',
+ 'H15I_HDA_CRST_AND_ROLLBACK_COMPLETE',
+ "Mapping='HDA_PAGE_READWRITE_DSP_PAGE_READONLY'",
+ "MmioWrite='ONLY_HDA_GCTL_CRST_BIT0_0_TO_1_TO_0'",
+ "PciConfigWrite='NO'",
+ 'AUTOMATIC_UNINSTALL_BLOCKED_UNPROVEN_GCTL_RESTORE'
+)){if($run.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15I_RUNNER_MISSING: $x"}}
+foreach($x in @('bcdedit','/reboot','SetBusData')){
+ if($run.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15I_RUNNER_FORBIDDEN: $x"}
+}
+foreach($x in @(
+ '-KeyExportPolicy NonExportable',
+ 'H15I_HDA_CRST_TRANSACTION_PACKAGE',
+ "Mapping='HDA_PAGE_READWRITE_DSP_PAGE_READONLY'",
+ "MmioWrite='ONLY_HDA_GCTL_CRST_BIT0_0_TO_1_TO_0'",
+ "PciConfigWrite='NO'",
+ "ExpectedPgctl='0x00000010'","ExpectedCgctl='0x807B0DFF'",
+ 'PHASER360_H15I_HDA_CRST_TRANSACTION_PACKAGE'
+)){if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15I_WORKFLOW_MISSING: $x"}}
+foreach($x in @('Export-PfxCertificate','-KeyExportPolicy Exportable','/reboot')){
+ if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15I_WORKFLOW_FORBIDDEN: $x"}
+}
