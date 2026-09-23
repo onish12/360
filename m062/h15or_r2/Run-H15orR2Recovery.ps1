@@ -16,7 +16,7 @@ function Target{
 }
 function IsIntel($s){$s.Status -ceq 'OK' -and $s.ProblemCode-eq0 -and $s.Service -ceq 'IntcAudioBus' -and $s.DriverInfPath -cne '' -and $s.DriverVersion -ceq $BaselineVersion -and $s.DriverProvider -ceq $BaselineProvider}
 function PnP([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\pnputil.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
-function SC([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\sc.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
+function InvokeScExe([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\sc.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
 function CertUtil([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\certutil.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
 function Trust([string]$thumb){$t=$thumb.Replace(' ','').ToUpperInvariant();[pscustomobject]@{Root=(Test-Path "Cert:\LocalMachine\Root\$t");TrustedPublisher=(Test-Path "Cert:\LocalMachine\TrustedPublisher\$t")}}
 function PublishedH15o{$r=@();foreach($f in @(Get-ChildItem (Join-Path $env:SystemRoot 'INF') -Filter 'oem*.inf' -File)){try{$t=Get-Content $f.FullName -Raw}catch{continue};if($t.IndexOf('Phaser360H15o',[StringComparison]::OrdinalIgnoreCase)-ge0 -and $t.IndexOf($ExactHwid,[StringComparison]::OrdinalIgnoreCase)-ge0){$r+=$f.Name}};@($r)}
@@ -56,7 +56,7 @@ function RemoveSubject([string]$subject){
 
 if(-not(Admin)){throw 'ADMINISTRATOR_REQUIRED'};if(-not[Environment]::Is64BitProcess){throw 'WINDOWS_X64_REQUIRED'}
 Write-Host 'RUNNER=H15OR_R2_NONINTERACTIVE_RECOVERY'
-Write-Host 'RUNNER_BUILD=b6abe77d29c1092f2d99d5848a45312c53987431-r2'
+Write-Host 'RUNNER_BUILD=h15or-r2.1-sc-alias-fix-20260923'
 Write-Host ('RUNNER_PATH=' + $MyInvocation.MyCommand.Path)
 if([Environment]::OSVersion.Version.Build -ne 19044){throw 'EXACT_WINDOWS_BUILD_19044_REQUIRED'}
 if(((CodeIntegrity)-band 2)-eq0){throw 'CODE_INTEGRITY_TESTSIGN_NOT_ALLOWED'}
@@ -66,7 +66,7 @@ if($before.Service -cne $H15oService -or $before.DriverVersion -cne '0.6.15.270'
 $h15oPublished=@(PublishedH15o);if($h15oPublished.Count-ne1 -or $h15oPublished[0] -cne $before.DriverInfPath){throw 'H15OR_R2_ACTIVE_H15O_INF_MISMATCH'}
 
 # Clean only stale H15OR R2 probe state from an interrupted previous recovery attempt.
-$stale=SC @('query',$ProbeService);if($stale.ExitCode-eq0){$null=SC @('stop',$ProbeService);$null=SC @('delete',$ProbeService);Start-Sleep -Milliseconds 300}
+$stale=InvokeScExe @('query',$ProbeService);if($stale.ExitCode-eq0){$null=InvokeScExe @('stop',$ProbeService);$null=InvokeScExe @('delete',$ProbeService);Start-Sleep -Milliseconds 300}
 RemoveSubject $ProbeSubject
 
 $pkg=Package $PackageRoot
@@ -82,9 +82,9 @@ try{
  $x=CertUtil @('-f','-addstore','Root',$pkg.Cer);if($x.ExitCode-ne0){throw 'H15OR_R2_CERT_ROOT_ADD_FAILED'};$probeRoot=$true
  $x=CertUtil @('-f','-addstore','TrustedPublisher',$pkg.Cer);if($x.ExitCode-ne0){throw 'H15OR_R2_CERT_PUBLISHER_ADD_FAILED'};$probePub=$true
  $null=Package $PackageRoot -Trusted
- $q=SC @('query',$ProbeService);if($q.ExitCode-eq0){$null=SC @('stop',$ProbeService);$null=SC @('delete',$ProbeService);Start-Sleep -Milliseconds 300}
- $x=SC @('create',$ProbeService,'type=','kernel','start=','demand','binPath=',('"' + $pkg.Sys + '"'));WriteUtf8 (Join-Path $dir 'sc_create.txt') $x.Output;if($x.ExitCode-ne0){throw 'H15OR_R2_SERVICE_CREATE_FAILED'};$probeCreated=$true
- $x=SC @('start',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_start.txt') $x.Output;if($x.ExitCode-ne0){throw 'H15OR_R2_SERVICE_START_FAILED'};$probeStarted=$true
+ $q=InvokeScExe @('query',$ProbeService);if($q.ExitCode-eq0){$null=InvokeScExe @('stop',$ProbeService);$null=InvokeScExe @('delete',$ProbeService);Start-Sleep -Milliseconds 300}
+ $x=InvokeScExe @('create',$ProbeService,'type=','kernel','start=','demand','binPath=',('"' + $pkg.Sys + '"'));WriteUtf8 (Join-Path $dir 'sc_create.txt') $x.Output;if($x.ExitCode-ne0){throw 'H15OR_R2_SERVICE_CREATE_FAILED'};$probeCreated=$true
+ $x=InvokeScExe @('start',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_start.txt') $x.Output;if($x.ExitCode-ne0){throw 'H15OR_R2_SERVICE_START_FAILED'};$probeStarted=$true
  Native
  $addr=[uint32][BitConverter]::ToUInt32([BitConverter]::GetBytes([int32]$before.Address),0);$devNum=($addr-shr16)-band0xFFFF;$func=$addr-band0xFFFF
  if($devNum-gt31 -or $func-gt7 -or $before.BusNumber-lt0 -or $before.BusNumber-gt255){throw "INVALID_PCI_LOCATION bus=$($before.BusNumber) address=0x$('{0:X8}'-f $addr)"}
@@ -96,8 +96,8 @@ try{
  WriteUtf8 (Join-Path $dir 'h15or_r2_snapshot.json') ([ordered]@{Version=$v;Size=$sz;Status=('0x{0:X8}'-f$status);Flags=('0x{0:X8}'-f$flags);BusNumber=$bus;Slot=$slotOut;PciBytesRead=$pciBytes;Vendor=('0x{0:X4}'-f$ven);Device=('0x{0:X4}'-f$dev);Pgctl=('0x{0:X8}'-f$pg);Cgctl=('0x{0:X8}'-f$cg);HdaPhysical=('0x{0:X16}'-f$hda);DspPhysical=('0x{0:X16}'-f$dsp);HdaLength=('0x{0:X8}'-f$hl);DspLength=('0x{0:X8}'-f$dl);Observation=$obs}|ConvertTo-Json -Depth 8)
  $snapshot=$true;$safe=($v-eq1 -and $sz-eq120 -and ($flags-band0x3FF)-eq0x3FF -and $ven-eq0x8086 -and $dev-eq0x3198 -and $pg-eq0x10 -and $cg-eq0x807B0DFF -and (U32 $r 68)-eq0 -and (U32 $r 80)-eq0x04007000 -and (U32 $r 84)-eq0 -and (U32 $r 92)-eq0x001D003C -and (U32 $r 108)-eq0x00420000 -and (U32 $r 116)-eq0x01006701)
 } catch{$err=$_.Exception} finally{
- if($probeStarted){$x=SC @('stop',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_stop.txt') $x.Output;$probeStarted=$false}
- if($probeCreated){$x=SC @('delete',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_delete.txt') $x.Output;$probeCreated=$false}
+ if($probeStarted){$x=InvokeScExe @('stop',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_stop.txt') $x.Output;$probeStarted=$false}
+ if($probeCreated){$x=InvokeScExe @('delete',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_delete.txt') $x.Output;$probeCreated=$false}
  if($probePub){$null=CertUtil @('-delstore','TrustedPublisher',$pkg.Thumb);$probePub=$false}
  if($probeRoot){$null=CertUtil @('-delstore','Root',$pkg.Thumb);$probeRoot=$false}
 }
