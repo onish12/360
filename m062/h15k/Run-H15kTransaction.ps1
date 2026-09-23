@@ -375,7 +375,7 @@ try {
   $restoredRegs=Obs $r 208
 
   [ordered]@{
-    Version=$v;Size=$sz;NtStatus=('0x{0:X8}' -f ([uint32]$nt))
+    Version=$v;Size=$sz;NtStatus=('0x{0:X8}' -f ([BitConverter]::ToUInt32([BitConverter]::GetBytes([int32]$nt),0)))
     Flags=('0x{0:X8}' -f $fl);Generation=$gen
     Vendor=('0x{0:X4}' -f $ven);Device=('0x{0:X4}' -f $dev)
     Pgctl=('0x{0:X8}' -f $pg);Cgctl=('0x{0:X8}' -f $cg)
@@ -459,7 +459,7 @@ try {
         $log+="INTEL_RETURN=$($s.Status);INF=$($s.DriverInfPath);VER=$($s.DriverVersion)"
       }catch{$log+="INTEL_RETURN_EXCEPTION=$($_.Exception.Message)"}
     } elseif($published -and $writeAttempted -and -not $writeRestoreComplete) {
-      $log+='AUTOMATIC_UNINSTALL_BLOCKED_UNPROVEN_GCTL_RESTORE=TRUE'
+      $log+='AUTOMATIC_UNINSTALL_BLOCKED_UNPROVEN_ADSPCS_RESTORE=TRUE'
       $log+='USE_H15K_WINRE_ROLLBACK_IF_WINDOWS_BECOMES_UNBOOTABLE=TRUE'
     }
 
