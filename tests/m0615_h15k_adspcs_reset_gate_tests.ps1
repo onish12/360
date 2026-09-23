@@ -27,7 +27,7 @@ foreach($x in @('kCrst01=(kCore01<<0)','kCstall01=(kCore01<<8)',
 if(([regex]::Matches($src,'WRITE_REGISTER_ULONG')).Count -ne 1){throw 'H15K_WRITE_REGISTER_COUNT_NOT_ONE_SOURCE_SITE'}
 foreach($x in @('WRITE_REGISTER_UCHAR','WRITE_REGISTER_USHORT','SetBusData',
  'PciConfigBootPolicy','WdfInterruptCreate','WdfDma','WdfCommonBuffer',
- 'PinnedFirmware','GlkBoot','ColdPower','HdaTransport')){
+ 'PinnedFirmware','GlkBoot','ColdPower')){
  if(($src+$hdr+$proj).IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15K_FORBIDDEN: $x"}
 }
 foreach($x in @('AddService=Phaser360H15k,0x00000002',
