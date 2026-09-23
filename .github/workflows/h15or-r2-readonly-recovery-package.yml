@@ -1,0 +1,75 @@
+name: H15OR R2 noninteractive recovery signed package
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/audio-auto-20260915]
+    paths:
+      - 'm062/h15or_r2/**'
+      - 'tests/m0615_h15or_r2_noninteractive_tests.ps1'
+      - '.github/workflows/h15or-r2-readonly-recovery-package.yml'
+permissions: {contents: read}
+jobs:
+  package:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: microsoft/setup-msbuild@v3
+        with: {msbuild-architecture: x64}
+      - name: Restore pinned WDK packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          nuget restore .\m062\packages.config -PackagesDirectory .\m062\packages -NonInteractive
+          if($LASTEXITCODE -ne 0){throw 'H15OR_R2_RESTORE_FAILED'}
+      - name: Build unchanged H15OR read-only probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          msbuild .\m062\h15or\phaser360_h15or_readonly_recovery_probe.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if($LASTEXITCODE -ne 0){throw 'H15OR_R2_BUILD_FAILED'}
+      - name: Validate R2 noninteractive runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\tests\m0615_h15or_r2_noninteractive_tests.ps1
+          if(-not $?){throw 'H15OR_R2_STATIC_TESTS_FAILED'}
+      - name: Audit probe imports
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $sys=(Resolve-Path .\m062\h15or\out\phaser360_h15or_readonly_recovery_probe.sys).Path
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsRoot=(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath|Select-Object -First 1)
+          $dumpbin=(Get-ChildItem (Join-Path $vsRoot 'VC\Tools\MSVC') -Filter dumpbin.exe -Recurse -File|Where-Object {$_.FullName -match '\\bin\\Hostx64\\x64\\dumpbin\.exe$'}|Sort-Object FullName -Descending|Select-Object -First 1).FullName
+          $imports=(& $dumpbin /imports $sys 2>&1|Out-String);if($LASTEXITCODE-ne0){throw 'H15OR_R2_DUMPBIN_FAILED'}
+          foreach($t in @('WRITE_REGISTER_','WdfInterruptCreate','WdfDma','WdfCommonBuffer','SetBusData')){if($imports.IndexOf($t,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15OR_R2_FORBIDDEN_IMPORT:$t"}}
+          if($imports.IndexOf('HalGetBusDataByOffset',[StringComparison]::OrdinalIgnoreCase)-lt0){throw 'H15OR_R2_EXPECTED_HAL_READ_IMPORT_MISSING'}
+          [IO.File]::WriteAllText((Join-Path $env:GITHUB_WORKSPACE 'H15OR_R2_IMPORTS.txt'),$imports,[Text.UTF8Encoding]::new($false))
+      - name: Create R2 signer and package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $package=Join-Path $env:GITHUB_WORKSPACE '_h15or_r2_package';New-Item -ItemType Directory -Path $package -Force|Out-Null
+          $sys=(Resolve-Path .\m062\h15or\out\phaser360_h15or_readonly_recovery_probe.sys).Path
+          $pkgSys=Join-Path $package 'phaser360_h15or_readonly_recovery_probe.sys';Copy-Item $sys $pkgSys
+          $runner=(Resolve-Path .\m062\h15or_r2\Run-H15orR2Recovery.ps1).Path
+          Copy-Item $runner $package;Copy-Item .\m062\h15or_r2\RUN_H15OR_R2_RECOVERY.cmd $package;Copy-Item .\H15OR_R2_IMPORTS.txt $package
+          $buildTools=(Resolve-Path .\m062\packages\Microsoft.Windows.SDK.BuildTools.10.0.28000.2526).Path;$signtool=Join-Path $buildTools 'bin\10.0.28000.0\x64\signtool.exe'
+          $subject='CN=PHASER360 H15OR R2 Readonly Recovery Signing';$cert=$null
+          try{
+            $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(7)
+            $cer=Join-Path $package 'phaser360_h15or_readonly_recovery_probe.cer';Export-Certificate -Cert $cert -FilePath $cer -Type CERT|Out-Null
+            & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint /s My /v $pkgSys;if($LASTEXITCODE-ne0){throw 'H15OR_R2_SYS_SIGN_FAILED'}
+            $runnerSha=(Get-FileHash (Join-Path $package 'Run-H15orR2Recovery.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
+            [ordered]@{Schema=2;Purpose='H15OR_R2_READONLY_RECOVERY_PACKAGE';SourceCommit=$env:GITHUB_SHA;RunnerBuild='b6abe77d29c1092f2d99d5848a45312c53987431-r2';RunnerSha256=$runnerSha;CertificateSubject=$subject;CertificateThumbprint=$cert.Thumbprint;PrivateKeyExported=$false;MmioWrite='NO';PciWrite='NO';SysSha256=(Get-FileHash $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant();CerSha256=(Get-FileHash $cer -Algorithm SHA256).Hash.ToLowerInvariant()}|ConvertTo-Json -Depth 5 | Out-File (Join-Path $package 'package_manifest.json') -Encoding utf8
+            $lines=@(Get-ChildItem $package -File|Sort-Object Name|ForEach-Object{(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+'  '+$_.Name})
+            [IO.File]::WriteAllLines((Join-Path $package 'SHA256SUMS.txt'),$lines,[Text.Encoding]::ASCII)
+          }finally{if($cert){Remove-Item ("Cert:\CurrentUser\My\{0}"-f$cert.Thumbprint) -Force -ErrorAction SilentlyContinue}}
+      - name: Upload H15OR R2 package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: PHASER360_H15OR_R2_NONINTERACTIVE_RECOVERY_PACKAGE
+          path: _h15or_r2_package/
+          if-no-files-found: error
+          retention-days: 3
