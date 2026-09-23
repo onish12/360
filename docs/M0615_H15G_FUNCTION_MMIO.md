@@ -18,7 +18,4 @@ The source and binary gates forbid WRITE_REGISTER_*, PAGE_READWRITE,
 BUS_INTERFACE_STANDARD/SetBusData, WdfInterruptCreate, WDF DMA/common buffers,
 firmware loading, DSP boot and playback.
 
-A successful H15G result proves that the same BARs previously observed by H15E
-remain readable for the full PrepareHardware -> D0 ownership lifetime while
-PHASER360 is the function driver. It still does not authorize any hardware
-mutation.
+A successful H15G result proves that the same BARs previously observed by H15E remain readable for the full PrepareHardware -> D0 ownership lifetime while PHASER360 is the function driver. It still does not authorize any hardware mutation.
