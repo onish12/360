@@ -52,9 +52,10 @@ enum H15hFlags : ULONG {
     H15hNoDspBoot=1u<<12,
     H15hNoPlayback=1u<<13,
     H15hOneShot=1u<<14,
-    H15hMappingsReadOnly=1u<<15
+    H15hMappingsReadOnly=1u<<15,
+    H15hRestoredMmioCaptured=1u<<16
 };
-inline constexpr ULONG kH15hRequiredFlags=0xffffu;
+inline constexpr ULONG kH15hRequiredFlags=0x1ffffu;
 
 struct H15hRequestV1 {
     ULONG version;
@@ -90,7 +91,7 @@ struct H15hResultV1 {
     H15hRegisterSet applied;
     H15hRegisterSet restored;
 };
-static_assert(sizeof(H15hResultV1)==168u,"H15H result ABI");
+static_assert(sizeof(H15hResultV1)==176u,"H15H result ABI");
 
 struct H15hDeviceContext {
     alignas(HardwareAccessGate) UCHAR gateStorage[sizeof(HardwareAccessGate)];

@@ -266,7 +266,7 @@ void phaser360::windows::H15hEvtIoDeviceControl(
                     result.flags|=H15hFinalPciExact;
                 if(RtlCompareMemory(p.config,final.Snapshot().config,kPciConfigSnapshotBytes)==kPciConfigSnapshotBytes)
                     result.flags|=H15hFullConfigRestoredExact;
-                (void)ReadRegisters(c,&result.restored);
+                if(ReadRegisters(c,&result.restored)) result.flags|=H15hRestoredMmioCaptured;
             }else if(NT_SUCCESS(result.transactionStatus)) result.transactionStatus=fs;
         }else result.transactionStatus=STATUS_DEVICE_CONFIGURATION_ERROR;
     }
