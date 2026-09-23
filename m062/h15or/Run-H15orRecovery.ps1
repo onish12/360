@@ -47,7 +47,9 @@ namespace Phaser360{public static class H15orNative{
 }
 function U64([byte[]]$b,[int]$o){[BitConverter]::ToUInt64($b,$o)};function U32([byte[]]$b,[int]$o){[BitConverter]::ToUInt32($b,$o)};function U16([byte[]]$b,[int]$o){[BitConverter]::ToUInt16($b,$o)}
 function Put32([byte[]]$b,[int]$o,[uint32]$v){[Array]::Copy([BitConverter]::GetBytes($v),0,$b,$o,4)}
-function Hashes([string]$d){Get-ChildItem $d -Recurse -File|Where-Object{$_.Name-ne'SHA256SUMS.txt'}|Sort-Object FullName|ForEach-Object{(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+' '+$_.FullName.Substring($d.Length).TrimStart('\')}|Set-Content (Join-Path $d 'SHA256SUMS.txt') -Encoding ASCII}
+function WriteUtf8([string]$path,[AllowNull()][object]$value){$text=if($null-eq$value){''}else{[string]$value};[IO.File]::WriteAllText($path,$text,[Text.UTF8Encoding]::new($false))}
+function WriteAsciiLines([string]$path,[string[]]$lines){if($null-eq$lines){$lines=@()};[IO.File]::WriteAllLines($path,$lines,[Text.Encoding]::ASCII)}
+function Hashes([string]$d){$lines=@(Get-ChildItem $d -Recurse -File|Where-Object{$_.Name-ne'SHA256SUMS.txt'}|Sort-Object FullName|ForEach-Object{(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+' '+$_.FullName.Substring($d.Length).TrimStart('\')});WriteAsciiLines (Join-Path $d 'SHA256SUMS.txt') $lines}
 function RemoveSubject([string]$subject){
  foreach($store in @('Root','TrustedPublisher')){foreach($c in @(Get-ChildItem "Cert:\LocalMachine\$store"|Where-Object{$_.Subject -ceq $subject -and $_.Issuer -ceq $subject})){try{Remove-Item $c.PSPath -Force -ErrorAction Stop}catch{}}}
 }
