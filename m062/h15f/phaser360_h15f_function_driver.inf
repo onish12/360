@@ -1,0 +1,60 @@
+; PHASER360 M0.6.15H15F
+; Exact-target function-driver ownership handoff. No hardware I/O.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=MEDIA
+ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider=%ProviderName%
+CatalogFile=phaser360_h15f_function_driver.cat
+PnpLockdown=1
+DriverVer=09/23/2026,0.6.15.180
+
+[DestinationDirs]
+DefaultDestDir=13
+H15f.CopyFiles=13
+
+[SourceDisksNames]
+1=%DiskDesc%,,,""
+
+[SourceDisksFiles]
+phaser360_h15f_function_driver.sys=1
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%ProviderName%=H15f.Models,NTamd64.10.0...19045,NTamd64.10.0...19044
+
+[H15f.Models.NTamd64.10.0...19045]
+
+[H15f.Models.NTamd64.10.0...19044]
+%DeviceDesc%=H15f_Install,PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
+
+[H15f_Install.NT]
+CopyFiles=H15f.CopyFiles
+
+[H15f.CopyFiles]
+phaser360_h15f_function_driver.sys
+
+[H15f_Install.NT.Services]
+AddService=Phaser360H15f,0x00000002,H15f_Service
+
+[H15f_Service]
+DisplayName=%ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\phaser360_h15f_function_driver.sys
+
+[H15f_Install.NT.Wdf]
+KmdfService=Phaser360H15f,H15f_Wdf
+
+[H15f_Wdf]
+KmdfLibraryVersion=1.31
+
+[Strings]
+ProviderName="PHASER360 Experimental"
+DeviceDesc="PHASER360 H15F Intel SST Ownership Probe"
+ServiceDesc="PHASER360 H15F Function Driver"
+DiskDesc="PHASER360 H15F Function Driver Package"
