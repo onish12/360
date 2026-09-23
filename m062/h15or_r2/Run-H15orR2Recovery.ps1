@@ -56,7 +56,7 @@ function RemoveSubject([string]$subject){
 
 if(-not(Admin)){throw 'ADMINISTRATOR_REQUIRED'};if(-not[Environment]::Is64BitProcess){throw 'WINDOWS_X64_REQUIRED'}
 Write-Host 'RUNNER=H15OR_R2_NONINTERACTIVE_RECOVERY'
-Write-Host 'RUNNER_BUILD=h15or-r2.1-sc-alias-fix-20260923'
+Write-Host 'RUNNER_BUILD=h15or-r2.2-package-contract-fix-20260923'
 Write-Host ('RUNNER_PATH=' + $MyInvocation.MyCommand.Path)
 if([Environment]::OSVersion.Version.Build -ne 19044){throw 'EXACT_WINDOWS_BUILD_19044_REQUIRED'}
 if(((CodeIntegrity)-band 2)-eq0){throw 'CODE_INTEGRITY_TESTSIGN_NOT_ALLOWED'}
