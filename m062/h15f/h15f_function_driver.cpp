@@ -47,9 +47,23 @@ NTSTATUS phaser360::windows::H15fEvtDeviceAdd(
     if(!NT_SUCCESS(status)) return status;
 
     WdfSpinLockAcquire(context->lock);
-    context->snapshot.flags|=H15fDeviceAdded;
+    // WDF device-context storage is zero-initialized raw storage; C++ default
+    // member initializers on the embedded snapshot are not constructed for us.
+    // Initialize every ABI/safety field explicitly before the first lifecycle
+    // callback can publish the snapshot.
+    RtlZeroMemory(&context->snapshot,sizeof(context->snapshot));
+    context->snapshot.version=1u;
+    context->snapshot.size=sizeof(H15fSnapshotV1);
+    context->snapshot.flags=
+        H15fDeviceAdded|
+        H15fNoMmio|
+        H15fNoPciWrite|
+        H15fNoDma|
+        H15fNoIrqOwnership|
+        H15fNoFirmware|
+        H15fNoPlayback;
     context->snapshot.lastStatus=STATUS_SUCCESS;
-    context->snapshot.generation=1;
+    context->snapshot.generation=1u;
     WdfSpinLockRelease(context->lock);
 
     WDF_IO_QUEUE_CONFIG queueConfig;

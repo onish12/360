@@ -20,7 +20,16 @@ foreach($x in @(
  'CmResourceTypeMemory','CmResourceTypeInterrupt',
  'memoryCount==2','interruptCount==1',
  'WdfIoQueueDispatchParallel','PowerManaged=WdfFalse',
- 'WdfDeviceCreateDeviceInterface'
+ 'WdfDeviceCreateDeviceInterface',
+ 'RtlZeroMemory(&context->snapshot,sizeof(context->snapshot))',
+ 'context->snapshot.version=1u',
+ 'context->snapshot.size=sizeof(H15fSnapshotV1)',
+ 'H15fNoMmio|',
+ 'H15fNoPciWrite|',
+ 'H15fNoDma|',
+ 'H15fNoIrqOwnership|',
+ 'H15fNoFirmware|',
+ 'H15fNoPlayback'
 )){if($src.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15F_SRC_MISSING: $x"}}
 
 foreach($x in @(

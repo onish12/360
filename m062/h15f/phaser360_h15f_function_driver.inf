@@ -8,7 +8,7 @@ ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider=%ProviderName%
 CatalogFile=phaser360_h15f_function_driver.cat
 PnpLockdown=1
-DriverVer=09/23/2026,0.6.15.180
+DriverVer=09/23/2026,0.6.15.181
 
 [DestinationDirs]
 DefaultDestDir=13
