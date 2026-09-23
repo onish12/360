@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-#include "h15j_hda_crst_gate.h"
+#include "h15j_hda_quiescence_gate.h"
 
 using namespace phaser360::windows;
 
