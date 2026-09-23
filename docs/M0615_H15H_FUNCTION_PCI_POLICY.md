@@ -1,9 +1,6 @@
 # M0.6.15 H15H — function-driver PCI pre-firmware policy transaction
 
-H15G proved exact function-driver ownership and read-only MMIO visibility, but
-captured ADSPCS 0x001D003C and ROM status 0x01006701. That exact pair has been
-reported upstream on Apollo Lake during DSP reset failure. H15H therefore does
-not attempt firmware boot or MMIO mutation.
+H15G proved exact function-driver ownership and read-only MMIO visibility, but captured ADSPCS 0x001D003C and ROM status 0x01006701. That exact pair has been reported upstream on Apollo Lake during DSP reset failure. H15H therefore does not attempt firmware boot or MMIO mutation.
 
 H15H changes exactly one dimension relative to H15G:
 - BAR0 and BAR4 remain PAGE_READONLY | PAGE_NOCACHE;
