@@ -69,7 +69,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $sys=(Resolve-Path .\m062\driver\out-h8\phaser360_m1_boot.sys).Path
-          $vswhere=Join-Path \${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $vsRoot=(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath|Select-Object -First 1)
           if(-not $vsRoot){throw 'M1_FAST_VS_NOT_FOUND'}
           $dumpbin=(Get-ChildItem (Join-Path $vsRoot 'VC\Tools\MSVC') -Filter dumpbin.exe -Recurse -File|Where-Object{$_.FullName -match '\\bin\\Hostx64\\x64\\dumpbin\.exe$'}|Sort-Object FullName -Descending|Select-Object -First 1).FullName
