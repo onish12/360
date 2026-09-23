@@ -35,3 +35,55 @@ Primary references checked before implementation:
 - Microsoft MmUnmapIoSpace documentation: release of mapped I/O space.
 
 A successful H15E capture proves only that the reviewed BAR resources can be mapped read-only and that the selected register snapshot is accessible. It does not authorize M1 DSP boot by itself.
+
+
+## Verified physical Lenovo execution — 2026-09-23
+
+Physical capture:
+`RESULT_H15E_LIVE_R0_TRANSACTION_20260923_055541_d186a189.zip`
+
+Archive SHA-256:
+`56d60ec1591648f0cfc5fa1f7d986f663d036d42c53caa9bf1f6c3231a0a82c3`
+
+Integrity and rollback:
+- all 12 entries listed in `SHA256SUMS.txt` independently re-hashed successfully;
+- `target_before.json` and `target_after.json` are byte-identical;
+- final Intel state: `IntcAudioBus`, `oem14.inf`, version `9.22.0.4832`,
+  provider `Intel(R) Corporation`, status `OK`, problem code `0`;
+- temporary H15E package: `oem29.inf`;
+- final compound upper-filter set: empty;
+- `CAPTURE_COMPLETED=TRUE`, `BASELINE_RESTORED=TRUE`,
+  `TRUST_RESTORED=TRUE`.
+
+Captured PCI/resource evidence:
+- flags `0x000007FF`, capture NTSTATUS `0x00000000`;
+- vendor/device `8086:3198`, header type `0x00`, first conventional
+  capability `0x50`, capability count `4`;
+- PGCTL `0x00000010`, CGCTL `0x807B0DFF`;
+- HDA physical base `0xCEEE0000`, length `0x4000`;
+- DSP physical base `0xCEF00000`, length `0x100000`.
+
+Captured HDA registers:
+- GCAP `0x6701`;
+- VMIN/VMAJ `0x00/0x01` (HDA 1.0);
+- GCTL `0x00000101`;
+- Intel EM2 `0x04007000`.
+
+Captured DSP registers:
+- ADSPCS `0x00000303`;
+- ADSPIS `0x00000000`;
+- HIPCI `0x00000000`;
+- HIPCIE `0x00000000`;
+- ROM status `0xFFFFFFFF`.
+
+For the APL/GLK bit layout used by this project, `ADSPCS=0x00000303`
+means both cores are reset and stalled, with SPA/CPA clear. That is the exact
+cold-core control state expected by the later ROM initialization precondition.
+The `ROM_STATUS=0xFFFFFFFF` read occurred while DSP core power request/status
+were both clear; therefore this capture does not treat it as evidence of ROM
+failure. The production ROM helper still rejects `0xFFFFFFFF` once ROM-status
+access is required during an active boot sequence.
+
+This closes H15E-LIVE R0 for read-only MMIO visibility on the reviewed Lenovo.
+It proves resource mapping and register visibility only; it does not authorize
+concurrent MMIO writes while the Intel function driver owns DEV_3198.
