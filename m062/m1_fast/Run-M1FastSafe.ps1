@@ -2,7 +2,7 @@
 param([Parameter(Mandatory=$true)][string]$PackageRoot,[string]$OutputRoot='')
 $ErrorActionPreference='Stop';Set-StrictMode -Version 2
 
-$Build='m1-fast-safe-20260923-r1'
+$Build='m1-fast-safe-20260923-r2-interface-wait'
 $ExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $M1Service='Phaser360M1'
 $M1Version='0.6.15.131'
@@ -131,6 +131,20 @@ namespace Phaser360{public static class M1FastNative{
 }}
 '@ -Language CSharp -ErrorAction Stop
 }
+function WaitTelemetry([int]$seconds=15){
+  $end=(Get-Date).AddSeconds($seconds);$last=$null;$attempts=0
+  do{
+    ++$attempts
+    try{
+      $bytes=[Phaser360.M1FastNative]::Query($TelemetryGuid,$TelemetryIoctl,32)
+      return [pscustomobject]@{Bytes=$bytes;Attempts=$attempts}
+    }catch{
+      $last=$_.Exception
+      Start-Sleep -Milliseconds 250
+    }
+  }while((Get-Date)-lt$end)
+  throw ("M1_TELEMETRY_INTERFACE_TIMEOUT: attempts=$attempts; last="+$(if($last){$last.Message}else{'NONE'}))
+}
 function U32([byte[]]$b,[int]$o){[BitConverter]::ToUInt32($b,$o)}
 function I32([byte[]]$b,[int]$o){[BitConverter]::ToInt32($b,$o)}
 function ParseTelemetry([byte[]]$b){
@@ -183,7 +197,9 @@ try{
   $reboot=[Phaser360.M1FastNative]::ForceUpdate($ExactHwid,$pkg.Inf);if($reboot){throw 'M1_BIND_REQUIRES_REBOOT'}
   $with=WaitM1 $before.InstanceId $publishedInf 20;WriteUtf8 (Join-Path $dir 'target_with_m1.json') ($with|ConvertTo-Json -Depth 8);$m1Bound=$true
 
-  $q1=[Phaser360.M1FastNative]::Query($TelemetryGuid,$TelemetryIoctl,32);$t1=ParseTelemetry $q1;WriteUtf8 (Join-Path $dir 'telemetry_1.json') ($t1|ConvertTo-Json -Depth 5)
+  $wq=WaitTelemetry 15
+  WriteUtf8 (Join-Path $dir 'telemetry_interface_wait.json') ([ordered]@{Attempts=$wq.Attempts;MaxSeconds=15}|ConvertTo-Json)
+  $t1=ParseTelemetry $wq.Bytes;WriteUtf8 (Join-Path $dir 'telemetry_1.json') ($t1|ConvertTo-Json -Depth 5)
   Start-Sleep -Milliseconds 500
   $with2=Target;if(-not(IsM1 $with2 $publishedInf)){throw 'M1_NOT_STABLE_AFTER_BOOT'}
   $q2=[Phaser360.M1FastNative]::Query($TelemetryGuid,$TelemetryIoctl,32);$t2=ParseTelemetry $q2;WriteUtf8 (Join-Path $dir 'telemetry_2.json') ($t2|ConvertTo-Json -Depth 5)
