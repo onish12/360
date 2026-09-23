@@ -116,8 +116,7 @@ void phaser360::windows::H15lEvtIoDeviceControl(WDFQUEUE q,WDFREQUEST req,SIZE_T
   H15lResultV1 r{};r.version=3u;r.size=sizeof(r);
   r.flags=H15lNoHdaMmioWrite|H15lNoPciWrite|H15lNoDma|H15lNoIrqOwnership|
           H15lNoFirmware|H15lNoDspBoot|H15lNoPlayback|H15lOneShot|
-          H15lOnlySpa1Write|H15lNoCpaWrite|H15lNoCstallWrite|H15lNoCrstWrite|
-          H15lCore0Untouched;
+          H15lOnlySpa1Write|H15lNoCpaWrite;
   r.generation=InterlockedCompareExchange(&c->generation,0,0);
   r.hdaPhysical=c->hdaPhysical;r.dspPhysical=c->dspPhysical;
   r.hdaLength=c->hdaLength;r.dspLength=c->dspLength;
@@ -197,7 +196,7 @@ void phaser360::windows::H15lEvtIoDeviceControl(WDFQUEUE q,WDFREQUEST req,SIZE_T
     H15lSpa1SetWritten|H15lImmediateCaptured|H15lAfter10usCaptured|H15lAfter100usCaptured|H15lAfter500usCaptured|
     H15lSpa1ClearWritten|H15lSpa1ClearObserved|H15lCpa1ClearObserved|H15lRestoredCaptured|H15lAdspcsRestoredExact|
     H15lNoHdaMmioWrite|H15lNoPciWrite|H15lNoDma|H15lNoIrqOwnership|H15lNoFirmware|H15lNoDspBoot|H15lNoPlayback|
-    H15lOneShot|H15lOnlySpa1Write|H15lNoCpaWrite|H15lNoCstallWrite|H15lNoCrstWrite|H15lCore0Untouched;
+    H15lOneShot|H15lOnlySpa1Write|H15lNoCpaWrite;
 
   if(rollbackExact&&(r.flags&required)==required)r.transactionStatus=STATUS_SUCCESS;
   else if(NT_SUCCESS(r.transactionStatus))r.transactionStatus=STATUS_DEVICE_CONFIGURATION_ERROR;
