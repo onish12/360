@@ -43,3 +43,37 @@ Live baseline pinned from the verified H15E transaction:
 
 H15F does not authorize DSP boot. It isolates function-driver ownership and
 rollback as a separate physical gate.
+
+
+## Verified physical Lenovo execution — 2026-09-23
+
+Physical transaction:
+`RESULT_H15F_HANDOFF_20260923_153658_255f9fa9.zip`
+
+Archive SHA-256:
+`659d13dc7ba35dab8d23c1b525a5a8e44a524af70c11d1dd0e6974839d4ff0e7`
+
+Integrity and ownership evidence:
+- all 13 entries listed in `SHA256SUMS.txt` independently re-hashed successfully;
+- H15F became the active function driver:
+  service `Phaser360H15f`, INF `oem29.inf`, version `0.6.15.181`,
+  provider `PHASER360 Experimental`, status `OK`, problem code `0`;
+- framework snapshot: version `1`, size `96`, flags `0x000003FF`,
+  last status `0x00000000`;
+- `PrepareCount=1`, `D0EntryCount=1`;
+- raw resources `5`, translated resources `5`;
+- translated memory resources `2`, interrupt resources `1`;
+- HDA resource `0xCEEE0000 / 0x4000`;
+- DSP resource `0xCEF00000 / 0x100000`;
+- interrupt flags `0x00000000`;
+- transaction reported `HANDOFF_COMPLETED=TRUE`,
+  `SNAPSHOT_COMPLETED=TRUE`, `BASELINE_RESTORED=TRUE`,
+  `TRUST_RESTORED=TRUE`;
+- final Intel baseline returned to `IntcAudioBus`, `oem14.inf`,
+  version `9.22.0.4832`, provider `Intel(R) Corporation`, status `OK`;
+- `target_before.json` and `target_after.json` are byte-identical.
+
+This closes H15F for physical function-driver ownership and exact rollback.
+It proves that KMDF delivers the expected controller resources and D0 lifecycle
+to PHASER360 while it owns DEV_3198. It does not prove any MMIO mutation, PCI
+configuration write, interrupt handling, DMA, firmware load, DSP boot or audio.
