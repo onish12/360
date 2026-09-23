@@ -43,7 +43,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          & .\tests\m0615_h15j_hda_crst_gate_tests.ps1
+          & .\tests\m0615_h15j_hda_quiescence_tests.ps1
           if(-not $?){throw 'H15J_STATIC_TESTS_FAILED'}
 
       - name: Audit compiled H15J imports
