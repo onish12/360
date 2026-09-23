@@ -1,0 +1,27 @@
+PHASER360 H15J — HDA QUIESCENCE + DSP STATUS GATE
+
+H15J temporarily replaces IntcAudioBus as function driver.
+
+It changes one dimension beyond H15I:
+  - HDA GCTL.CRST remains the only MMIO write;
+  - after CRST=1, it reads CORBCTL.RUN, RIRBCTL.RUN and every HDA stream RUN bit;
+  - it clears CRST back to 0 only if all command/response and stream RUN bits are zero;
+  - it additionally captures DSP ADSPIC and HIPCCTL around the transition.
+
+HDA BAR is PAGE_READWRITE only because GCTL.CRST is written.
+DSP BAR remains PAGE_READONLY and is never written.
+
+No PCI config write, ADSPCS write, DSP MMIO write, DMA, interrupt ownership,
+firmware load, DSP boot or playback is permitted.
+
+Run only RUN_H15J_TRANSACTION.cmd as Administrator.
+
+Expected success:
+  STATUS=H15J_HDA_QUIESCENCE_AND_ROLLBACK_COMPLETE
+  HANDOFF_COMPLETED=TRUE
+  WRITE_RESTORE_COMPLETED=TRUE
+  SNAPSHOT_COMPLETED=TRUE
+  BASELINE_RESTORED=TRUE
+  TRUST_RESTORED=TRUE
+
+Then send RESULT_H15J_TRANSACTION_*.zip.

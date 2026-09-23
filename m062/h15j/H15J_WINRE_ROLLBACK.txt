@@ -1,0 +1,24 @@
+PHASER360 H15J OFFLINE ROLLBACK
+
+Use only if Windows cannot boot after the H15J HDA quiescence transaction.
+
+1. Enter Windows Recovery Environment -> Command Prompt.
+2. Identify the offline Windows volume. Do NOT assume C:.
+3. Read H15jPublishedInf.txt and note the PHASER360 oemNN.inf.
+4. Confirm it:
+   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
+5. Remove ONLY that H15J package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
+6. Reboot.
+
+Do NOT remove oem14.inf.
+
+Verified Intel baseline:
+  Service=IntcAudioBus
+  INF=oem14.inf
+  Version=9.22.0.4832
+  Provider=Intel(R) Corporation
+
+H15J writes only HDA GCTL.CRST bit0. It clears CRST back to 0 only after proving CORBCTL.RUN, RIRBCTL.RUN and all stream RUN bits are zero.
+If the runner cannot prove restoration after the write is attempted, it
+intentionally blocks automatic package removal and retains trust for recovery.

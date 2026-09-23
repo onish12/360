@@ -321,6 +321,14 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   The runner trust stores are cleaned afterward and no SYS/INF/CAT/CER/PFX is
   uploaded. This proves signing mechanics only; target trust, driver install
   and physical DSP execution remain unauthorized.
+- **M0.6.15 H15I:** [isolated HDA CRST gate](docs/M0615_H15I_HDA_CRST_GATE.md).
+  Physical Lenovo execution on 2026-09-23 passed GCTL 0 -> 1 -> 0 and exact
+  Intel binding rollback. ADSPCS stayed 0x001D003C; ADSPIS changed from
+  0x00000000 to 0x00040000 while DSP BAR remained read-only.
+- **M0.6.15 H15J:** [HDA quiescence + DSP-status gate](docs/M0615_H15J_HDA_QUIESCENCE.md).
+  Adds CORBCTL/RIRBCTL/all-stream RUN proof while CRST is ready and captures
+  ADSPIC/HIPCCTL. GCTL.CRST remains the only MMIO write; DSP MMIO, ADSPCS, PCI
+  config, DMA, IRQ ownership, firmware and playback remain blocked.
 - **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
   PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
   and WaveRT remain separate milestones.
