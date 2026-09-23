@@ -7,7 +7,7 @@ on:
       - codex/audio-auto-20260915
     paths:
       - 'm062/h15m/**'
-      - 'tests/m0615_h15m_hda_ppcap_probe_tests.ps1'
+      - 'tests/m0615_h15m_ppcap_probe_tests.ps1'
       - 'docs/M0615_H15M_PPCAP_DISCOVERY.md'
       - '.github/workflows/h15m-ppcap-discovery-package.yml'
 
@@ -43,7 +43,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          & .\tests\m0615_h15m_hda_ppcap_probe_tests.ps1
+          & .\tests\m0615_h15m_ppcap_probe_tests.ps1
           if(-not $?){throw 'H15M_STATIC_TESTS_FAILED'}
 
       - name: Audit compiled H15M imports
