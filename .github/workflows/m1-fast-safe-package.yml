@@ -139,7 +139,7 @@ jobs:
 
             $runnerSha=(Get-FileHash (Join-Path $package 'Run-M1FastSafe.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
             [ordered]@{
-              Schema=1;Purpose='M1_FAST_SAFE_ONE_SHOT_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260923-r1';RunnerSha256=$runnerSha
+              Schema=1;Purpose='M1_FAST_SAFE_ONE_SHOT_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260923-r2-interface-wait';RunnerSha256=$runnerSha
               ExactHardwareId='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06';WindowsBuildExact=19044
               BaselineService='IntcAudioBus';BaselineInf='oem14.inf';BaselineVersion='9.22.0.4832';BaselineProvider='Intel(R) Corporation'
               M1Service='Phaser360M1';M1Version='0.6.15.131';M1Provider='PHASER360 Experimental'
