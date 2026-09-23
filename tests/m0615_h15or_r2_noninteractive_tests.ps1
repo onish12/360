@@ -2,6 +2,7 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version 2
 $root=Join-Path $PSScriptRoot '..'
 $r=Get-Content (Join-Path $root 'm062\h15or_r2\Run-H15orR2Recovery.ps1') -Raw
 $c=Get-Content (Join-Path $root 'm062\h15or_r2\RUN_H15OR_R2_RECOVERY.cmd') -Raw
+$w=Get-Content (Join-Path $root '.github\workflows\h15or-r2-readonly-recovery-package.yml') -Raw
 if($r.IndexOf('Set-Content',[StringComparison]::OrdinalIgnoreCase)-ge0){throw 'H15OR_R2_SET_CONTENT_FORBIDDEN'}
 if($r.IndexOf('function SC(',[StringComparison]::OrdinalIgnoreCase)-ge0){throw 'H15OR_R2_SC_ALIAS_COLLISION_FORBIDDEN'}
 if($r.IndexOf('SC @(',[StringComparison]::OrdinalIgnoreCase)-ge0){throw 'H15OR_R2_SC_ALIAS_INVOCATION_FORBIDDEN'}
