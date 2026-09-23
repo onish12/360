@@ -3,7 +3,7 @@ param([Parameter(Mandatory=$true)][string]$PackageRoot,[string]$OutputRoot='')
 $ErrorActionPreference='Stop';Set-StrictMode -Version 2
 $ExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $ProbeService='Phaser360H15orR2';$H15oService='Phaser360H15o'
-$ProbeSubject='CN=PHASER360 H15OR R2 R2 Readonly Recovery Signing'
+$ProbeSubject='CN=PHASER360 H15OR R2 Readonly Recovery Signing'
 $H15oSubject='CN=PHASER360 H15O Ephemeral Test Signing'
 $Ioctl=[Convert]::ToUInt32('8343E48C',16);$ResultBytes=120
 $BaselineInf='oem14.inf';$BaselineVersion='9.22.0.4832';$BaselineProvider='Intel(R) Corporation'
@@ -27,7 +27,7 @@ function Package([string]$root,[switch]$Trusted){
  foreach($p in @($sys,$cer,$man)){if(-not(Test-Path $p -PathType Leaf)){throw "PACKAGE_FILE_MISSING: $p"}}
  $c=Get-PfxCertificate $cer;if(-not$c -or $c.HasPrivateKey -or $c.Subject -cne $ProbeSubject -or $c.Issuer -cne $ProbeSubject){throw 'RECOVERY_CERT_IDENTITY_INVALID'}
  $m=Get-Content $man -Raw|ConvertFrom-Json
- if([string]$m.Purpose -cne 'H15OR_R2_R2_READONLY_RECOVERY_PACKAGE' -or [string]$m.SysSha256 -cne (Get-FileHash $sys -Algorithm SHA256).Hash.ToLowerInvariant()){throw 'RECOVERY_MANIFEST_INVALID'}
+ if([string]$m.Purpose -cne 'H15OR_R2_READONLY_RECOVERY_PACKAGE' -or [string]$m.SysSha256 -cne (Get-FileHash $sys -Algorithm SHA256).Hash.ToLowerInvariant()){throw 'RECOVERY_MANIFEST_INVALID'}
  if([string]$m.CertificateThumbprint -cne [string]$c.Thumbprint){throw 'RECOVERY_CERT_THUMBPRINT_MISMATCH'}
  $s=Get-AuthenticodeSignature $sys;if(-not$s.SignerCertificate -or [string]$s.SignerCertificate.Thumbprint -cne [string]$c.Thumbprint){throw 'RECOVERY_SIGNER_MISMATCH'}
  if($Trusted -and $s.Status-ne'Valid'){throw 'RECOVERY_SIGNATURE_NOT_VALID_AFTER_TRUST'}
@@ -55,7 +55,7 @@ function RemoveSubject([string]$subject){
 }
 
 if(-not(Admin)){throw 'ADMINISTRATOR_REQUIRED'};if(-not[Environment]::Is64BitProcess){throw 'WINDOWS_X64_REQUIRED'}
-Write-Host 'RUNNER=H15OR_R2_R2_NONINTERACTIVE_RECOVERY'
+Write-Host 'RUNNER=H15OR_R2_NONINTERACTIVE_RECOVERY'
 Write-Host 'RUNNER_BUILD=b6abe77d29c1092f2d99d5848a45312c53987431-r2'
 Write-Host ('RUNNER_PATH=' + $MyInvocation.MyCommand.Path)
 if([Environment]::OSVersion.Version.Build -ne 19044){throw 'EXACT_WINDOWS_BUILD_19044_REQUIRED'}
@@ -71,7 +71,7 @@ RemoveSubject $ProbeSubject
 
 $pkg=Package $PackageRoot
 $selfSha=(Get-FileHash -LiteralPath $MyInvocation.MyCommand.Path -Algorithm SHA256).Hash.ToLowerInvariant()
-if([string]$pkg.Manifest.RunnerSha256 -cne $selfSha){throw 'H15OR_R2_R2_RUNNER_SELF_HASH_MISMATCH'}
+if([string]$pkg.Manifest.RunnerSha256 -cne $selfSha){throw 'H15OR_R2_RUNNER_SELF_HASH_MISMATCH'}
 Write-Host ('RUNNER_SHA256=' + $selfSha)
 if([string]::IsNullOrWhiteSpace($OutputRoot)){$OutputRoot=$PSScriptRoot};$stamp=Get-Date -Format 'yyyyMMdd_HHmmss';$suffix=[Guid]::NewGuid().ToString('N').Substring(0,8)
 $dir=Join-Path $OutputRoot ('H15OR_R2_RECOVERY_'+$stamp+'_'+$suffix);New-Item -ItemType Directory -Path $dir -Force|Out-Null
