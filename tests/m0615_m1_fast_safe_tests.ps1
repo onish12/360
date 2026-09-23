@@ -15,6 +15,8 @@ foreach($x in @(
 }
 if($r.IndexOf('/export-driver',[StringComparison]::OrdinalIgnoreCase)-gt$r.IndexOf('ForceUpdate($ExactHwid,$pkg.Inf)',[StringComparison]::OrdinalIgnoreCase)){throw 'M1_FAST_BASELINE_EXPORT_MUST_PRECEDE_BIND'}
 if($r.IndexOf('M1_FAST_RECOVERY_POINTER.txt',[StringComparison]::OrdinalIgnoreCase)-gt$r.IndexOf('ForceUpdate($ExactHwid,$pkg.Inf)',[StringComparison]::OrdinalIgnoreCase)){throw 'M1_FAST_RECOVERY_POINTER_MUST_PRECEDE_BIND'}
+if($r.IndexOf("Join-Path (Join-Path $env:SystemRoot 'INF') $BaselineInf",[StringComparison]::OrdinalIgnoreCase)-ge0){throw 'M1_FAST_SYSTEM_INF_FORCEUPDATE_FORBIDDEN'}
+if($r.IndexOf('ForceUpdate($ExactHwid,$baselineExportInf)',[StringComparison]::Ordinal)-lt0){throw 'M1_FAST_EXPORTED_BASELINE_FALLBACK_MISSING'}
 foreach($bad in @('bcdedit','Restart-Computer','shutdown.exe','AUDIO_PLAYBACK=YES','CODEC_PROGRAMMING=YES','SPEAKER_ENABLE=YES')){
  if($r.IndexOf($bad,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "M1_FAST_FORBIDDEN:$bad"}
 }
