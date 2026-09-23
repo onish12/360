@@ -16,6 +16,6 @@ foreach($name in @('phaser360_h15or_r2_readonly_recovery_probe.sys','phaser360_h
 foreach($legacy in @("'phaser360_h15or_readonly_recovery_probe.sys'","'phaser360_h15or_readonly_recovery_probe.cer'")){
   if($w.IndexOf($legacy,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15OR_R2_LEGACY_PACKAGE_NAME_FORBIDDEN:$legacy"}
 }
-foreach($x in @("$ExpectedFlags=[Convert]::ToUInt32('000003FF',16)","$ExpectedCg=[Convert]::ToUInt32('807B0DFF',16)",'$kernelSafe=($status-eq0 -and $flags-eq$ExpectedFlags)','$safe=($kernelSafe -and $crossSafe)','(U32 $r 104)-eq0','(U32 $r 112)-eq0','[uint32]($r[74])-eq13','(U32 $r 76)-eq0')){if($r.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "H15OR_R2_TYPED_SAFE_GATE_MISSING:$x"}}
+foreach($x in @('$ExpectedFlags=[Convert]::ToUInt32(''000003FF'',16)','$ExpectedCg=[Convert]::ToUInt32(''807B0DFF'',16)','$kernelSafe=($status-eq0 -and $flags-eq$ExpectedFlags)','$safe=($kernelSafe -and $crossSafe)','(U32 $r 104)-eq0','(U32 $r 112)-eq0','[uint32]($r[74])-eq13','(U32 $r 76)-eq0')){if($r.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "H15OR_R2_TYPED_SAFE_GATE_MISSING:$x"}}
 if($r.IndexOf('$cg-eq0x807B0DFF',[StringComparison]::OrdinalIgnoreCase)-ge0){throw 'H15OR_R2_SIGNED_HEX_CGCTL_COMPARISON_FORBIDDEN'}
 Write-Host 'H15OR_R2_STATIC_TESTS=PASS; set_content=ABSENT; powershell_noninteractive=YES; self_hash=YES; package_contract=EXACT; typed_safe_gate=FULL'
