@@ -139,7 +139,11 @@ function Package([string]$root,[switch]$Trusted){
      [string]$m.ExpectedDspPhysical -cne '0x00000000CEF00000' -or
      [string]$m.Mapping -cne 'PAGE_READONLY_NOCACHE_THROUGH_D0' -or
      [string]$m.MmioWrite -cne 'NO' -or
-     [string]$m.PciConfigWrite -cne 'ONLY_0x44_BIT2_AND_0x48_BIT1_WITH_EXACT_RESTORE'){
+     [string]$m.PciConfigWrite -cne 'ONLY_0x44_BIT2_AND_0x48_BIT1_WITH_EXACT_RESTORE' -or
+     [string]$m.ExpectedPgctl -cne '0x00000010' -or
+     [string]$m.ExpectedCgctl -cne '0x807B0DFF' -or
+     [string]$m.AppliedPgctl -cne '0x00000014' -or
+     [string]$m.AppliedCgctl -cne '0x807B0DFD'){
     throw 'MANIFEST_H15H_CONTRACT_MISMATCH'
   }
   foreach($x in @(
@@ -297,6 +301,8 @@ $publishedInf=$null
 $published=$false
 $handoffAttempted=$false
 $handoffComplete=$false
+$writeAttempted=$false
+$writeRestoreComplete=$false
 $snapshotComplete=$false
 $normal=$false
 $err=$null
@@ -340,6 +346,7 @@ try {
   Put32 $req 4 16
   Put32 $req 8 $ExpectedPg
   Put32 $req 12 $ExpectedCg
+  $writeAttempted=$true
   $r=[Phaser360.H15hNative]::Transaction($InterfaceGuid,$Ioctl,$req,$ResultBytes)
 
   $v=U32 $r 0
@@ -399,6 +406,7 @@ try {
      $hdaLen -ne $ExpectedHdaLength -or $dspLen -ne $ExpectedDspLength){
     throw 'H15H_LIVE_TRANSACTION_VALIDATION_FAILED'
   }
+  $writeRestoreComplete=$true
   $snapshotComplete=$true
 
   $x=PnP @('/delete-driver',$publishedInf,'/uninstall','/force')
@@ -446,7 +454,8 @@ try {
     $safe=$false
     try{
       $s=Target
-      $safe=@(Published).Count -eq 0 -and
+      $safe=(( -not $writeAttempted) -or $writeRestoreComplete) -and
+        @(Published).Count -eq 0 -and
         $s.Status -ceq 'OK' -and $s.ProblemCode -eq 0 -and
         $s.InstanceId -ceq $before.InstanceId -and
         $s.Service -ceq 'IntcAudioBus' -and
@@ -494,6 +503,7 @@ $status=if($normal -and $baseline -and $handoffComplete -and $snapshotComplete -
 [ordered]@{
   Status=$status;PublishedInf=$publishedInf
   HandoffAttempted=$handoffAttempted;HandoffCompleted=$handoffComplete
+  WriteAttempted=$writeAttempted;WriteRestoreCompleted=$writeRestoreComplete
   SnapshotCompleted=$snapshotComplete;BaselineRestored=$baseline
   TrustRestored=(-not $ft.Root -and -not $ft.TrustedPublisher)
   TransactionError=$(if($err){$err.Message}else{$null})
@@ -511,6 +521,7 @@ Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $zip -Force
 
 Write-Host "STATUS=$status"
 Write-Host "HANDOFF_COMPLETED=$($handoffComplete.ToString().ToUpperInvariant())"
+Write-Host "WRITE_RESTORE_COMPLETED=$($writeRestoreComplete.ToString().ToUpperInvariant())"
 Write-Host "SNAPSHOT_COMPLETED=$($snapshotComplete.ToString().ToUpperInvariant())"
 Write-Host "BASELINE_RESTORED=$($baseline.ToString().ToUpperInvariant())"
 Write-Host "TRUST_RESTORED=$(((-not $ft.Root -and -not $ft.TrustedPublisher)).ToString().ToUpperInvariant())"

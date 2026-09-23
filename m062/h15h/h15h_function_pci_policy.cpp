@@ -70,6 +70,8 @@ NTSTATUS phaser360::windows::H15hEvtDeviceAdd(WDFDRIVER driver,PWDFDEVICE_INIT i
     WDF_OBJECT_ATTRIBUTES attr;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attr,H15hDeviceContext);
     attr.EvtCleanupCallback=H15hEvtCleanup;
+    attr.ExecutionLevel=WdfExecutionLevelPassive;
+    attr.SynchronizationScope=WdfSynchronizationScopeDevice;
     WDFDEVICE device=nullptr;
     auto status=WdfDeviceCreate(&init,&attr,&device);
     if(!NT_SUCCESS(status)) return status;

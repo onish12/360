@@ -15,7 +15,9 @@ foreach($x in @('0x833ce468u','sizeof(H15hResultV1)==176u','kH15hRequiredFlags=0
 foreach($x in @('PAGE_READONLY|PAGE_NOCACHE','PciConfigBootPolicy policy',
  'policy.Apply(device,p,*g)','policy.Restore()','ReadRegisters(c,&result.before)',
  'ReadRegisters(c,&result.applied)','H15hRestoredMmioCaptured',
- 'RtlCompareMemory(p.config,final.Snapshot().config,kPciConfigSnapshotBytes)')){
+ 'RtlCompareMemory(p.config,final.Snapshot().config,kPciConfigSnapshotBytes)',
+ 'SynchronizationScope=WdfSynchronizationScopeDevice',
+ 'ExecutionLevel=WdfExecutionLevelPassive')){
  if($src.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15H_SRC_MISSING: $x"}
 }
 foreach($x in @('WRITE_REGISTER_','PAGE_READWRITE','WdfInterruptCreate','WdfDma','WdfCommonBuffer',
@@ -45,6 +47,8 @@ foreach($x in @(
  '$ExpectedCg=[Convert]::ToUInt32(''807B0DFF'',16)',
  '$AppliedCg=[Convert]::ToUInt32(''807B0DFD'',16)',
  'H15H_LIVE_TRANSACTION_VALIDATION_FAILED',
+ '$writeAttempted=$true','$writeRestoreComplete=$true',
+ '(( -not $writeAttempted) -or $writeRestoreComplete)',
  'H15H_FUNCTION_PCI_POLICY_AND_ROLLBACK_COMPLETE',
  "PciConfigWrite='ONLY_0x44_BIT2_AND_0x48_BIT1_WITH_EXACT_RESTORE'"
 )){if($run.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15H_RUNNER_MISSING: $x"}}
