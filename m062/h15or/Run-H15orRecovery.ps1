@@ -60,10 +60,14 @@ if(IsIntel $before){Write-Host 'STATUS=H15OR_ALREADY_INTEL_BASELINE';exit 0}
 if($before.Service -cne $H15oService -or $before.DriverVersion -cne '0.6.15.270' -or $before.DriverProvider -cne 'PHASER360 Experimental'){throw 'H15OR_EXPECTED_ACTIVE_H15O_NOT_FOUND'}
 $h15oPublished=@(PublishedH15o);if($h15oPublished.Count-ne1 -or $h15oPublished[0] -cne $before.DriverInfPath){throw 'H15OR_ACTIVE_H15O_INF_MISMATCH'}
 
+# Clean only stale H15OR probe state from an interrupted previous recovery attempt.
+$stale=SC @('query',$ProbeService);if($stale.ExitCode-eq0){$null=SC @('stop',$ProbeService);$null=SC @('delete',$ProbeService);Start-Sleep -Milliseconds 300}
+RemoveSubject $ProbeSubject
+
 $pkg=Package $PackageRoot
 if([string]::IsNullOrWhiteSpace($OutputRoot)){$OutputRoot=$PSScriptRoot};$stamp=Get-Date -Format 'yyyyMMdd_HHmmss';$suffix=[Guid]::NewGuid().ToString('N').Substring(0,8)
 $dir=Join-Path $OutputRoot ('H15OR_RECOVERY_'+$stamp+'_'+$suffix);New-Item -ItemType Directory -Path $dir -Force|Out-Null
-$before|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'target_before.json') -Encoding UTF8
+WriteUtf8 (Join-Path $dir 'target_before.json') ($before|ConvertTo-Json -Depth 8)
 
 $probeRoot=$false;$probePub=$false;$probeCreated=$false;$probeStarted=$false;$snapshot=$false;$safe=$false;$intelRestored=$false;$err=$null
 try{
@@ -71,33 +75,33 @@ try{
  $x=CertUtil @('-f','-addstore','TrustedPublisher',$pkg.Cer);if($x.ExitCode-ne0){throw 'H15OR_CERT_PUBLISHER_ADD_FAILED'};$probePub=$true
  $null=Package $PackageRoot -Trusted
  $q=SC @('query',$ProbeService);if($q.ExitCode-eq0){$null=SC @('stop',$ProbeService);$null=SC @('delete',$ProbeService);Start-Sleep -Milliseconds 300}
- $x=SC @('create',$ProbeService,'type=','kernel','start=','demand','binPath=',('"' + $pkg.Sys + '"'));$x.Output|Set-Content (Join-Path $dir 'sc_create.txt') -Encoding UTF8;if($x.ExitCode-ne0){throw 'H15OR_SERVICE_CREATE_FAILED'};$probeCreated=$true
- $x=SC @('start',$ProbeService);$x.Output|Set-Content (Join-Path $dir 'sc_start.txt') -Encoding UTF8;if($x.ExitCode-ne0){throw 'H15OR_SERVICE_START_FAILED'};$probeStarted=$true
+ $x=SC @('create',$ProbeService,'type=','kernel','start=','demand','binPath=',('"' + $pkg.Sys + '"'));WriteUtf8 (Join-Path $dir 'sc_create.txt') $x.Output;if($x.ExitCode-ne0){throw 'H15OR_SERVICE_CREATE_FAILED'};$probeCreated=$true
+ $x=SC @('start',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_start.txt') $x.Output;if($x.ExitCode-ne0){throw 'H15OR_SERVICE_START_FAILED'};$probeStarted=$true
  Native
  $addr=[uint32][BitConverter]::ToUInt32([BitConverter]::GetBytes([int32]$before.Address),0);$devNum=($addr-shr16)-band0xFFFF;$func=$addr-band0xFFFF
  if($devNum-gt31 -or $func-gt7 -or $before.BusNumber-lt0 -or $before.BusNumber-gt255){throw "INVALID_PCI_LOCATION bus=$($before.BusNumber) address=0x$('{0:X8}'-f $addr)"}
- $slot=[uint32]($devNum -bor ($func-shl5));[ordered]@{BusNumber=$before.BusNumber;Address=('0x{0:X8}'-f $addr);Device=$devNum;Function=$func;Slot=$slot}|ConvertTo-Json|Set-Content (Join-Path $dir 'pci_location.json') -Encoding UTF8
+ $slot=[uint32]($devNum -bor ($func-shl5));WriteUtf8 (Join-Path $dir 'pci_location.json') ([ordered]@{BusNumber=$before.BusNumber;Address=('0x{0:X8}'-f $addr);Device=$devNum;Function=$func;Slot=$slot}|ConvertTo-Json)
  $req=[byte[]]::new(16);Put32 $req 0 1;Put32 $req 4 16;Put32 $req 8 ([uint32]$before.BusNumber);Put32 $req 12 $slot
  $r=[Phaser360.H15orNative]::Snapshot($Ioctl,$req,$ResultBytes);[IO.File]::WriteAllBytes((Join-Path $dir 'h15or_raw.bin'),$r)
  $v=U32 $r 0;$sz=U32 $r 4;$status=U32 $r 8;$flags=U32 $r 12;$bus=U32 $r 16;$slotOut=U32 $r 20;$pciBytes=U32 $r 24;$ven=U16 $r 28;$dev=U16 $r 30;$pg=U32 $r 32;$cg=U32 $r 36;$hda=U64 $r 40;$dsp=U64 $r 48;$hl=U32 $r 56;$dl=U32 $r 60
  $obs=[ordered]@{HdaGcap=('0x{0:X4}'-f(U16 $r 64));HdaVmin=('0x{0:X2}'-f[uint32]$r[66]);HdaVmaj=('0x{0:X2}'-f[uint32]$r[67]);HdaGctl=('0x{0:X8}'-f(U32 $r 68));HdaCorbctl=('0x{0:X2}'-f[uint32]$r[72]);HdaRirbctl=('0x{0:X2}'-f[uint32]$r[73]);TotalStreams=[uint32]$r[74];StreamRunMask=('0x{0:X8}'-f(U32 $r 76));HdaIntelEm2=('0x{0:X8}'-f(U32 $r 80));HdaPpctl=('0x{0:X8}'-f(U32 $r 84));HdaPpsts=('0x{0:X8}'-f(U32 $r 88));DspAdspcs=('0x{0:X8}'-f(U32 $r 92));DspAdspic=('0x{0:X8}'-f(U32 $r 96));DspAdspis=('0x{0:X8}'-f(U32 $r 100));DspHipci=('0x{0:X8}'-f(U32 $r 104));DspHipcie=('0x{0:X8}'-f(U32 $r 108));DspHipcctl=('0x{0:X8}'-f(U32 $r 112));DspRomStatus=('0x{0:X8}'-f(U32 $r 116))}
- [ordered]@{Version=$v;Size=$sz;Status=('0x{0:X8}'-f$status);Flags=('0x{0:X8}'-f$flags);BusNumber=$bus;Slot=$slotOut;PciBytesRead=$pciBytes;Vendor=('0x{0:X4}'-f$ven);Device=('0x{0:X4}'-f$dev);Pgctl=('0x{0:X8}'-f$pg);Cgctl=('0x{0:X8}'-f$cg);HdaPhysical=('0x{0:X16}'-f$hda);DspPhysical=('0x{0:X16}'-f$dsp);HdaLength=('0x{0:X8}'-f$hl);DspLength=('0x{0:X8}'-f$dl);Observation=$obs}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'h15or_snapshot.json') -Encoding UTF8
+ WriteUtf8 (Join-Path $dir 'h15or_snapshot.json') ([ordered]@{Version=$v;Size=$sz;Status=('0x{0:X8}'-f$status);Flags=('0x{0:X8}'-f$flags);BusNumber=$bus;Slot=$slotOut;PciBytesRead=$pciBytes;Vendor=('0x{0:X4}'-f$ven);Device=('0x{0:X4}'-f$dev);Pgctl=('0x{0:X8}'-f$pg);Cgctl=('0x{0:X8}'-f$cg);HdaPhysical=('0x{0:X16}'-f$hda);DspPhysical=('0x{0:X16}'-f$dsp);HdaLength=('0x{0:X8}'-f$hl);DspLength=('0x{0:X8}'-f$dl);Observation=$obs}|ConvertTo-Json -Depth 8)
  $snapshot=$true;$safe=($v-eq1 -and $sz-eq120 -and ($flags-band0x3FF)-eq0x3FF -and $ven-eq0x8086 -and $dev-eq0x3198 -and $pg-eq0x10 -and $cg-eq0x807B0DFF -and (U32 $r 68)-eq0 -and (U32 $r 80)-eq0x04007000 -and (U32 $r 84)-eq0 -and (U32 $r 92)-eq0x001D003C -and (U32 $r 108)-eq0x00420000 -and (U32 $r 116)-eq0x01006701)
 } catch{$err=$_.Exception} finally{
- if($probeStarted){$x=SC @('stop',$ProbeService);$x.Output|Set-Content (Join-Path $dir 'sc_stop.txt') -Encoding UTF8;$probeStarted=$false}
- if($probeCreated){$x=SC @('delete',$ProbeService);$x.Output|Set-Content (Join-Path $dir 'sc_delete.txt') -Encoding UTF8;$probeCreated=$false}
+ if($probeStarted){$x=SC @('stop',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_stop.txt') $x.Output;$probeStarted=$false}
+ if($probeCreated){$x=SC @('delete',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_delete.txt') $x.Output;$probeCreated=$false}
  if($probePub){$null=CertUtil @('-delstore','TrustedPublisher',$pkg.Thumb);$probePub=$false}
  if($probeRoot){$null=CertUtil @('-delstore','Root',$pkg.Thumb);$probeRoot=$false}
 }
 if($safe -and -not$err){
- $x=PnP @('/delete-driver',$before.DriverInfPath,'/uninstall','/force');$x.Output|Set-Content (Join-Path $dir 'pnputil_remove_h15o.txt') -Encoding UTF8
+ $x=PnP @('/delete-driver',$before.DriverInfPath,'/uninstall','/force');WriteUtf8 (Join-Path $dir 'pnputil_remove_h15o.txt') $x.Output
  if($x.ExitCode-eq0){
-   try{$after=WaitIntel $before.InstanceId 20;$after|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'target_after.json') -Encoding UTF8;if(@(PublishedH15o).Count-eq0){RemoveSubject $H15oSubject;$intelRestored=$true}}catch{$err=$_.Exception}
+   try{$after=WaitIntel $before.InstanceId 20;WriteUtf8 (Join-Path $dir 'target_after.json') ($after|ConvertTo-Json -Depth 8);if(@(PublishedH15o).Count-eq0){RemoveSubject $H15oSubject;$intelRestored=$true}}catch{$err=$_.Exception}
  }
  else{$err=[Exception]::new('H15O_UNINSTALL_FAILED')}
 }
 $status=if($intelRestored){'H15OR_SAFE_BASELINE_PROVED_AND_INTEL_RESTORED'}elseif($snapshot -and -not$safe){'H15OR_DIRTY_OR_NONBASELINE_STATE_DETECTED_H15O_RETAINED'}else{'H15OR_RECOVERY_PROBE_FAILED'}
-[ordered]@{Status=$status;SnapshotCompleted=$snapshot;ExactSafeForHandoff=$safe;IntelRestored=$intelRestored;H15oRetained=(-not$intelRestored);TransactionError=$(if($err){$err.Message}else{$null});MmioWrite='NO';PciWrite='NO';Dma='NO';IrqOwnership='NO';Firmware='NO';Playback='NO';BcdWrite='NO';SystemReboot='NO'}|ConvertTo-Json -Depth 5|Set-Content (Join-Path $dir 'recovery.json') -Encoding UTF8
+WriteUtf8 (Join-Path $dir 'recovery.json') ([ordered]@{Status=$status;SnapshotCompleted=$snapshot;ExactSafeForHandoff=$safe;IntelRestored=$intelRestored;H15oRetained=(-not$intelRestored);TransactionError=$(if($err){$err.Message}else{$null});MmioWrite='NO';PciWrite='NO';Dma='NO';IrqOwnership='NO';Firmware='NO';Playback='NO';BcdWrite='NO';SystemReboot='NO'}|ConvertTo-Json -Depth 5)
 Hashes $dir;$zip=Join-Path $OutputRoot ('RESULT_H15OR_RECOVERY_'+$stamp+'_'+$suffix+'.zip');Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $zip -Force
 Write-Host "STATUS=$status";Write-Host "SNAPSHOT_COMPLETED=$($snapshot.ToString().ToUpperInvariant())";Write-Host "EXACT_SAFE_FOR_HANDOFF=$($safe.ToString().ToUpperInvariant())";Write-Host "INTEL_RESTORED=$($intelRestored.ToString().ToUpperInvariant())";Write-Host "Trimite fisierul: $zip"
 if($err){Write-Host "ERROR=$($err.Message)"}
