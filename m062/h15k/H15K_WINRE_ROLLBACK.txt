@@ -1,0 +1,24 @@
+PHASER360 H15K OFFLINE ROLLBACK
+
+Use only if Windows cannot boot after the H15K ADSPCS stall/reset transaction.
+
+1. Enter Windows Recovery Environment -> Command Prompt.
+2. Identify the offline Windows volume. Do NOT assume C:.
+3. Read H15kPublishedInf.txt and note the PHASER360 oemNN.inf.
+4. Confirm it:
+   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
+5. Remove ONLY that H15K package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
+6. Reboot.
+
+Do NOT remove oem14.inf.
+
+Verified Intel baseline:
+  Service=IntcAudioBus
+  INF=oem14.inf
+  Version=9.22.0.4832
+  Provider=Intel(R) Corporation
+
+H15K writes only DSP ADSPCS CSTALL[1:0] and CRST[1:0], with exact reverse rollback. It never writes SPA/CPA or HDA MMIO.
+If the runner cannot prove restoration after the write is attempted, it
+intentionally blocks automatic package removal and retains trust for recovery.
