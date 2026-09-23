@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 echo PHASER360 M1 FAST-SAFE - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK
-echo RUNNER_BUILD=m1-fast-safe-20260923-r1
+echo RUNNER_BUILD=m1-fast-safe-20260923-r2-interface-wait
 echo Fara playback, codec, speaker, BCD sau reboot.
 echo.
 for %%I in ("%~dp0.") do set "PHASER_PACKAGE=%%~fI"
