@@ -135,8 +135,8 @@ function Package([string]$root,[switch]$Trusted){
      [string]$m.ExpectedBaselineProvider -cne $BaselineProvider -or
      [string]$m.ExpectedHdaPhysical -cne '0x00000000CEEE0000' -or
      [string]$m.ExpectedDspPhysical -cne '0x00000000CEF00000' -or
-     [string]$m.Mapping -cne 'HDA_PAGE_READWRITE_DSP_PAGE_READONLY' -or
-     [string]$m.MmioWrite -cne 'ONLY_HDA_GCTL_CRST_BIT0_0_TO_1_TO_0' -or
+     [string]$m.Mapping -cne 'HDA_PAGE_READONLY_DSP_PAGE_READWRITE' -or
+     [string]$m.MmioWrite -cne 'ONLY_DSP_ADSPCS_CSTALL_CRST_CORES01_WITH_EXACT_ROLLBACK' -or
      [string]$m.PciConfigWrite -cne 'NO' -or
      [string]$m.ExpectedPgctl -cne '0x00000010' -or
      [string]$m.ExpectedCgctl -cne '0x807B0DFF'){
