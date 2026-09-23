@@ -37,6 +37,6 @@
     <Link><AdditionalOptions>/Brepro %(AdditionalOptions)</AdditionalOptions></Link>
     <DriverSign><FileDigestAlgorithm>sha256</FileDigestAlgorithm></DriverSign>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="h15kr_function_mmio.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="h15kr_readonly_recovery_probe.cpp" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
