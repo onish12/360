@@ -1,0 +1,29 @@
+PHASER360 H15L — CORE1 SPA/CPA REVERSIBLE POWER HANDSHAKE
+
+Precondition:
+  exact Intel baseline and HDA idle;
+  ADSPCS=0x001D003C;
+  core1 SPA=0 and CPA=0.
+
+Only DSP ADSPCS is writable.
+Only core1 fields CSTALL1, CRST1 and SPA1 may be written.
+CPA1 is read/polled only. All core0 fields are forbidden.
+
+Sequence:
+  baseline 0x001D003C
+  set CSTALL1 + CRST1 -> 0x001D023E
+  set SPA1 and wait CPA1=1
+  clear SPA1 and wait CPA1=0 -> 0x001D023E
+  clear CRST1 + CSTALL1 -> exact 0x001D003C
+
+No HDA MMIO write, PCI config write, DMA, IRQ ownership, firmware, ROM purge,
+DSP run/unstall, codec programming or playback.
+
+Run RUN_H15L_TRANSACTION.cmd as Administrator.
+Expected success:
+  STATUS=H15L_CORE1_POWER_HANDSHAKE_AND_ROLLBACK_COMPLETE
+  HANDOFF_COMPLETED=TRUE
+  WRITE_RESTORE_COMPLETED=TRUE
+  SNAPSHOT_COMPLETED=TRUE
+  BASELINE_RESTORED=TRUE
+  TRUST_RESTORED=TRUE
