@@ -99,7 +99,7 @@ bool PciUpdateMasked(WDFDEVICE dev,HardwareAccessGate*g,ULONG off,ULONG mask,ULO
   BUS_INTERFACE_STANDARD bus{};const auto st=WdfFdoQueryForInterface(dev,&GUID_BUS_INTERFACE_STANDARD,reinterpret_cast<PINTERFACE>(&bus),static_cast<USHORT>(sizeof(bus)),1,nullptr);
   if(!NT_SUCCESS(st)||!bus.GetBusData||!bus.SetBusData||!bus.InterfaceDereference){if(NT_SUCCESS(st)&&bus.InterfaceDereference)bus.InterfaceDereference(bus.Context);return false;}
   ULONG cur=0;bool ok=bus.GetBusData(bus.Context,PCI_WHICHSPACE_CONFIG,&cur,off,sizeof(cur))==sizeof(cur);
-  const ULONG desired=(cur&~mask)|(bits&mask);
+  ULONG desired=(cur&~mask)|(bits&mask);
   if(ok&&desired!=cur)ok=bus.SetBusData(bus.Context,PCI_WHICHSPACE_CONFIG,&desired,off,sizeof(desired))==sizeof(desired);
   ULONG verify=0;if(ok)ok=bus.GetBusData(bus.Context,PCI_WHICHSPACE_CONFIG,&verify,off,sizeof(verify))==sizeof(verify)&&verify==desired;
   if(after)*after=verify;bus.InterfaceDereference(bus.Context);return ok;
