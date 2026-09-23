@@ -6,6 +6,10 @@ $ProbeService='Phaser360H15orR2';$H15oService='Phaser360H15o'
 $ProbeSubject='CN=PHASER360 H15OR R2 Readonly Recovery Signing'
 $H15oSubject='CN=PHASER360 H15O Ephemeral Test Signing'
 $Ioctl=[Convert]::ToUInt32('8343E48C',16);$ResultBytes=120
+$ExpectedFlags=[Convert]::ToUInt32('000003FF',16)
+$ExpectedPg=[Convert]::ToUInt32('00000010',16);$ExpectedCg=[Convert]::ToUInt32('807B0DFF',16)
+$ExpectedEm2=[Convert]::ToUInt32('04007000',16);$ExpectedAdspcs=[Convert]::ToUInt32('001D003C',16)
+$ExpectedHipcie=[Convert]::ToUInt32('00420000',16);$ExpectedRom=[Convert]::ToUInt32('01006701',16)
 $BaselineInf='oem14.inf';$BaselineVersion='9.22.0.4832';$BaselineProvider='Intel(R) Corporation'
 
 function Admin{$id=[Security.Principal.WindowsIdentity]::GetCurrent();([Security.Principal.WindowsPrincipal]::new($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)}
@@ -56,7 +60,7 @@ function RemoveSubject([string]$subject){
 
 if(-not(Admin)){throw 'ADMINISTRATOR_REQUIRED'};if(-not[Environment]::Is64BitProcess){throw 'WINDOWS_X64_REQUIRED'}
 Write-Host 'RUNNER=H15OR_R2_NONINTERACTIVE_RECOVERY'
-Write-Host 'RUNNER_BUILD=h15or-r2.2-package-contract-fix-20260923'
+Write-Host 'RUNNER_BUILD=h15or-r2.3-kernel-verdict-typed-crosscheck-20260923'
 Write-Host ('RUNNER_PATH=' + $MyInvocation.MyCommand.Path)
 if([Environment]::OSVersion.Version.Build -ne 19044){throw 'EXACT_WINDOWS_BUILD_19044_REQUIRED'}
 if(((CodeIntegrity)-band 2)-eq0){throw 'CODE_INTEGRITY_TESTSIGN_NOT_ALLOWED'}
@@ -77,7 +81,7 @@ if([string]::IsNullOrWhiteSpace($OutputRoot)){$OutputRoot=$PSScriptRoot};$stamp=
 $dir=Join-Path $OutputRoot ('H15OR_R2_RECOVERY_'+$stamp+'_'+$suffix);New-Item -ItemType Directory -Path $dir -Force|Out-Null
 WriteUtf8 (Join-Path $dir 'target_before.json') ($before|ConvertTo-Json -Depth 8)
 
-$probeRoot=$false;$probePub=$false;$probeCreated=$false;$probeStarted=$false;$snapshot=$false;$safe=$false;$intelRestored=$false;$err=$null
+$probeRoot=$false;$probePub=$false;$probeCreated=$false;$probeStarted=$false;$snapshot=$false;$kernelSafe=$false;$crossSafe=$false;$safe=$false;$intelRestored=$false;$err=$null
 try{
  $x=CertUtil @('-f','-addstore','Root',$pkg.Cer);if($x.ExitCode-ne0){throw 'H15OR_R2_CERT_ROOT_ADD_FAILED'};$probeRoot=$true
  $x=CertUtil @('-f','-addstore','TrustedPublisher',$pkg.Cer);if($x.ExitCode-ne0){throw 'H15OR_R2_CERT_PUBLISHER_ADD_FAILED'};$probePub=$true
@@ -94,7 +98,10 @@ try{
  $v=U32 $r 0;$sz=U32 $r 4;$status=U32 $r 8;$flags=U32 $r 12;$bus=U32 $r 16;$slotOut=U32 $r 20;$pciBytes=U32 $r 24;$ven=U16 $r 28;$dev=U16 $r 30;$pg=U32 $r 32;$cg=U32 $r 36;$hda=U64 $r 40;$dsp=U64 $r 48;$hl=U32 $r 56;$dl=U32 $r 60
  $obs=[ordered]@{HdaGcap=('0x{0:X4}'-f(U16 $r 64));HdaVmin=('0x{0:X2}'-f[uint32]$r[66]);HdaVmaj=('0x{0:X2}'-f[uint32]$r[67]);HdaGctl=('0x{0:X8}'-f(U32 $r 68));HdaCorbctl=('0x{0:X2}'-f[uint32]$r[72]);HdaRirbctl=('0x{0:X2}'-f[uint32]$r[73]);TotalStreams=[uint32]$r[74];StreamRunMask=('0x{0:X8}'-f(U32 $r 76));HdaIntelEm2=('0x{0:X8}'-f(U32 $r 80));HdaPpctl=('0x{0:X8}'-f(U32 $r 84));HdaPpsts=('0x{0:X8}'-f(U32 $r 88));DspAdspcs=('0x{0:X8}'-f(U32 $r 92));DspAdspic=('0x{0:X8}'-f(U32 $r 96));DspAdspis=('0x{0:X8}'-f(U32 $r 100));DspHipci=('0x{0:X8}'-f(U32 $r 104));DspHipcie=('0x{0:X8}'-f(U32 $r 108));DspHipcctl=('0x{0:X8}'-f(U32 $r 112));DspRomStatus=('0x{0:X8}'-f(U32 $r 116))}
  WriteUtf8 (Join-Path $dir 'h15or_r2_snapshot.json') ([ordered]@{Version=$v;Size=$sz;Status=('0x{0:X8}'-f$status);Flags=('0x{0:X8}'-f$flags);BusNumber=$bus;Slot=$slotOut;PciBytesRead=$pciBytes;Vendor=('0x{0:X4}'-f$ven);Device=('0x{0:X4}'-f$dev);Pgctl=('0x{0:X8}'-f$pg);Cgctl=('0x{0:X8}'-f$cg);HdaPhysical=('0x{0:X16}'-f$hda);DspPhysical=('0x{0:X16}'-f$dsp);HdaLength=('0x{0:X8}'-f$hl);DspLength=('0x{0:X8}'-f$dl);Observation=$obs}|ConvertTo-Json -Depth 8)
- $snapshot=$true;$safe=($v-eq1 -and $sz-eq120 -and ($flags-band0x3FF)-eq0x3FF -and $ven-eq0x8086 -and $dev-eq0x3198 -and $pg-eq0x10 -and $cg-eq0x807B0DFF -and (U32 $r 68)-eq0 -and (U32 $r 80)-eq0x04007000 -and (U32 $r 84)-eq0 -and (U32 $r 92)-eq0x001D003C -and (U32 $r 108)-eq0x00420000 -and (U32 $r 116)-eq0x01006701)
+ $snapshot=$true
+ $kernelSafe=($status-eq0 -and $flags-eq$ExpectedFlags)
+ $crossSafe=($v-eq1 -and $sz-eq120 -and $ven-eq0x8086 -and $dev-eq0x3198 -and $pg-eq$ExpectedPg -and $cg-eq$ExpectedCg -and (U32 $r 68)-eq0 -and [uint32]($r[72])-eq0 -and [uint32]($r[73])-eq0 -and [uint32]($r[74])-eq13 -and (U32 $r 76)-eq0 -and (U32 $r 80)-eq$ExpectedEm2 -and (U32 $r 84)-eq0 -and (U32 $r 92)-eq$ExpectedAdspcs -and (U32 $r 104)-eq0 -and (U32 $r 108)-eq$ExpectedHipcie -and (U32 $r 112)-eq0 -and (U32 $r 116)-eq$ExpectedRom)
+ $safe=($kernelSafe -and $crossSafe)
 } catch{$err=$_.Exception} finally{
  if($probeStarted){$x=InvokeScExe @('stop',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_stop.txt') $x.Output;$probeStarted=$false}
  if($probeCreated){$x=InvokeScExe @('delete',$ProbeService);WriteUtf8 (Join-Path $dir 'sc_delete.txt') $x.Output;$probeCreated=$false}
@@ -109,7 +116,7 @@ if($safe -and -not$err){
  else{$err=[Exception]::new('H15O_UNINSTALL_FAILED')}
 }
 $status=if($intelRestored){'H15OR_R2_SAFE_BASELINE_PROVED_AND_INTEL_RESTORED'}elseif($snapshot -and -not$safe){'H15OR_R2_DIRTY_OR_NONBASELINE_STATE_DETECTED_H15O_RETAINED'}else{'H15OR_R2_RECOVERY_PROBE_FAILED'}
-WriteUtf8 (Join-Path $dir 'recovery.json') ([ordered]@{Status=$status;SnapshotCompleted=$snapshot;ExactSafeForHandoff=$safe;IntelRestored=$intelRestored;H15oRetained=(-not$intelRestored);TransactionError=$(if($err){$err.Message}else{$null});MmioWrite='NO';PciWrite='NO';Dma='NO';IrqOwnership='NO';Firmware='NO';Playback='NO';BcdWrite='NO';SystemReboot='NO'}|ConvertTo-Json -Depth 5)
+WriteUtf8 (Join-Path $dir 'recovery.json') ([ordered]@{Status=$status;SnapshotCompleted=$snapshot;KernelExactSafeForHandoff=$kernelSafe;TypedCrossCheckSafe=$crossSafe;ExactSafeForHandoff=$safe;IntelRestored=$intelRestored;H15oRetained=(-not$intelRestored);TransactionError=$(if($err){$err.Message}else{$null});MmioWrite='NO';PciWrite='NO';Dma='NO';IrqOwnership='NO';Firmware='NO';Playback='NO';BcdWrite='NO';SystemReboot='NO'}|ConvertTo-Json -Depth 5)
 Hashes $dir;$zip=Join-Path $OutputRoot ('RESULT_H15OR_R2_RECOVERY_'+$stamp+'_'+$suffix+'.zip');Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $zip -Force
 Write-Host "STATUS=$status";Write-Host "SNAPSHOT_COMPLETED=$($snapshot.ToString().ToUpperInvariant())";Write-Host "EXACT_SAFE_FOR_HANDOFF=$($safe.ToString().ToUpperInvariant())";Write-Host "INTEL_RESTORED=$($intelRestored.ToString().ToUpperInvariant())";Write-Host "Trimite fisierul: $zip"
 if($err){Write-Host "ERROR=$($err.Message)"}
