@@ -1,4 +1,4 @@
-name: H15L reversible core1 SPA/CPA power handshake signed package
+name: H15L R2 reversible core1 SPA/CPA-only power handshake signed package
 
 on:
   workflow_dispatch:
@@ -32,21 +32,21 @@ jobs:
           nuget restore .\m062\packages.config -PackagesDirectory .\m062\packages -NonInteractive
           if($LASTEXITCODE -ne 0){throw 'H15L_RESTORE_FAILED'}
 
-      - name: Build H15L reversible core1 SPA/CPA power handshake probe
+      - name: Build H15L R2 reversible core1 SPA/CPA-only power handshake probe
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           msbuild .\m062\h15l\phaser360_h15l_core1_power_gate.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
           if($LASTEXITCODE -ne 0){throw 'H15L_BUILD_FAILED'}
 
-      - name: Validate H15L static core1 power gate
+      - name: Validate H15L R2 static core1 power gate
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           & .\tests\m0615_h15l_core1_power_gate_tests.ps1
           if(-not $?){throw 'H15L_STATIC_TESTS_FAILED'}
 
-      - name: Audit compiled H15L imports
+      - name: Audit compiled H15L R2 imports
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -93,7 +93,7 @@ jobs:
           if(-not (Test-Path $signtool)){throw 'H15L_SIGNTOOL_NOT_FOUND'}
           if(-not (Test-Path $inf2cat)){throw 'H15L_INF2CAT_NOT_FOUND'}
 
-          $subject='CN=PHASER360 H15L Ephemeral Test Signing'
+          $subject='CN=PHASER360 H15L R2 Ephemeral Test Signing'
           $cert=$null
           try {
             $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(7)
@@ -112,7 +112,7 @@ jobs:
 
             $manifest=[ordered]@{
               Schema=1
-              Purpose='H15L_CORE1_POWER_HANDSHAKE_TRANSACTION_PACKAGE'
+              Purpose='H15L_R2_CORE1_SPA_CPA_HANDSHAKE_TRANSACTION_PACKAGE'
               SourceCommit=$env:GITHUB_SHA
               CertificateSubject=$subject
               CertificateThumbprint=$thumb
@@ -130,10 +130,10 @@ jobs:
               ExpectedInterruptCount=1
               Mapping='HDA_PAGE_READONLY_DSP_PAGE_READWRITE'
               MmioRead='HDA_IDLE_AND_DSP_STATUS'
-              MmioWrite='ONLY_DSP_ADSPCS_CORE1_CSTALL_CRST_SPA_WITH_CPA_READONLY_ROLLBACK'
+              MmioWrite='ONLY_DSP_ADSPCS_CORE1_SPA_WITH_CPA_READONLY_ROLLBACK'
               HdaQuiescence='CORB_RIRB_ALL_STREAM_RUN_ZERO_BEFORE_ADSPCS_WRITE'
               DspStatusRead='ADSPCS_ADSPIC_ADSPIS_HIPCI_HIPCIE_HIPCCTL_ROM'
-              HdaMmioWrite='NO';Core0Write='NO';CpaWrite='NO'
+              HdaMmioWrite='NO';Core0Write='NO';CpaWrite='NO';CstallWrite='NO';CrstWrite='NO'
               PciConfigWrite='NO'
               ExpectedPgctl='0x00000010';ExpectedCgctl='0x807B0DFF'
               Dma='NO';IrqOwnership='NO';Firmware='NO';DspBoot='NO';Playback='NO'
@@ -166,10 +166,10 @@ jobs:
             }
           }
 
-      - name: Upload signed H15L package
+      - name: Upload signed H15L R2 package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: PHASER360_H15L_CORE1_POWER_HANDSHAKE_TRANSACTION_PACKAGE
+          name: PHASER360_H15L_R2_CORE1_SPA_CPA_HANDSHAKE_TRANSACTION_PACKAGE
           path: _h15l_package/
           if-no-files-found: error
           retention-days: 3

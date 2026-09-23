@@ -31,34 +31,34 @@ enum H15lFlags : ULONG {
     H15lExpectedBaselineMatch=1u<<1,
     H15lBeforeCaptured=1u<<2,
     H15lHdaTransportIdle=1u<<3,
-    H15lCstall1Written=1u<<4,
-    H15lCstall1Observed=1u<<5,
-    H15lCrst1Written=1u<<6,
-    H15lCrst1Observed=1u<<7,
-    H15lResetCaptured=1u<<8,
-    H15lSpa1SetWritten=1u<<9,
-    H15lCpa1SetObserved=1u<<10,
-    H15lPoweredCaptured=1u<<11,
-    H15lSpa1ClearWritten=1u<<12,
-    H15lCpa1ClearObserved=1u<<13,
-    H15lDepoweredCaptured=1u<<14,
-    H15lCrst1RollbackWritten=1u<<15,
-    H15lCrst1RollbackObserved=1u<<16,
-    H15lCstall1RollbackWritten=1u<<17,
-    H15lCstall1RollbackObserved=1u<<18,
-    H15lRestoredCaptured=1u<<19,
-    H15lAdspcsRestoredExact=1u<<20,
-    H15lNoHdaMmioWrite=1u<<21,
-    H15lNoPciWrite=1u<<22,
-    H15lNoDma=1u<<23,
-    H15lNoIrqOwnership=1u<<24,
-    H15lNoFirmware=1u<<25,
-    H15lNoDspBoot=1u<<26,
-    H15lOneShot=1u<<27,
-    H15lSplitMappings=1u<<28,
-    H15lOnlyAdspcsWrite=1u<<29,
-    H15lNoCpaWrite=1u<<30,
-    H15lCore0Untouched=1u<<31
+    H15lSpa1SetWritten=1u<<4,
+    H15lSpa1SetObserved=1u<<5,
+    H15lRequestedCaptured=1u<<6,
+    H15lCpa1SetObserved=1u<<7,
+    H15lPoweredCaptured=1u<<8,
+    H15lPoweredStateExact=1u<<9,
+    H15lSpa1ClearWritten=1u<<10,
+    H15lSpa1ClearObserved=1u<<11,
+    H15lCpa1ClearObserved=1u<<12,
+    H15lDepoweredCaptured=1u<<13,
+    H15lDepoweredStateExact=1u<<14,
+    H15lRestoredCaptured=1u<<15,
+    H15lAdspcsRestoredExact=1u<<16,
+    H15lNoHdaMmioWrite=1u<<17,
+    H15lNoPciWrite=1u<<18,
+    H15lNoDma=1u<<19,
+    H15lNoIrqOwnership=1u<<20,
+    H15lNoFirmware=1u<<21,
+    H15lNoDspBoot=1u<<22,
+    H15lNoPlayback=1u<<23,
+    H15lOneShot=1u<<24,
+    H15lSplitMappings=1u<<25,
+    H15lOnlySpa1Write=1u<<26,
+    H15lNoCpaWrite=1u<<27,
+    H15lNoCstallWrite=1u<<28,
+    H15lNoCrstWrite=1u<<29,
+    H15lCore0Untouched=1u<<30,
+    H15lWriteScopeEnforced=1u<<31
 };
 inline constexpr ULONG kH15lRequiredFlags=0xffffffffu;
 
@@ -71,7 +71,7 @@ struct H15lResultV1 {
     UCHAR capabilityCount; UCHAR reserved0; ULONG pgctl; ULONG cgctl;
     ULONGLONG hdaPhysical; ULONGLONG dspPhysical; ULONG hdaLength; ULONG dspLength;
     H15lObservation before;
-    H15lObservation reset;
+    H15lObservation requested;
     H15lObservation powered;
     H15lObservation depowered;
     H15lObservation restored;

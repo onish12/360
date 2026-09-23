@@ -5,7 +5,7 @@ ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider=%ProviderName%
 CatalogFile=phaser360_h15l_core1_power_gate.cat
 PnpLockdown=1
-DriverVer=09/23/2026,0.6.15.240
+DriverVer=09/23/2026,0.6.15.241
 
 [DestinationDirs]
 DefaultDestDir=13
@@ -52,6 +52,6 @@ KmdfLibraryVersion=1.31
 
 [Strings]
 ProviderName="PHASER360 Experimental"
-DeviceDesc="PHASER360 H15L Core1 SPA CPA Handshake Probe"
-ServiceDesc="PHASER360 H15L Function Driver"
-Disk="PHASER360 H15L Package"
+DeviceDesc="PHASER360 H15L R2 Core1 SPA CPA Handshake Probe"
+ServiceDesc="PHASER360 H15L R2 Function Driver"
+Disk="PHASER360 H15L R2 Package"

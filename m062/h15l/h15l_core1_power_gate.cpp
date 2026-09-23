@@ -12,10 +12,10 @@ namespace {
 constexpr ULONG kHdaGcap=0x0000u,kHdaVmin=0x0002u,kHdaVmaj=0x0003u,kHdaGctl=0x0008u;
 constexpr ULONG kCorbctl=0x004cu,kRirbctl=0x005cu,kStreamBase=0x0080u,kStreamStride=0x20u,kRunBit=0x2u,kIntelEm2=0x1030u;
 constexpr ULONG kAdspcs=0x0004u,kAdspic=0x0008u,kAdspis=0x000cu,kHipci=0x0048u,kHipcie=0x004cu,kHipcctl=0x0050u,kRom=0x80000u;
-constexpr ULONG kCrst1=1u<<1,kCstall1=1u<<9,kSpa1=1u<<17,kCpa1=1u<<25;
+constexpr ULONG kSpa1=1u<<17,kCpa1=1u<<25;
 constexpr ULONG kCore0Fields=(1u<<0)|(1u<<8)|(1u<<16)|(1u<<24);
-constexpr ULONG kAllowedWriteMask=kCrst1|kCstall1|kSpa1;
-constexpr ULONG kBaseline=0x001d003cu,kReset=0x001d023eu;
+constexpr ULONG kAllowedWriteMask=kSpa1;
+constexpr ULONG kBaseline=0x001d003cu;
 
 HardwareAccessGate* Gate(H15lDeviceContext* c) noexcept {
   return c&&c->gateConstructed?reinterpret_cast<HardwareAccessGate*>(c->gateStorage):nullptr;
@@ -103,35 +103,95 @@ NTSTATUS phaser360::windows::H15lEvtReleaseHardware(WDFDEVICE dev,WDFCMRESLIST){
 
 void phaser360::windows::H15lEvtIoDeviceControl(WDFQUEUE q,WDFREQUEST req,SIZE_T,SIZE_T inLen,ULONG code){
   if(code!=IOCTL_PHASER360_H15L_TRANSACTION){WdfRequestComplete(req,STATUS_INVALID_DEVICE_REQUEST);return;}
-  auto*c=H15lGetContext(WdfIoQueueGetDevice(q));auto*g=Gate(c);if(!c||!g||!g->Allowed()||g->Removed()||!c->d0||inLen!=sizeof(H15lRequestV1)){WdfRequestComplete(req,STATUS_DEVICE_NOT_READY);return;}
-  H15lRequestV1*in=nullptr;H15lResultV1*out=nullptr;SIZE_T n=0;
-  if(!NT_SUCCESS(WdfRequestRetrieveInputBuffer(req,sizeof(*in),reinterpret_cast<void**>(&in),&n))||!NT_SUCCESS(WdfRequestRetrieveOutputBuffer(req,sizeof(*out),reinterpret_cast<void**>(&out),&n))){WdfRequestComplete(req,STATUS_BUFFER_TOO_SMALL);return;}
-  H15lResultV1 r{};r.version=1;r.size=sizeof(r);r.flags=H15lNoHdaMmioWrite|H15lNoPciWrite|H15lNoDma|H15lNoIrqOwnership|H15lNoFirmware|H15lNoDspBoot|H15lOneShot|H15lSplitMappings|H15lOnlyAdspcsWrite|H15lNoCpaWrite|H15lCore0Untouched;
-  r.generation=InterlockedCompareExchange(&c->generation,0,0);r.hdaPhysical=c->hdaPhysical;r.dspPhysical=c->dspPhysical;r.hdaLength=c->hdaLength;r.dspLength=c->dspLength;
-  if(in->version!=1||in->size!=sizeof(*in)||in->expectedPgctl!=kH15lExpectedPgctl||in->expectedCgctl!=kH15lExpectedCgctl||InterlockedCompareExchange(&c->consumed,1,0)){r.transactionStatus=STATUS_INVALID_PARAMETER;*out=r;WdfRequestCompleteWithInformation(req,STATUS_SUCCESS,sizeof(r));return;}
-  bool stall=false,reset=false,spa=false,spaCleared=true,powerDownSafe=true;
-  PciConfigAttestation pci;auto st=pci.Capture(WdfIoQueueGetDevice(q));r.transactionStatus=st;
-  if(NT_SUCCESS(st)&&pci.Valid()){const auto&p=pci.Snapshot();r.flags|=H15lAttestationValid;r.vendorId=p.vendorId;r.deviceId=p.deviceId;r.headerType=p.headerType;r.firstCapability=p.firstCapability;r.capabilityCount=p.capabilityCount;r.pgctl=p.pgctl;r.cgctl=p.cgctl;
-    if(p.pgctl==kH15lExpectedPgctl&&p.cgctl==kH15lExpectedCgctl&&ReadObs(c,&r.before)&&Baseline(r.before)){
-      r.flags|=H15lExpectedBaselineMatch|H15lBeforeCaptured|H15lHdaTransportIdle;
-      if(WriteMasked(c,kCstall1,kCstall1)){stall=true;r.flags|=H15lCstall1Written;if(Poll(c,kCstall1,kCstall1)){r.flags|=H15lCstall1Observed;
-        if(WriteMasked(c,kCrst1,kCrst1)){reset=true;r.flags|=H15lCrst1Written;if(Poll(c,kCrst1,kCrst1)){r.flags|=H15lCrst1Observed;
-          if(ReadObs(c,&r.reset)&&r.reset.dspAdspcs==kReset){r.flags|=H15lResetCaptured;
-            if(WriteMasked(c,kSpa1,kSpa1)){spa=true;spaCleared=false;r.flags|=H15lSpa1SetWritten;if(Poll(c,kCpa1,kCpa1)){r.flags|=H15lCpa1SetObserved;if(ReadObs(c,&r.powered)&&(r.powered.dspAdspcs&kCpa1)){r.flags|=H15lPoweredCaptured;}}}
-          }
-        }}
-      }}
-    }else r.transactionStatus=STATUS_DEVICE_CONFIGURATION_ERROR;
+  auto*c=H15lGetContext(WdfIoQueueGetDevice(q));auto*g=Gate(c);
+  if(!c||!g||!g->Allowed()||g->Removed()||!c->d0||inLen!=sizeof(H15lRequestV1)){
+    WdfRequestComplete(req,STATUS_DEVICE_NOT_READY);return;
   }
-  if(spa){if(WriteMasked(c,kSpa1,0)){r.flags|=H15lSpa1ClearWritten;if(Poll(c,kCpa1,0)){r.flags|=H15lCpa1ClearObserved;spaCleared=true;if(ReadObs(c,&r.depowered)&&r.depowered.dspAdspcs==kReset)r.flags|=H15lDepoweredCaptured;}}}
-  else {r.flags|=H15lSpa1ClearWritten|H15lCpa1ClearObserved;spaCleared=true;}
-  powerDownSafe=spaCleared;
-  if(reset&&powerDownSafe){if(WriteMasked(c,kCrst1,0)){r.flags|=H15lCrst1RollbackWritten;if(Poll(c,kCrst1,0))r.flags|=H15lCrst1RollbackObserved;}}
-  else if(!reset)r.flags|=H15lCrst1RollbackWritten|H15lCrst1RollbackObserved;
-  const bool resetRestored=(r.flags&H15lCrst1RollbackObserved)!=0;
-  if(stall&&resetRestored){if(WriteMasked(c,kCstall1,0)){r.flags|=H15lCstall1RollbackWritten;if(Poll(c,kCstall1,0))r.flags|=H15lCstall1RollbackObserved;}}
-  else if(!stall)r.flags|=H15lCstall1RollbackWritten|H15lCstall1RollbackObserved;
-  if((r.flags&H15lCstall1RollbackObserved)&&ReadObs(c,&r.restored)){r.flags|=H15lRestoredCaptured;if(r.restored.dspAdspcs==kBaseline)r.flags|=H15lAdspcsRestoredExact;}
-  if((r.flags&kH15lRequiredFlags)==kH15lRequiredFlags)r.transactionStatus=STATUS_SUCCESS;else if(NT_SUCCESS(r.transactionStatus))r.transactionStatus=STATUS_DEVICE_CONFIGURATION_ERROR;
+  H15lRequestV1*in=nullptr;H15lResultV1*out=nullptr;SIZE_T n=0;
+  if(!NT_SUCCESS(WdfRequestRetrieveInputBuffer(req,sizeof(*in),reinterpret_cast<void**>(&in),&n))||
+     !NT_SUCCESS(WdfRequestRetrieveOutputBuffer(req,sizeof(*out),reinterpret_cast<void**>(&out),&n))){
+    WdfRequestComplete(req,STATUS_BUFFER_TOO_SMALL);return;
+  }
+
+  H15lResultV1 r{};r.version=2u;r.size=sizeof(r);
+  r.flags=H15lNoHdaMmioWrite|H15lNoPciWrite|H15lNoDma|H15lNoIrqOwnership|
+          H15lNoFirmware|H15lNoDspBoot|H15lNoPlayback|H15lOneShot|H15lSplitMappings|
+          H15lOnlySpa1Write|H15lNoCpaWrite|H15lNoCstallWrite|H15lNoCrstWrite|
+          H15lCore0Untouched|H15lWriteScopeEnforced;
+  r.generation=InterlockedCompareExchange(&c->generation,0,0);
+  r.hdaPhysical=c->hdaPhysical;r.dspPhysical=c->dspPhysical;
+  r.hdaLength=c->hdaLength;r.dspLength=c->dspLength;
+
+  if(in->version!=2u||in->size!=sizeof(*in)||in->expectedPgctl!=kH15lExpectedPgctl||
+     in->expectedCgctl!=kH15lExpectedCgctl||InterlockedCompareExchange(&c->consumed,1,0)){
+    r.transactionStatus=STATUS_INVALID_PARAMETER;*out=r;
+    WdfRequestCompleteWithInformation(req,STATUS_SUCCESS,sizeof(r));return;
+  }
+
+  bool spaWritten=false,spaCleared=true;
+  PciConfigAttestation pci;auto st=pci.Capture(WdfIoQueueGetDevice(q));r.transactionStatus=st;
+  if(NT_SUCCESS(st)&&pci.Valid()){
+    const auto&p=pci.Snapshot();
+    r.flags|=H15lAttestationValid;
+    r.vendorId=p.vendorId;r.deviceId=p.deviceId;r.headerType=p.headerType;
+    r.firstCapability=p.firstCapability;r.capabilityCount=p.capabilityCount;
+    r.pgctl=p.pgctl;r.cgctl=p.cgctl;
+
+    if(p.pgctl==kH15lExpectedPgctl&&p.cgctl==kH15lExpectedCgctl&&
+       ReadObs(c,&r.before)&&Baseline(r.before)){
+      r.flags|=H15lExpectedBaselineMatch|H15lBeforeCaptured|H15lHdaTransportIdle;
+
+      if(WriteMasked(c,kSpa1,kSpa1)){
+        spaWritten=true;spaCleared=false;r.flags|=H15lSpa1SetWritten;
+        if(Poll(c,kSpa1,kSpa1)){
+          r.flags|=H15lSpa1SetObserved;
+          if(ReadObs(c,&r.requested)&&(r.requested.dspAdspcs&kSpa1)!=0){
+            r.flags|=H15lRequestedCaptured;
+            if(Poll(c,kCpa1,kCpa1)){
+              r.flags|=H15lCpa1SetObserved;
+              if(ReadObs(c,&r.powered)){
+                r.flags|=H15lPoweredCaptured;
+                if(r.powered.dspAdspcs==(kBaseline|kSpa1|kCpa1))
+                  r.flags|=H15lPoweredStateExact;
+              }
+            }
+          }
+        }
+      }
+    }else{
+      r.transactionStatus=STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+  }
+
+  // Exact rollback is attempted whenever SPA1 was written, even if CPA1 never asserted.
+  if(spaWritten){
+    if(WriteMasked(c,kSpa1,0)){
+      r.flags|=H15lSpa1ClearWritten;
+      if(Poll(c,kSpa1,0)){
+        r.flags|=H15lSpa1ClearObserved;
+        if(Poll(c,kCpa1,0)){
+          r.flags|=H15lCpa1ClearObserved;spaCleared=true;
+          if(ReadObs(c,&r.depowered)){
+            r.flags|=H15lDepoweredCaptured;
+            if(r.depowered.dspAdspcs==kBaseline)r.flags|=H15lDepoweredStateExact;
+          }
+        }
+      }
+    }
+  }else{
+    // No SPA write occurred: hardware stayed at the captured exact baseline.
+    r.flags|=H15lSpa1ClearWritten|H15lSpa1ClearObserved|H15lCpa1ClearObserved|
+             H15lDepoweredCaptured|H15lDepoweredStateExact;
+    r.depowered=r.before;spaCleared=true;
+  }
+
+  if(spaCleared&&ReadObs(c,&r.restored)){
+    r.flags|=H15lRestoredCaptured;
+    if(r.restored.dspAdspcs==kBaseline)r.flags|=H15lAdspcsRestoredExact;
+  }
+
+  if((r.flags&kH15lRequiredFlags)==kH15lRequiredFlags)r.transactionStatus=STATUS_SUCCESS;
+  else if(NT_SUCCESS(r.transactionStatus))r.transactionStatus=STATUS_DEVICE_CONFIGURATION_ERROR;
+
   *out=r;WdfRequestCompleteWithInformation(req,STATUS_SUCCESS,sizeof(r));
 }

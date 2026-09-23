@@ -1,24 +1,24 @@
-PHASER360 H15L OFFLINE ROLLBACK
+PHASER360 H15L R2 - WINRE RECOVERY REFERENCE
 
-Use only if Windows cannot boot after the H15L core1 SPA/CPA handshake transaction.
+Aceasta etapa nu modifica BCD si nu reporneste Windows.
+WinRE trebuie sa fie deja activ inainte de rulare.
 
-1. Enter Windows Recovery Environment -> Command Prompt.
-2. Identify the offline Windows volume. Do NOT assume C:.
-3. Read H15lPublishedInf.txt and note the PHASER360 oemNN.inf.
-4. Confirm it:
-   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
-5. Remove ONLY that H15L package:
-   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
-6. Reboot.
+Tinta exacta:
+PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
 
-Do NOT remove oem14.inf.
+Baseline Intel asteptat:
+Service=IntcAudioBus
+INF=oem14.inf
+Version=9.22.0.4832
+Provider=Intel(R) Corporation
 
-Verified Intel baseline:
-  Service=IntcAudioBus
-  INF=oem14.inf
-  Version=9.22.0.4832
-  Provider=Intel(R) Corporation
+H15L R2 autorizeaza numai write SPA1 in DSP ADSPCS.
+CSTALL, CRST, Core0 si CPA nu sunt scrise.
 
-H15L writes only DSP ADSPCS CSTALL1, CRST1 and SPA1. CPA1 is read/polled only; core0 and HDA MMIO are never written. Exact rollback target is ADSPCS=0x001D003C.
-If the runner cannot prove restoration after the write is attempted, it
-intentionally blocks automatic package removal and retains trust for recovery.
+Starea hardware finala acceptata:
+ADSPCS=0x001D003C
+
+Daca runner-ul raporteaza BASELINE_RESTORED=FALSE sau TRUST_RESTORED=FALSE,
+nu continua cu alta etapa. Pastreaza arhiva RESULT_H15L_TRANSACTION_*.zip
+pentru analiza exacta a starii si foloseste WinRE numai pentru recuperarea
+driverului/bindingului daca Windows nu mai poate reveni singur la Intel.

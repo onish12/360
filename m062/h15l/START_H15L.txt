@@ -1,29 +1,34 @@
-PHASER360 H15L — CORE1 SPA/CPA REVERSIBLE POWER HANDSHAKE
+PHASER360 H15L R2 - CORE1 SPA/CPA-ONLY HANDSHAKE
 
-Precondition:
-  exact Intel baseline and HDA idle;
-  ADSPCS=0x001D003C;
-  core1 SPA=0 and CPA=0.
+Scop:
+- valideaza exclusiv handshake-ul reversibil de alimentare pentru core1;
+- baseline exact ADSPCS=0x001D003C;
+- scrie numai SPA1 in DSP ADSPCS;
+- CPA1 este numai citit/poll;
+- rollback final obligatoriu la ADSPCS=0x001D003C.
 
-Only DSP ADSPCS is writable.
-Only core1 fields CSTALL1, CRST1 and SPA1 may be written.
-CPA1 is read/polled only. All core0 fields are forbidden.
+Conditii:
+- Windows build 19044;
+- TESTSIGN deja permis;
+- WinRE activ;
+- Intel baseline exact: IntcAudioBus / oem14.inf / 9.22.0.4832;
+- nu modifica BCD si nu reporneste Windows.
 
-Sequence:
-  baseline 0x001D003C
-  set CSTALL1 + CRST1 -> 0x001D023E
-  set SPA1 and wait CPA1=1
-  clear SPA1 and wait CPA1=0 -> 0x001D023E
-  clear CRST1 + CSTALL1 -> exact 0x001D003C
+Interzis:
+- CSTALL write;
+- CRST write;
+- Core0 write;
+- CPA write;
+- HDA MMIO write;
+- PCI config write;
+- DMA;
+- IRQ ownership;
+- firmware;
+- DSP boot/run;
+- codec programming;
+- playback.
 
-No HDA MMIO write, PCI config write, DMA, IRQ ownership, firmware, ROM purge,
-DSP run/unstall, codec programming or playback.
+Pornire:
+RUN_H15L_TRANSACTION.cmd
 
-Run RUN_H15L_TRANSACTION.cmd as Administrator.
-Expected success:
-  STATUS=H15L_CORE1_POWER_HANDSHAKE_AND_ROLLBACK_COMPLETE
-  HANDOFF_COMPLETED=TRUE
-  WRITE_RESTORE_COMPLETED=TRUE
-  SNAPSHOT_COMPLETED=TRUE
-  BASELINE_RESTORED=TRUE
-  TRUST_RESTORED=TRUE
+La final trimite arhiva RESULT_H15L_TRANSACTION_*.zip.

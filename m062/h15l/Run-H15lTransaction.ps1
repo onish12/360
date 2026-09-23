@@ -137,7 +137,7 @@ function Package([string]$root,[switch]$Trusted){
      [string]$m.ExpectedHdaPhysical -cne '0x00000000CEEE0000' -or
      [string]$m.ExpectedDspPhysical -cne '0x00000000CEF00000' -or
      [string]$m.Mapping -cne 'HDA_PAGE_READONLY_DSP_PAGE_READWRITE' -or
-     [string]$m.MmioWrite -cne 'ONLY_DSP_ADSPCS_CORE1_CSTALL_CRST_SPA_WITH_CPA_READONLY_ROLLBACK' -or
+     [string]$m.MmioWrite -cne 'ONLY_DSP_ADSPCS_CORE1_SPA_WITH_CPA_READONLY_ROLLBACK' -or
      [string]$m.Core0Write -cne 'NO' -or
      [string]$m.CpaWrite -cne 'NO' -or
      [string]$m.PciConfigWrite -cne 'NO' -or
@@ -341,7 +341,7 @@ try {
   $handoffComplete=$true
 
   $req=[byte[]]::new(16)
-  Put32 $req 0 1
+  Put32 $req 0 2
   Put32 $req 4 16
   Put32 $req 8 $ExpectedPg
   Put32 $req 12 $ExpectedCg
@@ -373,7 +373,7 @@ try {
     }
   }
   $beforeRegs=Obs $r 64
-  $resetRegs=Obs $r 112
+  $requestedRegs=Obs $r 112
   $poweredRegs=Obs $r 160
   $depoweredRegs=Obs $r 208
   $restoredRegs=Obs $r 256
@@ -385,7 +385,7 @@ try {
     Pgctl=('0x{0:X8}' -f $pg);Cgctl=('0x{0:X8}' -f $cg)
     HdaPhysical=('0x{0:X16}' -f $hda);DspPhysical=('0x{0:X16}' -f $dsp)
     HdaLength=('0x{0:X8}' -f $hdaLen);DspLength=('0x{0:X8}' -f $dspLen)
-    Before=$beforeRegs;Reset=$resetRegs;Powered=$poweredRegs;Depowered=$depoweredRegs;Restored=$restoredRegs
+    Before=$beforeRegs;Requested=$requestedRegs;Powered=$poweredRegs;Depowered=$depoweredRegs;Restored=$restoredRegs
   }|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'h15l_transaction.json') -Encoding UTF8
 
   $beforeGctl=U32 $r 68
@@ -394,22 +394,26 @@ try {
   $beforeStreams=[uint32]$r[74]
   $beforeRunMask=U32 $r 76
   $beforeAdspcs=U32 $r 84
-  $resetAdspcs=U32 $r 132
+  $requestedAdspcs=U32 $r 132
   $poweredAdspcs=U32 $r 180
   $depoweredAdspcs=U32 $r 228
   $restoredAdspcs=U32 $r 276
 
   # Hardware-restore proof is derived before broad success validation.
+  # Dynamic rollback proof bits: SPA clear written/observed, CPA clear observed,
+  # depowered captured/exact, restored captured/exact.
   $writeAttempted=(($fl -band [Convert]::ToUInt32('00000010',16)) -ne 0)
-  $restoreMask=[Convert]::ToUInt32('001D2000',16)
+  $restoreMask=[Convert]::ToUInt32('0001FC00',16)
   $writeRestoreComplete=(($fl -band $restoreMask) -eq $restoreMask -and
                          $restoredAdspcs -eq $beforeAdspcs -and
                          $restoredAdspcs -eq [Convert]::ToUInt32('001D003C',16))
 
-  $poweredMask=[Convert]::ToUInt32('02020202',16)
-  $poweredWithoutCpa1=($poweredAdspcs -band [Convert]::ToUInt32('FDFFFFFF',16))
+  $spa1=[Convert]::ToUInt32('00020000',16)
+  $cpa1=[Convert]::ToUInt32('02000000',16)
+  $spaCpaMask=$spa1 -bor $cpa1
+  $requestedBase=$requestedAdspcs -band (-bnot $spaCpaMask)
 
-  if($v -ne 1 -or $sz -ne $ResultBytes -or $nt -lt 0 -or
+  if($v -ne 2 -or $sz -ne $ResultBytes -or $nt -lt 0 -or
      ($fl -band $RequiredFlags) -ne $RequiredFlags -or
      $ven -ne 0x8086 -or $dev -ne 0x3198 -or
      $pg -ne $ExpectedPg -or $cg -ne $ExpectedCg -or
@@ -419,12 +423,12 @@ try {
      ($beforeCorb -band 2) -ne 0 -or ($beforeRirb -band 2) -ne 0 -or
      $beforeStreams -ne 13 -or $beforeRunMask -ne 0 -or
      $beforeAdspcs -ne [Convert]::ToUInt32('001D003C',16) -or
-     $resetAdspcs -ne [Convert]::ToUInt32('001D023E',16) -or
-     ($poweredAdspcs -band $poweredMask) -ne $poweredMask -or
-     $poweredWithoutCpa1 -ne [Convert]::ToUInt32('001F023E',16) -or
-     $depoweredAdspcs -ne [Convert]::ToUInt32('001D023E',16) -or
+     ($requestedAdspcs -band $spa1) -ne $spa1 -or
+     $requestedBase -ne [Convert]::ToUInt32('001D003C',16) -or
+     $poweredAdspcs -ne [Convert]::ToUInt32('021F003C',16) -or
+     $depoweredAdspcs -ne [Convert]::ToUInt32('001D003C',16) -or
      $restoredAdspcs -ne $beforeAdspcs){
-    throw 'H15L_LIVE_TRANSACTION_VALIDATION_FAILED'
+    throw 'H15L_R2_LIVE_TRANSACTION_VALIDATION_FAILED'
   }
   $snapshotComplete=$true
 
@@ -519,8 +523,8 @@ if($final){
     -not $ft.Root -and -not $ft.TrustedPublisher
 }
 $status=if($normal -and $baseline -and $handoffComplete -and $snapshotComplete -and -not $err){
-  'H15L_CORE1_POWER_HANDSHAKE_AND_ROLLBACK_COMPLETE'
-}else{'H15L_CORE1_POWER_TRANSACTION_FAILED'}
+  'H15L_R2_CORE1_SPA_CPA_HANDSHAKE_AND_ROLLBACK_COMPLETE'
+}else{'H15L_R2_CORE1_POWER_TRANSACTION_FAILED'}
 
 [ordered]@{
   Status=$status;PublishedInf=$publishedInf
@@ -531,7 +535,7 @@ $status=if($normal -and $baseline -and $handoffComplete -and $snapshotComplete -
   TransactionError=$(if($err){$err.Message}else{$null})
   FunctionDriver='Phaser360H15l'
   Mapping='HDA_PAGE_READONLY_DSP_PAGE_READWRITE'
-  MmioRead='HDA_IDLE_AND_DSP_STATUS';MmioWrite='ONLY_DSP_ADSPCS_CORE1_CSTALL_CRST_SPA_WITH_CPA_READONLY_ROLLBACK'
+  MmioRead='HDA_IDLE_AND_DSP_STATUS';MmioWrite='ONLY_DSP_ADSPCS_CORE1_SPA_WITH_CPA_READONLY_ROLLBACK'
   HdaQuiescence='CORB_RIRB_ALL_STREAM_RUN_ZERO_BEFORE_ADSPCS_WRITE'
   DspStatusRead='ADSPCS_ADSPIC_ADSPIS_HIPCI_HIPCIE_HIPCCTL_ROM'
   HdaMmioWrite='NO';Core0Write='NO';CpaWrite='NO'
