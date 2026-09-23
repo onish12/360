@@ -77,7 +77,11 @@ jobs:
           $imports=(& $dumpbin /imports $sys 2>&1|Out-String);if($LASTEXITCODE-ne0){throw 'M1_FAST_IMPORTS_FAILED'}
           if($headers -notmatch '(?im)8664\s+machine\s+\(x64\)' -or $headers -notmatch '(?im)subsystem\s+\(Native\)'){throw 'M1_FAST_PE_IDENTITY_INVALID'}
           foreach($bad in @('KERNEL32.dll','USER32.dll','WINMM.dll','MMDEVAPI.dll','PORTCLS.SYS','KS.SYS','ACX01000.SYS')){if($imports.IndexOf($bad,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "M1_FAST_FORBIDDEN_IMPORT:$bad"}}
-          foreach($req in @('BCryptOpenAlgorithmProvider','WdfDmaEnablerCreate','WdfInterruptCreate')){if($imports.IndexOf($req,[StringComparison]::Ordinal)-lt0){throw "M1_FAST_EXPECTED_IMPORT_MISSING:$req"}}
+          foreach($req in @('BCryptOpenAlgorithmProvider','BCryptCreateHash','BCryptHashData','BCryptFinishHash')){if($imports.IndexOf($req,[StringComparison]::Ordinal)-lt0){throw "M1_FAST_EXPECTED_IMPORT_MISSING:$req"}}
+          $dmaSource=Get-Content .\m062\driver\boot_dma.cpp -Raw
+          $irqSource=Get-Content .\m062\driver\ipc_interrupt.cpp -Raw
+          foreach($req in @('WdfDmaEnablerCreate','WdfCommonBufferCreateWithConfig')){if($dmaSource.IndexOf($req,[StringComparison]::Ordinal)-lt0){throw "M1_FAST_DMA_SOURCE_CALL_MISSING:$req"}}
+          if($irqSource.IndexOf('WdfInterruptCreate',[StringComparison]::Ordinal)-lt0){throw 'M1_FAST_IRQ_SOURCE_CALL_MISSING:WdfInterruptCreate'}
           [IO.File]::WriteAllText((Join-Path $env:GITHUB_WORKSPACE 'M1_FAST_PE_IMPORTS.txt'),$imports,[Text.UTF8Encoding]::new($false))
 
       - name: Sign exact package and create manifest
