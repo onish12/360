@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 echo PHASER360 H15OR R2 - NONINTERACTIVE READ-ONLY RECOVERY / CONDITIONAL INTEL HANDOFF
-echo RUNNER_BUILD=b6abe77d29c1092f2d99d5848a45312c53987431-r2
+echo RUNNER_BUILD=h15or-r2.1-sc-alias-fix-20260923
 echo Nu modifica BCD si nu reporneste Windows.
 echo Acest pachet NU foloseste Set-Content si verifica SHA256-ul propriului runner.
 echo.
