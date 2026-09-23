@@ -41,3 +41,32 @@ foreach($x in @('PAGE_READONLY | PAGE_NOCACHE','retained through D0',
 }
 
 Write-Host 'H15G_STATIC_TESTS=PASS; role=FUNCTION_DRIVER; mapping=READ_ONLY_THROUGH_D0; mmio_write=NO; pci_write=NO; dma=NO; irq_ownership=NO; firmware=NO; playback=NO'
+
+$run=Get-Content -LiteralPath (Join-Path $root 'm062\h15g\Run-H15gTransaction.ps1') -Raw
+$wf=Get-Content -LiteralPath (Join-Path $root '.github\workflows\h15g-function-mmio-package.yml') -Raw
+foreach($x in @(
+ 'UpdateDriverForPlugAndPlayDevicesW','INSTALLFLAG_FORCE',
+ "[Convert]::ToUInt32('833B6464',16)",
+ "[Convert]::ToUInt32('00001FFF',16)",
+ '$SnapshotBytes=120',
+ '$BaselineInf=''oem14.inf''','$BaselineVersion=''9.22.0.4832''',
+ '$BaselineProvider=''Intel(R) Corporation''',
+ 'H15G_LIVE_SNAPSHOT_VALIDATION_FAILED',
+ 'H15G_FUNCTION_MMIO_CAPTURE_AND_ROLLBACK_COMPLETE',
+ "Mapping='PAGE_READONLY_NOCACHE_THROUGH_D0'",
+ "MmioWrite='NO'","PciWrite='NO'"
+)){if($run.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15G_RUNNER_MISSING: $x"}}
+foreach($x in @('bcdedit','/reboot','WRITE_REGISTER_','PAGE_READWRITE')){
+ if($run.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15G_RUNNER_FORBIDDEN: $x"}
+}
+foreach($x in @(
+ '-KeyExportPolicy NonExportable',
+ 'H15G_FUNCTION_DRIVER_READONLY_MMIO_PACKAGE',
+ "Mapping='PAGE_READONLY_NOCACHE_THROUGH_D0'",
+ "MmioWrite='NO'","PciWrite='NO'","Dma='NO'","IrqOwnership='NO'",
+ "Firmware='NO'","DspBoot='NO'","Playback='NO'",
+ 'PHASER360_H15G_FUNCTION_DRIVER_READONLY_MMIO_PACKAGE'
+)){if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15G_WORKFLOW_MISSING: $x"}}
+foreach($x in @('Export-PfxCertificate','-KeyExportPolicy Exportable','/reboot','WRITE_REGISTER_')){
+ if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15G_WORKFLOW_FORBIDDEN: $x"}
+}

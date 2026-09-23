@@ -1,0 +1,19 @@
+PHASER360 H15G FUNCTION-DRIVER READ-ONLY MMIO
+
+This package temporarily replaces IntcAudioBus as the function driver.
+It maps the reviewed HDA/DSP resources PAGE_READONLY | PAGE_NOCACHE from
+PrepareHardware through D0Entry and reads only the reviewed register set.
+
+It performs no MMIO write, PCI write, DMA, interrupt ownership, firmware load,
+DSP boot or playback.
+
+Run only RUN_H15G_TRANSACTION.cmd as Administrator.
+
+Expected success:
+  STATUS=H15G_FUNCTION_MMIO_CAPTURE_AND_ROLLBACK_COMPLETE
+  HANDOFF_COMPLETED=TRUE
+  SNAPSHOT_COMPLETED=TRUE
+  BASELINE_RESTORED=TRUE
+  TRUST_RESTORED=TRUE
+
+Then send RESULT_H15G_TRANSACTION_*.zip.
