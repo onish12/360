@@ -1,0 +1,13 @@
+PHASER360 H15O - staged pre-firmware power policy
+
+Reproduce etapizat hda_dsp_ctrl_clock_power_gating(false), fara DSP write:
+1 GCTL.CRST 0->1
+2 PPCTL.GPROCEN 0->1
+3 CGCTL.ADPSDCGE bit1 ->0
+4 EM2.L1SEN bit13 ->0
+5 PGCTL.ADSPPGD bit2 ->1
+Snapshot DSP/HDA dupa fiecare etapa si CPA0 read-only.
+Rollback: CGCTL, EM2, PGCTL, GPROCEN si GCTL la baseline exact.
+
+Fara ADSPCS write, DMA, IRQ ownership, firmware, DSP boot sau playback.
+Ruleaza RUN_H15O_TRANSACTION.cmd ca Administrator si trimite RESULT_H15O_TRANSACTION_*.zip.

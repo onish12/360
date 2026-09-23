@@ -12,3 +12,16 @@ GCTL.CRST and proves GCTL exact restoration.
 
 No ADSPCS write, EM2 write, PCI config write, DMA, IRQ ownership, firmware,
 DSP boot, codec programming or playback is permitted.
+
+
+## Verified physical Lenovo execution — H15N, 2026-09-23
+
+`RESULT_H15N_TRANSACTION_20260923_204407_73ab8c5d.zip`:
+all 13 SHA256SUMS entries re-hashed successfully. Status
+`H15N_PPCTL_GPROCEN_AND_GCTL_ROLLBACK_COMPLETE`, flags `0xFFFFEFFF`;
+the only intentionally absent flag is CPA0Observed. PPCTL changed exactly
+`0x00000000 -> 0x40000000 -> 0x00000000`.
+CPA0 was not observed. During GPROCEN=1, the read-only DSP snapshot changed to
+ADSPCS `0x00000303`, HIPCIE `0x00000000`, ROM_STATUS `0xFFFFFFFF`.
+After GPROCEN clear, ADSPCS/HIPCIE/ROM_STATUS returned to
+`0x001D003C / 0x00420000 / 0x01006701`. Intel binding and trust were restored.
