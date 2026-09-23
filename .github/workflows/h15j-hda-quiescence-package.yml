@@ -1,4 +1,4 @@
-name: H15J HDA quiescence + DSP status signed package
+name: H15J HDA quiescence + CRST observation signed package
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
       - codex/audio-auto-20260915
     paths:
       - 'm062/h15j/**'
-      - 'tests/m0615_h15j_hda_quiescence_tests.ps1'
+      - 'tests/m0615_h15j_hda_quiescence_gate_tests.ps1'
       - 'docs/M0615_H15J_HDA_QUIESCENCE.md'
       - '.github/workflows/h15j-hda-quiescence-package.yml'
 
@@ -32,25 +32,25 @@ jobs:
           nuget restore .\m062\packages.config -PackagesDirectory .\m062\packages -NonInteractive
           if($LASTEXITCODE -ne 0){throw 'H15J_RESTORE_FAILED'}
 
-      - name: Build H15J HDA quiescence + DSP status probe
+      - name: Build H15J HDA quiescence + CRST observation probe
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          msbuild .\m062\h15j\phaser360_h15j_hda_crst_gate.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          msbuild .\m062\h15j\phaser360_h15j_hda_quiescence_gate.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
           if($LASTEXITCODE -ne 0){throw 'H15J_BUILD_FAILED'}
 
-      - name: Validate H15J static read-only gate
+      - name: Validate H15J static quiescence gate
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          & .\tests\m0615_h15j_hda_quiescence_tests.ps1
+          & .\tests\m0615_h15j_hda_quiescence_gate_tests.ps1
           if(-not $?){throw 'H15J_STATIC_TESTS_FAILED'}
 
       - name: Audit compiled H15J imports
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $sys=(Resolve-Path .\m062\h15j\out\phaser360_h15j_hda_crst_gate.sys).Path
+          $sys=(Resolve-Path .\m062\h15j\out\phaser360_h15j_hda_quiescence_gate.sys).Path
           $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $vsRoot=(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath|Select-Object -First 1)
           if(-not $vsRoot){throw 'H15J_VS_NOT_FOUND'}
@@ -78,13 +78,13 @@ jobs:
           $ErrorActionPreference='Stop'
           $package=Join-Path $env:GITHUB_WORKSPACE '_h15j_package'
           New-Item -ItemType Directory -Path $package -Force|Out-Null
-          $sys=(Resolve-Path .\m062\h15j\out\phaser360_h15j_hda_crst_gate.sys).Path
-          $pkgSys=Join-Path $package 'phaser360_h15j_hda_crst_gate.sys'
-          $inf=Join-Path $package 'phaser360_h15j_hda_crst_gate.inf'
-          $cat=Join-Path $package 'phaser360_h15j_hda_crst_gate.cat'
-          $cer=Join-Path $package 'phaser360_h15j_hda_crst_gate.cer'
+          $sys=(Resolve-Path .\m062\h15j\out\phaser360_h15j_hda_quiescence_gate.sys).Path
+          $pkgSys=Join-Path $package 'phaser360_h15j_hda_quiescence_gate.sys'
+          $inf=Join-Path $package 'phaser360_h15j_hda_quiescence_gate.inf'
+          $cat=Join-Path $package 'phaser360_h15j_hda_quiescence_gate.cat'
+          $cer=Join-Path $package 'phaser360_h15j_hda_quiescence_gate.cer'
           Copy-Item $sys $pkgSys
-          Copy-Item .\m062\h15j\phaser360_h15j_hda_crst_gate.inf $inf
+          Copy-Item .\m062\h15j\phaser360_h15j_hda_quiescence_gate.inf $inf
 
           $buildTools=(Resolve-Path .\m062\packages\Microsoft.Windows.SDK.BuildTools.10.0.28000.2526).Path
           $signtool=Join-Path $buildTools 'bin\10.0.28000.0\x64\signtool.exe'
@@ -129,11 +129,8 @@ jobs:
               ExpectedDspLength='0x00100000'
               ExpectedInterruptCount=1
               Mapping='HDA_PAGE_READWRITE_DSP_PAGE_READONLY'
-              MmioRead='HDA_QUIESCENCE_AND_DSP_STATUS'
+              MmioRead='REVIEWED_REGISTERS_ONLY'
               MmioWrite='ONLY_HDA_GCTL_CRST_BIT0_0_TO_1_TO_0'
-              HdaQuiescence='CORB_RIRB_ALL_STREAM_RUN_ZERO_BEFORE_CRST_CLEAR'
-              DspStatusRead='ADSPCS_ADSPIC_ADSPIS_HIPCI_HIPCIE_HIPCCTL_ROM'
-              HdaNonGctlWrite='NO'
               PciConfigWrite='NO'
               ExpectedPgctl='0x00000010';ExpectedCgctl='0x807B0DFF'
               Dma='NO';IrqOwnership='NO';Firmware='NO';DspBoot='NO';Playback='NO'
