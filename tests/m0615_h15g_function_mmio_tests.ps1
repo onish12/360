@@ -65,8 +65,9 @@ foreach($x in @(
  "Mapping='PAGE_READONLY_NOCACHE_THROUGH_D0'",
  "MmioWrite='NO'","PciWrite='NO'","Dma='NO'","IrqOwnership='NO'",
  "Firmware='NO'","DspBoot='NO'","Playback='NO'",
- 'PHASER360_H15G_FUNCTION_DRIVER_READONLY_MMIO_PACKAGE'
+ 'PHASER360_H15G_FUNCTION_DRIVER_READONLY_MMIO_PACKAGE',
+ "'WRITE_REGISTER_'"
 )){if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "H15G_WORKFLOW_MISSING: $x"}}
-foreach($x in @('Export-PfxCertificate','-KeyExportPolicy Exportable','/reboot','WRITE_REGISTER_')){
+foreach($x in @('Export-PfxCertificate','-KeyExportPolicy Exportable','/reboot')){
  if($wf.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "H15G_WORKFLOW_FORBIDDEN: $x"}
 }
