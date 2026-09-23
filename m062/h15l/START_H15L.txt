@@ -1,34 +1,17 @@
-PHASER360 H15L R2 - CORE1 SPA/CPA-ONLY HANDSHAKE
+PHASER360 H15L R3 - SPA1 WRITE/READBACK TELEMETRY
 
 Scop:
-- valideaza exclusiv handshake-ul reversibil de alimentare pentru core1;
-- baseline exact ADSPCS=0x001D003C;
-- scrie numai SPA1 in DSP ADSPCS;
-- CPA1 este numai citit/poll;
-- rollback final obligatoriu la ADSPCS=0x001D003C.
-
-Conditii:
-- Windows build 19044;
-- TESTSIGN deja permis;
-- WinRE activ;
-- Intel baseline exact: IntcAudioBus / oem14.inf / 9.22.0.4832;
-- nu modifica BCD si nu reporneste Windows.
+- NU incearca sa forteze power-up;
+- scrie exclusiv SPA1;
+- captureaza ADSPCS imediat, +10 us, +100 us si +500 us;
+- CPA1 este doar citit;
+- apoi sterge SPA1 si cere rollback exact la ADSPCS=0x001D003C.
 
 Interzis:
-- CSTALL write;
-- CRST write;
-- Core0 write;
-- CPA write;
-- HDA MMIO write;
-- PCI config write;
-- DMA;
-- IRQ ownership;
-- firmware;
-- DSP boot/run;
-- codec programming;
-- playback.
+CSTALL/CRST write, Core0 write, CPA write, HDA MMIO write, PCI write,
+DMA, IRQ ownership, firmware, DSP boot/run, codec programming, playback.
 
 Pornire:
 RUN_H15L_TRANSACTION.cmd
 
-La final trimite arhiva RESULT_H15L_TRANSACTION_*.zip.
+Trimite RESULT_H15L_TRANSACTION_*.zip.

@@ -1,10 +1,11 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo PHASER360 H15L R2 - CORE1 SPA/CPA HANDSHAKE / EXACT ROLLBACK
+echo PHASER360 H15L R3 - SPA1 WRITE/READBACK TELEMETRY / EXACT ROLLBACK
 echo Necesita TESTSIGN deja permis si WinRE activ.
 echo Nu modifica BCD si nu reporneste Windows.
-echo MMIO write: numai DSP ADSPCS SPA1; CPA1 este doar citit.
+echo MMIO write: numai DSP ADSPCS SPA1; CPA1 este numai citit.
+echo Capture: imediat, +10us, +100us, +500us; apoi rollback exact.
 echo CSTALL/CRST, Core0, CPA write, HDA MMIO write, PCI write, DMA, IRQ ownership, firmware si playback: NU.
 echo.
 for %%I in ("%~dp0.") do set "PHASER_PACKAGE=%%~fI"

@@ -5,11 +5,11 @@ Set-StrictMode -Version 2
 
 $ExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $Service='Phaser360H15l'
-$CertSubject='CN=PHASER360 H15L R2 Ephemeral Test Signing'
+$CertSubject='CN=PHASER360 H15L R3 Ephemeral Test Signing'
 $InterfaceGuid=[Guid]'8c1b3150-6d12-4f88-9d36-15f600319802'
 $Ioctl=[Convert]::ToUInt32('833FE47C',16)
-$RequiredFlags=[Convert]::ToUInt32('FFFFFFFF',16)
-$ResultBytes=304
+$RequiredFlags=[Convert]::ToUInt32('00000000',16)
+$ResultBytes=352
 $ExpectedPg=[Convert]::ToUInt32('00000010',16)
 $ExpectedCg=[Convert]::ToUInt32('807B0DFF',16)
 $ExpectedHda=[Convert]::ToUInt64('00000000CEEE0000',16)
@@ -129,7 +129,7 @@ function Package([string]$root,[switch]$Trusted){
   if([string]$m.CertificateThumbprint -cne [string]$c.Thumbprint){
     throw 'MANIFEST_CERTIFICATE_THUMBPRINT_MISMATCH'
   }
-  if([string]$m.Purpose -cne 'H15L_R2_CORE1_SPA_CPA_HANDSHAKE_TRANSACTION_PACKAGE' -or
+  if([string]$m.Purpose -cne 'H15L_R3_SPA_WRITE_READBACK_TELEMETRY_PACKAGE' -or
      [string]$m.CertificateSubject -cne $CertSubject -or
      [string]$m.ExactHardwareId -cne $ExactHwid -or
      [string]$m.ExpectedBaselineInf -cne $BaselineInf -or
@@ -349,7 +349,7 @@ try {
   $handoffComplete=$true
 
   $req=[byte[]]::new(16)
-  Put32 $req 0 2
+  Put32 $req 0 3
   Put32 $req 4 16
   Put32 $req 8 $ExpectedPg
   Put32 $req 12 $ExpectedCg
@@ -381,10 +381,11 @@ try {
     }
   }
   $beforeRegs=Obs $r 64
-  $requestedRegs=Obs $r 112
-  $poweredRegs=Obs $r 160
-  $depoweredRegs=Obs $r 208
-  $restoredRegs=Obs $r 256
+  $immediateRegs=Obs $r 112
+  $after10usRegs=Obs $r 160
+  $after100usRegs=Obs $r 208
+  $after500usRegs=Obs $r 256
+  $restoredRegs=Obs $r 304
 
   [ordered]@{
     Version=$v;Size=$sz;NtStatus=('0x{0:X8}' -f ([BitConverter]::ToUInt32([BitConverter]::GetBytes([int32]$nt),0)))
@@ -393,7 +394,8 @@ try {
     Pgctl=('0x{0:X8}' -f $pg);Cgctl=('0x{0:X8}' -f $cg)
     HdaPhysical=('0x{0:X16}' -f $hda);DspPhysical=('0x{0:X16}' -f $dsp)
     HdaLength=('0x{0:X8}' -f $hdaLen);DspLength=('0x{0:X8}' -f $dspLen)
-    Before=$beforeRegs;Requested=$requestedRegs;Powered=$poweredRegs;Depowered=$depoweredRegs;Restored=$restoredRegs
+    Before=$beforeRegs;Immediate=$immediateRegs;After10us=$after10usRegs
+    After100us=$after100usRegs;After500us=$after500usRegs;Restored=$restoredRegs
   }|ConvertTo-Json -Depth 8|Set-Content (Join-Path $dir 'h15l_transaction.json') -Encoding UTF8
 
   $beforeGctl=U32 $r 68
@@ -402,27 +404,21 @@ try {
   $beforeStreams=[uint32]$r[74]
   $beforeRunMask=U32 $r 76
   $beforeAdspcs=U32 $r 84
-  $requestedAdspcs=U32 $r 132
-  $poweredAdspcs=U32 $r 180
-  $depoweredAdspcs=U32 $r 228
-  $restoredAdspcs=U32 $r 276
+  $immediateAdspcs=U32 $r 132
+  $after10usAdspcs=U32 $r 180
+  $after100usAdspcs=U32 $r 228
+  $after500usAdspcs=U32 $r 276
+  $restoredAdspcs=U32 $r 324
 
-  # Hardware-restore proof is derived before broad success validation.
-  # Dynamic rollback proof bits: SPA clear written/observed, CPA clear observed,
-  # depowered captured/exact, restored captured/exact.
+  # R3 success means telemetry completed and the write was rolled back exactly.
+  # It does NOT require SPA1 or CPA1 to assert.
   $writeAttempted=(($fl -band [Convert]::ToUInt32('00000010',16)) -ne 0)
-  $restoreMask=[Convert]::ToUInt32('0001FC00',16)
+  $restoreMask=[Convert]::ToUInt32('003E0000',16)
   $writeRestoreComplete=(($fl -band $restoreMask) -eq $restoreMask -and
                          $restoredAdspcs -eq $beforeAdspcs -and
                          $restoredAdspcs -eq [Convert]::ToUInt32('001D003C',16))
 
-  $spa1=[Convert]::ToUInt32('00020000',16)
-  $cpa1=[Convert]::ToUInt32('02000000',16)
-  $spaCpaMask=$spa1 -bor $cpa1
-  $requestedBase=$requestedAdspcs -band (-bnot $spaCpaMask)
-
-  if($v -ne 2 -or $sz -ne $ResultBytes -or $nt -lt 0 -or
-     ($fl -band $RequiredFlags) -ne $RequiredFlags -or
+  if($v -ne 3 -or $sz -ne $ResultBytes -or $nt -lt 0 -or
      $ven -ne 0x8086 -or $dev -ne 0x3198 -or
      $pg -ne $ExpectedPg -or $cg -ne $ExpectedCg -or
      $hda -ne $ExpectedHda -or $dsp -ne $ExpectedDsp -or
@@ -431,12 +427,8 @@ try {
      ($beforeCorb -band 2) -ne 0 -or ($beforeRirb -band 2) -ne 0 -or
      $beforeStreams -ne 13 -or $beforeRunMask -ne 0 -or
      $beforeAdspcs -ne [Convert]::ToUInt32('001D003C',16) -or
-     ($requestedAdspcs -band $spa1) -ne $spa1 -or
-     $requestedBase -ne [Convert]::ToUInt32('001D003C',16) -or
-     $poweredAdspcs -ne [Convert]::ToUInt32('021F003C',16) -or
-     $depoweredAdspcs -ne [Convert]::ToUInt32('001D003C',16) -or
-     $restoredAdspcs -ne $beforeAdspcs){
-    throw 'H15L_R2_LIVE_TRANSACTION_VALIDATION_FAILED'
+     -not $writeRestoreComplete){
+    throw 'H15L_R3_TELEMETRY_VALIDATION_FAILED'
   }
   $snapshotComplete=$true
 
@@ -531,8 +523,8 @@ if($final){
     -not $ft.Root -and -not $ft.TrustedPublisher
 }
 $status=if($normal -and $baseline -and $handoffComplete -and $snapshotComplete -and -not $err){
-  'H15L_R2_CORE1_SPA_CPA_HANDSHAKE_AND_ROLLBACK_COMPLETE'
-}else{'H15L_R2_CORE1_POWER_TRANSACTION_FAILED'}
+  'H15L_R3_SPA_WRITE_READBACK_TELEMETRY_COMPLETE'
+}else{'H15L_R3_SPA_WRITE_READBACK_TELEMETRY_FAILED'}
 
 [ordered]@{
   Status=$status;PublishedInf=$publishedInf

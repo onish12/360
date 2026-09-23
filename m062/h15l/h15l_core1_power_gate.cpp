@@ -113,22 +113,22 @@ void phaser360::windows::H15lEvtIoDeviceControl(WDFQUEUE q,WDFREQUEST req,SIZE_T
     WdfRequestComplete(req,STATUS_BUFFER_TOO_SMALL);return;
   }
 
-  H15lResultV1 r{};r.version=2u;r.size=sizeof(r);
+  H15lResultV1 r{};r.version=3u;r.size=sizeof(r);
   r.flags=H15lNoHdaMmioWrite|H15lNoPciWrite|H15lNoDma|H15lNoIrqOwnership|
-          H15lNoFirmware|H15lNoDspBoot|H15lNoPlayback|H15lOneShot|H15lSplitMappings|
+          H15lNoFirmware|H15lNoDspBoot|H15lNoPlayback|H15lOneShot|
           H15lOnlySpa1Write|H15lNoCpaWrite|H15lNoCstallWrite|H15lNoCrstWrite|
-          H15lCore0Untouched|H15lWriteScopeEnforced;
+          H15lCore0Untouched;
   r.generation=InterlockedCompareExchange(&c->generation,0,0);
   r.hdaPhysical=c->hdaPhysical;r.dspPhysical=c->dspPhysical;
   r.hdaLength=c->hdaLength;r.dspLength=c->dspLength;
 
-  if(in->version!=2u||in->size!=sizeof(*in)||in->expectedPgctl!=kH15lExpectedPgctl||
+  if(in->version!=3u||in->size!=sizeof(*in)||in->expectedPgctl!=kH15lExpectedPgctl||
      in->expectedCgctl!=kH15lExpectedCgctl||InterlockedCompareExchange(&c->consumed,1,0)){
     r.transactionStatus=STATUS_INVALID_PARAMETER;*out=r;
     WdfRequestCompleteWithInformation(req,STATUS_SUCCESS,sizeof(r));return;
   }
 
-  bool spaWritten=false,spaCleared=true;
+  bool spaWritten=false,rollbackExact=false;
   PciConfigAttestation pci;auto st=pci.Capture(WdfIoQueueGetDevice(q));r.transactionStatus=st;
   if(NT_SUCCESS(st)&&pci.Valid()){
     const auto&p=pci.Snapshot();
@@ -137,25 +137,34 @@ void phaser360::windows::H15lEvtIoDeviceControl(WDFQUEUE q,WDFREQUEST req,SIZE_T
     r.firstCapability=p.firstCapability;r.capabilityCount=p.capabilityCount;
     r.pgctl=p.pgctl;r.cgctl=p.cgctl;
 
-    if(p.pgctl==kH15lExpectedPgctl&&p.cgctl==kH15lExpectedCgctl&&
-       ReadObs(c,&r.before)&&Baseline(r.before)){
+    if(p.pgctl==kH15lExpectedPgctl&&p.cgctl==kH15lExpectedCgctl&&ReadObs(c,&r.before)&&Baseline(r.before)){
       r.flags|=H15lExpectedBaselineMatch|H15lBeforeCaptured|H15lHdaTransportIdle;
 
       if(WriteMasked(c,kSpa1,kSpa1)){
-        spaWritten=true;spaCleared=false;r.flags|=H15lSpa1SetWritten;
-        if(Poll(c,kSpa1,kSpa1)){
-          r.flags|=H15lSpa1SetObserved;
-          if(ReadObs(c,&r.requested)&&(r.requested.dspAdspcs&kSpa1)!=0){
-            r.flags|=H15lRequestedCaptured;
-            if(Poll(c,kCpa1,kCpa1)){
-              r.flags|=H15lCpa1SetObserved;
-              if(ReadObs(c,&r.powered)){
-                r.flags|=H15lPoweredCaptured;
-                if(r.powered.dspAdspcs==(kBaseline|kSpa1|kCpa1))
-                  r.flags|=H15lPoweredStateExact;
-              }
-            }
-          }
+        spaWritten=true;r.flags|=H15lSpa1SetWritten;
+
+        if(ReadObs(c,&r.immediate)){
+          r.flags|=H15lImmediateCaptured;
+          if(r.immediate.dspAdspcs&kSpa1)r.flags|=H15lImmediateSpa1Observed;
+          if(r.immediate.dspAdspcs&kCpa1)r.flags|=H15lImmediateCpa1Observed;
+        }
+
+        if(DelayUs(10)&&ReadObs(c,&r.after10us)){
+          r.flags|=H15lAfter10usCaptured;
+          if(r.after10us.dspAdspcs&kSpa1)r.flags|=H15lAfter10usSpa1Observed;
+          if(r.after10us.dspAdspcs&kCpa1)r.flags|=H15lAfter10usCpa1Observed;
+        }
+
+        if(DelayUs(90)&&ReadObs(c,&r.after100us)){
+          r.flags|=H15lAfter100usCaptured;
+          if(r.after100us.dspAdspcs&kSpa1)r.flags|=H15lAfter100usSpa1Observed;
+          if(r.after100us.dspAdspcs&kCpa1)r.flags|=H15lAfter100usCpa1Observed;
+        }
+
+        if(DelayUs(400)&&ReadObs(c,&r.after500us)){
+          r.flags|=H15lAfter500usCaptured;
+          if(r.after500us.dspAdspcs&kSpa1)r.flags|=H15lAfter500usSpa1Observed;
+          if(r.after500us.dspAdspcs&kCpa1)r.flags|=H15lAfter500usCpa1Observed;
         }
       }
     }else{
@@ -163,34 +172,34 @@ void phaser360::windows::H15lEvtIoDeviceControl(WDFQUEUE q,WDFREQUEST req,SIZE_T
     }
   }
 
-  // Exact rollback is attempted whenever SPA1 was written, even if CPA1 never asserted.
   if(spaWritten){
     if(WriteMasked(c,kSpa1,0)){
       r.flags|=H15lSpa1ClearWritten;
       if(Poll(c,kSpa1,0)){
         r.flags|=H15lSpa1ClearObserved;
         if(Poll(c,kCpa1,0)){
-          r.flags|=H15lCpa1ClearObserved;spaCleared=true;
-          if(ReadObs(c,&r.depowered)){
-            r.flags|=H15lDepoweredCaptured;
-            if(r.depowered.dspAdspcs==kBaseline)r.flags|=H15lDepoweredStateExact;
+          r.flags|=H15lCpa1ClearObserved;
+          if(ReadObs(c,&r.restored)){
+            r.flags|=H15lRestoredCaptured;
+            if(r.restored.dspAdspcs==kBaseline){r.flags|=H15lAdspcsRestoredExact;rollbackExact=true;}
           }
         }
       }
     }
   }else{
-    // No SPA write occurred: hardware stayed at the captured exact baseline.
-    r.flags|=H15lSpa1ClearWritten|H15lSpa1ClearObserved|H15lCpa1ClearObserved|
-             H15lDepoweredCaptured|H15lDepoweredStateExact;
-    r.depowered=r.before;spaCleared=true;
+    if(ReadObs(c,&r.restored)){
+      r.flags|=H15lRestoredCaptured;
+      if(r.restored.dspAdspcs==kBaseline){r.flags|=H15lAdspcsRestoredExact;rollbackExact=true;}
+    }
   }
 
-  if(spaCleared&&ReadObs(c,&r.restored)){
-    r.flags|=H15lRestoredCaptured;
-    if(r.restored.dspAdspcs==kBaseline)r.flags|=H15lAdspcsRestoredExact;
-  }
+  const ULONG required=H15lAttestationValid|H15lExpectedBaselineMatch|H15lBeforeCaptured|H15lHdaTransportIdle|
+    H15lSpa1SetWritten|H15lImmediateCaptured|H15lAfter10usCaptured|H15lAfter100usCaptured|H15lAfter500usCaptured|
+    H15lSpa1ClearWritten|H15lSpa1ClearObserved|H15lCpa1ClearObserved|H15lRestoredCaptured|H15lAdspcsRestoredExact|
+    H15lNoHdaMmioWrite|H15lNoPciWrite|H15lNoDma|H15lNoIrqOwnership|H15lNoFirmware|H15lNoDspBoot|H15lNoPlayback|
+    H15lOneShot|H15lOnlySpa1Write|H15lNoCpaWrite|H15lNoCstallWrite|H15lNoCrstWrite|H15lCore0Untouched;
 
-  if((r.flags&kH15lRequiredFlags)==kH15lRequiredFlags)r.transactionStatus=STATUS_SUCCESS;
+  if(rollbackExact&&(r.flags&required)==required)r.transactionStatus=STATUS_SUCCESS;
   else if(NT_SUCCESS(r.transactionStatus))r.transactionStatus=STATUS_DEVICE_CONFIGURATION_ERROR;
 
   *out=r;WdfRequestCompleteWithInformation(req,STATUS_SUCCESS,sizeof(r));
