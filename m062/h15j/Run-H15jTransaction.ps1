@@ -390,7 +390,7 @@ try {
   $readyStreams=[uint32]$r[122]
   $readyRunMask=U32 $r 124
   $restoredGctl=U32 $r 164
-  if($v -ne 1 -or $sz -ne 160 -or $nt -lt 0 -or
+  if($v -ne 1 -or $sz -ne $ResultBytes -or $nt -lt 0 -or
      ($fl -band $RequiredFlags) -ne $RequiredFlags -or
      $ven -ne 0x8086 -or $dev -ne 0x3198 -or
      $pg -ne $ExpectedPg -or $cg -ne $ExpectedCg -or
