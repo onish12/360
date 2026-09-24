@@ -4,7 +4,9 @@ namespace phaser360 { namespace windows {
 bool ColdPower::NextD0(GlkBoot& fresh,UCHAR* dsp,ULONG length) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !valid_ || !access_ || access_->Removed() ||
        state_!=State::Closed || &fresh==boot_ || !fresh.Fresh()) return false;
-    if(!fresh.BindAccessGate(access_)) return false;
+    auto* dma=boot_?boot_->DmaOwner():nullptr;
+    if(!dma || !dma->HardwarePrepared() ||
+       !fresh.BindDma(dma) || !fresh.BindAccessGate(access_)) return false;
     if(!irq_.RebindStopped(&fresh,dsp,length)) return false;
     boot_=&fresh; transfer_={}; state_=State::Fresh; return true;
 }
@@ -29,8 +31,6 @@ bool ColdPower::RetryEarlyCleanup() noexcept {
     if(state_==State::Closed) return true;
     if(!valid_ || !access_ || !access_->Allowed()) return false;
     if(state_!=State::EarlyFailure) return false;
-    // Failed D0Entry gets no D0Exit callback. Cancel without synchronizing an
-    // interrupt that has not been connected, then stop DMA/DSP while still D0.
     if(!irq_.CancelBeforeEnable() || !boot_->Shutdown()) return false;
     state_=State::Closed; return true;
 }
@@ -56,8 +56,6 @@ bool ColdPower::AfterInterruptsDisconnected() noexcept {
     const bool masked=irq_.StopAfterDisconnect();
     const bool drained=irq_.DrainStopped();
     state_=State::StopFailure;
-    // Completed disconnect is not proof a hardware mask succeeded. Do not
-    // touch DSP/allow BAR release after an unconfirmed mask or queue drain.
     if(!masked || !drained || !boot_->Shutdown()) return false;
     state_=State::Closed; return true;
 }
@@ -67,7 +65,6 @@ bool ColdPower::BeforeInterruptsDisabled() noexcept {
     if(!valid_ || !access_ || !access_->Allowed()) return false;
     if(state_!=State::Booted && state_!=State::Active && state_!=State::StopFailure) return false;
     state_=State::StopFailure;
-    // Do not shut down DSP or release DMA after an unconfirmed interrupt stop.
     if(!irq_.Stop() || !irq_.DrainStopped() || !boot_->Shutdown()) return false;
     state_=State::Closed; return true;
 }

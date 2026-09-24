@@ -6,14 +6,10 @@
 #include "../../src/sof/ipc3_command.h"
 namespace phaser360 { namespace windows {
 struct TransferResult {
-    bool started=false, firmwareEntered=false, dmaReleased=false, ipcReady=false, commandReady=false;
+    bool started=false,firmwareEntered=false,dmaReleased=false,ipcReady=false,commandReady=false;
     sof::ReceiveError ipcError=sof::ReceiveError::None;
     sof::RomError romError=sof::RomError::None;
 };
-// Exact GLK device ownership and both translated BAR mappings supplied by the
-// future PnP/power driver. Caller authenticates payload before any operation.
-// Payload and XMan must come from the same caller-authenticated image.
-// Serialized PASSIVE_LEVEL calls, single attempt, explicit Shutdown mandatory.
 class GlkBoot final {
 public:
     bool BindAccessGate(HardwareAccessGate* gate) noexcept {
@@ -21,6 +17,10 @@ public:
         if(!hda_.BindAccessGate(gate)) return false;
         gate_=gate; return true;
     }
+    bool BindDma(BootDma* dma) noexcept {
+        return !attempted_ && hda_.BindDma(dma);
+    }
+    BootDma* DmaOwner() const noexcept { return hda_.DmaOwner(); }
     HardwareAccessGate* AccessGate() const noexcept { return gate_; }
     bool AccessAllowed() const noexcept { return gate_ && gate_->Allowed(); }
     NTSTATUS Prepare(WDFDEVICE,UCHAR* hda,ULONG hdaLength,UCHAR* dsp,ULONG dspLength,
@@ -33,7 +33,7 @@ public:
     sof::CommandResult Command(const UCHAR*,SIZE_T,ULONG expectedReplyCommand,UCHAR*,SIZE_T) noexcept;
     sof::CommandStatus PollNotifications() noexcept;
     bool PopNotification(sof::IpcNotification*) noexcept;
-    bool Shutdown() noexcept; // preserves DMA if stop fails; no DSP writes then
+    bool Shutdown() noexcept;
     sof::ReceiveError IpcError() const noexcept { return ipc_.Error(); }
     sof::RomError RomError() const noexcept { return primaryError_; }
 private:
@@ -45,7 +45,7 @@ private:
     UCHAR* dsp_=nullptr;
     ULONG length_=0;
     bool ipcLive_=false;
-    bool attempted_=false, dspTouched_=false, prepared_=false;
+    bool attempted_=false,dspTouched_=false,prepared_=false;
     sof::RomError primaryError_=sof::RomError::None;
     static bool Read(void*,ULONG,ULONG*) noexcept;
     static bool Write(void*,ULONG,ULONG) noexcept;

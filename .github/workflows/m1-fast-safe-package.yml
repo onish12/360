@@ -1,4 +1,4 @@
-name: M1 FAST-SAFE one-shot DSP boot package
+name: M1 FAST-SAFE R3 DMA-lifetime one-shot DSP boot package
 on:
   workflow_dispatch:
   push:
@@ -60,7 +60,16 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'M1_FAST_PROVIDER_GENERATION_FAILED'}
           "M1_FAST_GENERATED_PROVIDER=$generated" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Build unchanged M1 driver
+      - name: Run R3 DMA lifetime regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build build-m1-fast --config Release --target phaser360_dma_owner_tests phaser360_glk_boot_tests
+          if($LASTEXITCODE -ne 0){throw 'M1_R3_HOST_TEST_BUILD_FAILED'}
+          ctest --test-dir build-m1-fast -C Release -R '^(sof_dma_owner|sof_glk_boot)$' --output-on-failure
+          if($LASTEXITCODE -ne 0){throw 'M1_R3_HOST_TESTS_FAILED'}
+
+      - name: Build R3 M1 driver
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -139,10 +148,10 @@ jobs:
 
             $runnerSha=(Get-FileHash (Join-Path $package 'Run-M1FastSafe.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
             [ordered]@{
-              Schema=1;Purpose='M1_FAST_SAFE_ONE_SHOT_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260923-r2-interface-wait';RunnerSha256=$runnerSha
+              Schema=1;Purpose='M1_FAST_SAFE_ONE_SHOT_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260924-r3-dma-lifetime';RunnerSha256=$runnerSha
               ExactHardwareId='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06';WindowsBuildExact=19044
               BaselineService='IntcAudioBus';BaselineInf='oem14.inf';BaselineVersion='9.22.0.4832';BaselineProvider='Intel(R) Corporation'
-              M1Service='Phaser360M1';M1Version='0.6.15.131';M1Provider='PHASER360 Experimental'
+              M1Service='Phaser360M1';M1Version='0.6.15.132';M1Provider='PHASER360 Experimental'
               FirmwareBytes=287488;FirmwareSha256='40029b5a05665f19a492ef00b8c0a24c42e90d7c00fc57146e07947fd1407d5c'
               NhltBytes=3684;NhltSha256='4764aba0316e9a039a127285cc4ff9e97e22c75bfddb6d865d9f77b59dd2a6b9'
               CertificateSubject=$subject;CertificateThumbprint=$cert.Thumbprint;PrivateKeyExported=$false

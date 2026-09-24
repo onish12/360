@@ -9,9 +9,13 @@
 #include "sof_ipc_fixture.h"
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
+#include <new>
 using namespace phaser360::windows;
 using phaser360::sof::RomError;
-static unsigned checks=0,live=0,dspWrites=0,irql=0,sequence=0;
+static unsigned checks=0,live=0,dmaLive=0,dspWrites=0,irql=0,sequence=0;
+static unsigned alignmentCalls=0,alignmentValue=0;
+static BootDma sharedDma;
 static uint64_t ticks=100000;
 static bool unmapped=false,dropIrqUnmask=false,dropIrqMask=false,irqHeld=false,mutexHeld=false,queued=false;
 static bool dpcQueued=false,workQueued=false,finishDpcDuringCancel=false;
@@ -156,16 +160,36 @@ NTSTATUS WdfFdoQueryForInterface(
     bus->GetBusData=FakeGetBusData;
     return STATUS_SUCCESS;
 }
-struct FakeObject { unsigned id; std::vector<UCHAR> bytes; };
-NTSTATUS WdfDmaEnablerCreate(WDFDEVICE,WDF_DMA_ENABLER_CONFIG*,void*,WDFDMAENABLER* out) {
-    *out=new FakeObject{++sequence,{}}; ++live; return STATUS_SUCCESS;
+struct FakeObject { unsigned id; std::vector<UCHAR> bytes; bool dma=false; };
+static std::vector<FakeObject*> dmaChildren;
+void WdfDeviceSetAlignmentRequirement(WDFDEVICE device,ULONG alignment) {
+    CHECK(device && irql==PASSIVE_LEVEL); ++alignmentCalls; alignmentValue=alignment;
 }
-NTSTATUS WdfCommonBufferCreateWithConfig(WDFDMAENABLER,size_t n,WDF_COMMON_BUFFER_CONFIG*,void*,WDFCOMMONBUFFER* out) {
-    *out=new FakeObject{++sequence,std::vector<UCHAR>(n)}; ++live; return STATUS_SUCCESS;
+NTSTATUS WdfDmaEnablerCreate(WDFDEVICE,WDF_DMA_ENABLER_CONFIG* config,void*,WDFDMAENABLER* out) {
+    CHECK(irql==PASSIVE_LEVEL && config &&
+          config->profile==WdfDmaProfileScatterGather && config->maximum==1048576);
+    *out=new FakeObject{++sequence,{},true}; ++dmaLive; dmaChildren.push_back(*out);
+    return STATUS_SUCCESS;
+}
+NTSTATUS WdfCommonBufferCreateWithConfig(WDFDMAENABLER parent,size_t n,WDF_COMMON_BUFFER_CONFIG* config,void*,WDFCOMMONBUFFER* out) {
+    CHECK(parent && parent->dma && config &&
+          config->alignment==FILE_4096_BYTE_ALIGNMENT);
+    *out=new FakeObject{++sequence,std::vector<UCHAR>(n),true};
+    ++dmaLive; dmaChildren.push_back(*out); return STATUS_SUCCESS;
 }
 PHYSICAL_ADDRESS WdfCommonBufferGetAlignedLogicalAddress(WDFCOMMONBUFFER b) { return {int64_t(b->id)*0x100000}; }
 void* WdfCommonBufferGetAlignedVirtualAddress(WDFCOMMONBUFFER b) { return b->bytes.data(); }
-void WdfObjectDelete(FakeObject* b) { CHECK(live>0); --live; delete b; }
+void WdfObjectDelete(FakeObject* b) {
+    CHECK(b);
+    if(b->dma) {
+        auto it=std::find(dmaChildren.begin(),dmaChildren.end(),b);
+        CHECK(it!=dmaChildren.end() && dmaLive>0);
+        dmaChildren.erase(it); --dmaLive;
+    } else {
+        CHECK(live>0); --live;
+    }
+    delete b;
+}
 NTSTATUS WdfMemoryCreate(WDF_OBJECT_ATTRIBUTES* a,unsigned pool,ULONG tag,SIZE_T n,
                          WDFMEMORY* out,void** storage) {
     CHECK(irql==0 && a && a->ParentObject && pool==NonPagedPoolNx &&
@@ -249,8 +273,25 @@ void WdfWorkItemFlush(WDFWORKITEM h) {
     ++flushCalls; if(workQueued) RunWork();
 }
 static void FrameworkDeleteChildren() {
-    CHECK(!queued && !mutexHeld && !irqHeld); WdfObjectDelete(irqHandle); WdfObjectDelete(dpcHandle); WdfObjectDelete(workHandle); WdfObjectDelete(serialHandle);
+    CHECK(!queued && !mutexHeld && !irqHeld);
+    if(sharedDma.HardwarePrepared()) {
+        const auto status=sharedDma.ReleaseHardware();
+        if(status==STATUS_DEVICE_BUSY) CHECK(sharedDma.AbandonForRemoval());
+        else CHECK(NT_SUCCESS(status));
+    }
+    if(!dmaChildren.empty()) {
+        const auto leftovers=dmaChildren;
+        for(auto* child:leftovers) WdfObjectDelete(child);
+    }
+    CHECK(dmaLive==0 && dmaChildren.empty());
+    WdfObjectDelete(irqHandle); WdfObjectDelete(dpcHandle);
+    WdfObjectDelete(workHandle); WdfObjectDelete(serialHandle);
     irqHandle=nullptr; serialHandle=nullptr;
+    // A real WDFDEVICE teardown destroys the BootDma owner. Reconstruct the
+    // fixture object so a later independent test does not inherit terminal
+    // AbandonForRemoval state from the previous simulated device lifetime.
+    sharedDma.~BootDma();
+    ::new (&sharedDma) BootDma();
 }
 static void Notify() {
     IpcPut(dsp,0x81000,24); IpcPut(dsp,0x81004,0x90020000); IpcPut(dsp,0x81008,0);
@@ -275,6 +316,8 @@ static void ResetColdRegisters() {
     Put(hda,0x500,4,0x10030700); Put(hda,0x700,4,0x10040000); Put(hda,0x504,4,0x40000000);
 }
 static void Reset() {
+    if(sharedDma.HardwarePrepared()) CHECK(NT_SUCCESS(sharedDma.ReleaseHardware()));
+    CHECK(dmaLive==0 && dmaChildren.empty());
     CHECK(accessGate.CloseForRelease());
     CHECK(accessGate.OpenForPrepare());
     dpcQueued=false; workQueued=false; finishDpcDuringCancel=false; cancelCalls=0; flushCalls=0;
@@ -282,6 +325,7 @@ static void Reset() {
     irqCreatedWithAssignedDescriptors=false;
     CHECK(live==0); hda.assign(0x4000,0); dsp.assign(0x100000,0);
     dspWrites=0; irql=0; sequence=0; ticks=100000; sessionMemoryCreates=0;
+    alignmentCalls=0; alignmentValue=0;
     stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
     rejectPinnedEnter=false; removeDuringPinnedEnter=nullptr;
     pciQueryCalls=0; pciReadCalls=0; pciWriteCalls=0; pciDereferenceCalls=0;
@@ -290,8 +334,18 @@ static void Reset() {
     ResetPciConfig();
     ResetColdRegisters();
 }
+static NTSTATUS BindDmaForBoot(GlkBoot& boot) {
+    if(!sharedDma.HardwarePrepared()) {
+        const auto status=sharedDma.PrepareHardware(&checks,286720);
+        if(!NT_SUCCESS(status)) return status;
+        CHECK(alignmentCalls>=1 && alignmentValue==FILE_4096_BYTE_ALIGNMENT);
+    }
+    return boot.BindDma(&sharedDma)?STATUS_SUCCESS:STATUS_INVALID_DEVICE_STATE;
+}
 static NTSTATUS Prepare(GlkBoot& boot) {
-    CHECK(boot.BindAccessGate(&accessGate));
+    if(!boot.BindAccessGate(&accessGate)) return STATUS_INVALID_DEVICE_STATE;
+    const auto dmaStatus=BindDmaForBoot(boot);
+    if(!NT_SUCCESS(dmaStatus)) return dmaStatus;
     static std::vector<UCHAR> image(286720,0xaa);
     auto x=IpcXman();
     return boot.Prepare(&checks,hda.data(),0x4000,dsp.data(),0x100000,image.data(),image.size(),x.data(),x.size(),20);
@@ -451,8 +505,8 @@ int main() {
         CHECK(!policy.Restore());
         CHECK(pciWriteCalls==1 && pciQueryCalls==queriesBeforeApply+1);
     }
-    Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); CHECK(live==3);
-        auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && r.ipcReady && r.commandReady && live==0);
+    Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); CHECK(live==0 && dmaLive==3);
+        auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && r.ipcReady && r.commandReady && live==0 && dmaLive==3);
         std::vector<uint8_t> request(8,0),reply(12,0);
         IpcPut(request,0,8); IpcPut(request,4,0x30020000);
         auto command=boot.Command(request.data(),request.size(),0x10000000,reply.data(),reply.size());
@@ -482,17 +536,17 @@ int main() {
         CHECK((Get(hda,0x504,4)&0x40000000u)==0 && (Get(hda,0x1030,4)&0x2000)!=0);
     }
     Reset(); { GlkBoot boot; Put(hda,0,2,0xffff); CHECK(!NT_SUCCESS(Prepare(boot)));
-        CHECK(dspWrites==0 && live==0); CHECK(boot.Shutdown()); CHECK(dspWrites==0);
+        CHECK(dspWrites==0 && live==0 && dmaLive==3); CHECK(boot.Shutdown()); CHECK(dspWrites==0);
     }
     Reset(); { GlkBoot boot; power=false; CHECK(!NT_SUCCESS(Prepare(boot)));
-        CHECK(boot.RomError()==RomError::Timeout && live==3);
-        power=true; CHECK(boot.Shutdown()); CHECK(live==0 && boot.RomError()==RomError::Timeout);
+        CHECK(boot.RomError()==RomError::Timeout && live==0 && dmaLive==3);
+        power=true; CHECK(boot.Shutdown()); CHECK(live==0 && dmaLive==3 && boot.RomError()==RomError::Timeout);
     }
     Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); stuckRun=true;
-        auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && !r.dmaReleased && live==3);
+        auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && !r.dmaReleased && live==0 && dmaLive==3);
         CHECK(!r.ipcReady);
-        auto before=dspWrites; CHECK(!boot.Shutdown()); CHECK(dspWrites==before && live==3);
-        stuckRun=false; CHECK(boot.Shutdown()); CHECK(live==0);
+        auto before=dspWrites; CHECK(!boot.Shutdown()); CHECK(dspWrites==before && live==0 && dmaLive==3);
+        stuckRun=false; CHECK(boot.Shutdown()); CHECK(live==0 && dmaLive==3);
     }
     Reset(); { GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot))); halt=true;
         auto r=boot.Transfer(); CHECK(r.started && !r.firmwareEntered && r.dmaReleased);
@@ -508,7 +562,7 @@ int main() {
         Reset(); GlkBoot boot; CHECK(NT_SUCCESS(Prepare(boot)));
         missingReady=(mode==0); badReady=(mode==1);
         auto r=boot.Transfer(); CHECK(r.started && r.firmwareEntered && r.dmaReleased && !r.ipcReady);
-        CHECK(!boot.Windows() && live==0); CHECK(boot.Shutdown());
+        CHECK(!boot.Windows() && live==0 && dmaLive==3); CHECK(boot.Shutdown());
     }
     Reset(); { GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); auto x=IpcXman(); x[0]=0;
         const UCHAR image[4]={};
@@ -637,7 +691,7 @@ int main() {
         CHECK(dspWrites==preGrantWrites && synchronizeCalls==preGrantSync);
         forbidMmio=false;
 
-        ColdPower session(boot,bridge,accessGate);
+        CHECK(NT_SUCCESS(BindDmaForBoot(boot))); ColdPower session(boot,bridge,accessGate);
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
         CHECK(NT_SUCCESS(session.Enter(&checks,hda.data(),0x4000,dsp.data(),0x100000,
                                       image.data(),image.size(),x.data(),x.size(),20)));
@@ -685,7 +739,7 @@ int main() {
         binding.kind=PnpInterruptKind::LineBased;
         CHECK(bridge.BindDormant(binding,&boot));
         CHECK(bridge.GrantBootStart() && bridge.CanStartBeforeEnable());
-        ColdPower session(boot,bridge,accessGate);
+        CHECK(NT_SUCCESS(BindDmaForBoot(boot))); ColdPower session(boot,bridge,accessGate);
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
         // H15B owns/reinitializes GCTL, so GCTL=0 is no longer a failure.
         // Use malformed GCAP to keep this cleanup regression deterministic.
@@ -749,7 +803,7 @@ int main() {
     }
     // D0Entry runs BEFORE the framework connects/enables the interrupt.
     for(unsigned mode=0;mode<6;++mode) {
-        Reset(); GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(boot,bridge,accessGate);
+        Reset(); GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CHECK(NT_SUCCESS(BindDmaForBoot(boot))); ColdPower session(boot,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
@@ -763,17 +817,17 @@ int main() {
             CHECK(!NT_SUCCESS(result) && !connected);
             CHECK(session.CanReleaseMappings()==(mode!=3));
             if(mode==3) {
-                CHECK(live==7); auto before=dspWrites;
-                CHECK(!session.RetryEarlyCleanup() && dspWrites==before && live==7);
+                CHECK(live==4 && dmaLive==3); auto before=dspWrites;
+                CHECK(!session.RetryEarlyCleanup() && dspWrites==before && live==4 && dmaLive==3);
                 stuckRun=false; CHECK(session.RetryEarlyCleanup());
             }
-            CHECK(live==4 && session.CanReleaseMappings());
+            CHECK(live==4 && dmaLive==3 && session.CanReleaseMappings());
             unmapped=true; CHECK(!bridge.Arm() && bridge.Stop());
             CHECK(NT_SUCCESS(FrameworkEnable(true))); // canceled callback does no MMIO
             CHECK(NT_SUCCESS(FrameworkEnable(false))); FrameworkDeleteChildren();
             continue;
         }
-        CHECK(NT_SUCCESS(result) && session.TransferEvidence().commandReady && live==4);
+        CHECK(NT_SUCCESS(result) && session.TransferEvidence().commandReady && live==4 && dmaLive==3);
         CHECK(NT_SUCCESS(FrameworkEnable(true)));
         CHECK(!bridge.CanStartBeforeEnable() && !bridge.CancelBeforeEnable());
         if(mode==4) dropIrqUnmask=true;
@@ -799,7 +853,7 @@ int main() {
     }
     // Reuse the framework interrupt only after old work and power exit finish.
     for(unsigned fail=0;fail<2;++fail) {
-        Reset(); GlkBoot first,second; CHECK(first.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(first,bridge,accessGate);
+        Reset(); GlkBoot first,second; CHECK(first.BindAccessGate(&accessGate)); IpcInterrupt bridge; CHECK(NT_SUCCESS(BindDmaForBoot(first))); ColdPower session(first,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&first,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
@@ -829,7 +883,7 @@ int main() {
             CHECK(bridge.Pop(&event) && event.acknowledged);
             CHECK(session.BeforeInterruptsDisabled()); CHECK(NT_SUCCESS(FrameworkEnable(false)));
         } else {
-            CHECK(session.CanReleaseMappings() && !connected && live==4);
+            CHECK(session.CanReleaseMappings() && !connected && live==4 && dmaLive==3);
         }
         unmapped=true; CHECK(bridge.Stop()); FrameworkDeleteChildren();
     }
@@ -855,7 +909,7 @@ int main() {
     // The official KMDF implementation can skip Disable when Enable failed.
     // Model framework disconnect directly: do NOT manufacture a Disable callback.
     for(unsigned mode=0;mode<4;++mode) {
-        Reset(); GlkBoot boot,next; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(boot,bridge,accessGate);
+        Reset(); GlkBoot boot,next; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CHECK(NT_SUCCESS(BindDmaForBoot(boot))); ColdPower session(boot,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         CHECK(!session.AfterInterruptsDisconnected()); // Fresh, no boot
@@ -892,13 +946,13 @@ int main() {
             CHECK(session.AfterInterruptsDisconnected() && session.CanReleaseMappings());
         }
         forbidMmio=true; CHECK(session.AfterInterruptsDisconnected());
-        CHECK(synchronizeCalls==0 && live==4);
+        CHECK(synchronizeCalls==0 && live==4 && dmaLive==3);
         FrameworkDeleteChildren();
     }
     // Regression: failed pre-disable Stop must close admission even though its
     // hardware mask failed. Queued DPC/work callbacks cannot touch the old IRQ.
     for(unsigned mode=0;mode<4;++mode) {
-        Reset(); GlkBoot boot,next; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(boot,bridge,accessGate);
+        Reset(); GlkBoot boot,next; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CHECK(NT_SUCCESS(BindDmaForBoot(boot))); ColdPower session(boot,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
@@ -936,14 +990,14 @@ int main() {
             forbidMmio=false;
             CHECK(session.AfterInterruptsDisconnected() && session.CanReleaseMappings());
             forbidMmio=true; CHECK(session.AfterInterruptsDisconnected());
-            CHECK(synchronizeCalls==before && live==4);
+            CHECK(synchronizeCalls==before && live==4 && dmaLive==3);
         }
         FrameworkDeleteChildren();
     }
     // Missing pre-disable admission closure is not silently accepted for an
     // already armed session. This is a negative contract test, with no queued work.
     Reset(); {
-        GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; ColdPower session(boot,bridge,accessGate);
+        GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge; CHECK(NT_SUCCESS(BindDmaForBoot(boot))); ColdPower session(boot,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();
@@ -962,7 +1016,7 @@ int main() {
     // a failed pre-disable Stop recovered only after framework disconnect.
     Reset(); {
         GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
-        DeviceLifecycle lifecycle(bridge,boot,firmware,accessGate);
+        CHECK(NT_SUCCESS(BindDmaForBoot(boot))); DeviceLifecycle lifecycle(bridge,boot,firmware,accessGate);
         CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
         auto ops=lifecycle.Ops(); CHECK(ops.context==&lifecycle);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
@@ -991,7 +1045,7 @@ int main() {
         CHECK(NT_SUCCESS(ops.release(ops.context)));
         // One GlkBoot is one attempt; H4 deliberately rejects a second D0.
         CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
-        CHECK(!queued && live==4);
+        CHECK(!queued && live==4 && dmaLive==3);
         FrameworkDeleteChildren();
     }
 
@@ -999,7 +1053,7 @@ int main() {
     // synthetic D0Exit, because KMDF does not provide one for failed entry.
     Reset(); {
         GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
-        DeviceLifecycle lifecycle(bridge,boot,firmware,accessGate);
+        CHECK(NT_SUCCESS(BindDmaForBoot(boot))); DeviceLifecycle lifecycle(bridge,boot,firmware,accessGate);
         CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
         auto ops=lifecycle.Ops();
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
@@ -1015,7 +1069,7 @@ int main() {
         CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
         CHECK(!lifecycle.Bound() && lifecycle.D0Consumed());
         CHECK(NT_SUCCESS(ops.release(ops.context)));
-        CHECK(live==4 && dspWrites==0);
+        CHECK(live==4 && dmaLive==3 && dspWrites==0);
         FrameworkDeleteChildren();
     }
 
@@ -1023,7 +1077,7 @@ int main() {
     // must unbind the still-dormant resource lifetime directly.
     Reset(); {
         GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
-        DeviceLifecycle lifecycle(bridge,boot,firmware,accessGate);
+        CHECK(NT_SUCCESS(BindDmaForBoot(boot))); DeviceLifecycle lifecycle(bridge,boot,firmware,accessGate);
         CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
         auto ops=lifecycle.Ops();
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
@@ -1048,7 +1102,7 @@ int main() {
     Reset(); {
         HardwareAccessGate terminalGate; CHECK(terminalGate.OpenForPrepare());
         GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
-        DeviceLifecycle lifecycle(bridge,boot,firmware,terminalGate);
+        CHECK(NT_SUCCESS(BindDmaForBoot(boot))); DeviceLifecycle lifecycle(bridge,boot,firmware,terminalGate);
         CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
         auto ops=lifecycle.Ops();
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
@@ -1066,7 +1120,7 @@ int main() {
         CHECK(!lifecycle.Bound() && lifecycle.D0Consumed());
         CHECK(NT_SUCCESS(ops.release(ops.context)));
         removeDuringPinnedEnter=nullptr;
-        CHECK(live==4);
+        CHECK(live==4 && dmaLive==3);
         FrameworkDeleteChildren();
     }
 
@@ -1076,7 +1130,7 @@ int main() {
     Reset(); {
         HardwareAccessGate terminalGate; CHECK(terminalGate.OpenForPrepare());
         GlkBoot boot; IpcInterrupt bridge; PinnedFirmware firmware;
-        DeviceLifecycle lifecycle(bridge,boot,firmware,terminalGate);
+        CHECK(NT_SUCCESS(BindDmaForBoot(boot))); DeviceLifecycle lifecycle(bridge,boot,firmware,terminalGate);
         CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
         auto ops=lifecycle.Ops();
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
@@ -1127,6 +1181,7 @@ int main() {
         binding.raw=&raw; binding.translated=&translated;
         binding.kind=PnpInterruptKind::LineBased; binding.messageCount=0;
         CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        CHECK(dmaLive==3 && alignmentValue==FILE_4096_BYTE_ALIGNMENT);
         CHECK(lifecycle.PreparedResources() && !lifecycle.ActiveD0());
         TelemetrySnapshotV1 snapshot{};
         telemetry.Snapshot(&snapshot);
@@ -1148,7 +1203,7 @@ int main() {
         CHECK(NT_SUCCESS(FrameworkEnable(false)));
         CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
         CHECK(!lifecycle.ActiveD0() && lifecycle.CompletedD0()==1 &&
-              lifecycle.FailedD0()==0 && live==4);
+              lifecycle.FailedD0()==0 && live==4 && dmaLive==3);
         telemetry.Snapshot(&snapshot);
         CHECK((snapshot.flags & TelemetryD0Active)==0 &&
               snapshot.sessionGeneration==1 &&
@@ -1157,7 +1212,7 @@ int main() {
         ResetColdRegisters(); missingReady=true;
         CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
         CHECK(lifecycle.SessionGeneration()==2 && !lifecycle.ActiveD0() &&
-              lifecycle.CompletedD0()==1 && lifecycle.FailedD0()==1 && live==4);
+              lifecycle.CompletedD0()==1 && lifecycle.FailedD0()==1 && live==4 && dmaLive==3);
         telemetry.Snapshot(&snapshot);
         CHECK((snapshot.flags & TelemetryD0Active)==0 &&
               snapshot.sessionGeneration==2 &&
@@ -1175,7 +1230,7 @@ int main() {
         CHECK(NT_SUCCESS(FrameworkEnable(false)));
         CHECK(NT_SUCCESS(ops.d0Exit(ops.context)));
         CHECK(!lifecycle.ActiveD0() && lifecycle.CompletedD0()==2 &&
-              lifecycle.FailedD0()==1 && sessionMemoryCreates==3 && live==4);
+              lifecycle.FailedD0()==1 && sessionMemoryCreates==3 && live==4 && dmaLive==3);
         telemetry.Snapshot(&snapshot);
         CHECK((snapshot.flags & TelemetryD0Active)==0 &&
               snapshot.sessionGeneration==3 &&
@@ -1183,6 +1238,7 @@ int main() {
               snapshot.lastD0Status==STATUS_SUCCESS);
 
         CHECK(NT_SUCCESS(ops.release(ops.context)));
+        CHECK(dmaLive==0);
         CHECK(!lifecycle.PreparedResources());
         telemetry.Snapshot(&snapshot);
         CHECK((snapshot.flags & TelemetryResourcesPrepared)==0);
@@ -1192,10 +1248,12 @@ int main() {
         nextView.hda=nextHda.data(); nextView.dsp=nextDsp.data();
         auto nextBinding=binding; nextBinding.dsp=nextDsp.data();
         CHECK(NT_SUCCESS(ops.prepared(ops.context,nextView,nextBinding)));
+        CHECK(dmaLive==3);
         CHECK(lifecycle.PreparedResources());
         telemetry.Snapshot(&snapshot);
         CHECK((snapshot.flags & TelemetryResourcesPrepared)!=0);
         CHECK(NT_SUCCESS(ops.release(ops.context)));
+        CHECK(dmaLive==0);
         FrameworkDeleteChildren();
     }
 
@@ -1217,7 +1275,7 @@ int main() {
         createFailure=5;
         CHECK(ops.d0Entry(ops.context,&checks,view)==STATUS_INSUFFICIENT_RESOURCES);
         CHECK(!lifecycle.ActiveD0() && lifecycle.SessionGeneration()==0 &&
-              sessionMemoryCreates==0 && live==4);
+              sessionMemoryCreates==0 && live==4 && dmaLive==3);
         createFailure=0;
         CHECK(NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
         CHECK(lifecycle.SessionGeneration()==1 && sessionMemoryCreates==1);
@@ -1225,8 +1283,9 @@ int main() {
         CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
         CHECK(NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
         CHECK(NT_SUCCESS(FrameworkEnable(false)));
-        CHECK(NT_SUCCESS(ops.d0Exit(ops.context)) && live==4);
+        CHECK(NT_SUCCESS(ops.d0Exit(ops.context)) && live==4 && dmaLive==3);
         CHECK(NT_SUCCESS(ops.release(ops.context)));
+        CHECK(dmaLive==0);
         FrameworkDeleteChildren();
     }
 
@@ -1296,7 +1355,7 @@ int main() {
         removeDuringPinnedEnter=&terminalGate;
         CHECK(!NT_SUCCESS(ops.d0Entry(ops.context,&checks,view)));
         CHECK(lifecycle.Removed() && !lifecycle.ActiveD0() &&
-              lifecycle.SessionGeneration()==1 && live==4);
+              lifecycle.SessionGeneration()==1 && live==4 && dmaLive==3);
         CHECK(NT_SUCCESS(ops.release(ops.context)));
         removeDuringPinnedEnter=nullptr;
         FrameworkDeleteChildren();
@@ -1305,7 +1364,7 @@ int main() {
     // M0.6.15A: surprise-removal is terminal for hardware access.
     Reset(); {
         GlkBoot boot; CHECK(boot.BindAccessGate(&accessGate)); IpcInterrupt bridge;
-        ColdPower session(boot,bridge,accessGate);
+        CHECK(NT_SUCCESS(BindDmaForBoot(boot))); ColdPower session(boot,bridge,accessGate);
         CM_PARTIAL_RESOURCE_DESCRIPTOR raw={CmResourceTypeInterrupt};
         CHECK(NT_SUCCESS(bridge.Create(&checks,&raw,&raw,&boot,dsp.data(),0x100000)));
         std::vector<UCHAR> image(286720,0xaa); auto x=IpcXman();

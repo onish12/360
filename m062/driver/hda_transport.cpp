@@ -31,7 +31,8 @@ bool HdaTransport::Verify(void* p) noexcept {
 }
 NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
                               const UCHAR* payload,SIZE_T bytes) noexcept {
-    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_ || !gate_ || !gate_->Allowed())
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_ || !gate_ ||
+       !gate_->Allowed() || !dma_ || !dma_->HardwarePrepared())
         return STATUS_INVALID_DEVICE_STATE;
     if(!base || (reinterpret_cast<ULONG_PTR>(base)&3) || !device || !payload ||
        !bytes || bytes>sof::kMaxDmaBytes) return STATUS_INVALID_PARAMETER;
@@ -42,11 +43,13 @@ NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
     controllerAttempted_=true;
     if(!controller_.Initialize(io)) return STATUS_DEVICE_CONFIGURATION_ERROR;
     if(!stream_.Select(io)) return STATUS_DEVICE_CONFIGURATION_ERROR;
-    NTSTATUS status=dma_.Prepare(device,payload,bytes);
+
+    NTSTATUS status=dma_->Stage(payload,bytes);
     if(!NT_SUCCESS(status)) return status;
     allocated_=true;
+
     BootDmaView view={};
-    status=dma_.Publish(&view);
+    status=dma_->Publish(&view);
     if(!NT_SUCCESS(status)) return status;
     published_=true;
     if(!stream_.Configure(view.bdlLogical,view.payloadBytes,view.lastValidIndex))
@@ -67,7 +70,8 @@ bool HdaTransport::StopAndRelease() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
     if(!allocated_) return true;
     if(published_ && !stream_.StopDetach()) return false;
-    if(!NT_SUCCESS(dma_.Release(published_ ? Verify : nullptr,this))) return false;
+    if(!dma_ || !NT_SUCCESS(dma_->ReleaseSession(published_ ? Verify : nullptr,this)))
+        return false;
     allocated_=false; published_=false;
     return true;
 }
@@ -83,7 +87,6 @@ bool phaser360::windows::HdaTransport::QuiesceController() noexcept {
     }
 
     // Restore H15D-owned PCI bits even when HDA quiesce reported failure.
-    // Restore itself is fail-closed behind the terminal hardware-access gate.
     const bool pciOk=pciPolicy_.Restore();
     return controllerOk && pciOk;
 }

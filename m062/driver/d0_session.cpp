@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: MIT
 #include "d0_session.h"
 
-// Kernel-safe placement construction: storage is allocated by WdfMemoryCreate.
-// Do not include <new>; the WDK kernel CRT's exception declarations are invalid
-// under /kernel.
 inline void* operator new(SIZE_T,void* place) noexcept { return place; }
 inline void operator delete(void*,void*) noexcept {}
 
 namespace phaser360 { namespace windows {
 
 NTSTATUS D0SessionOwner::Begin(
-    WDFDEVICE device,IpcInterrupt& irq,HardwareAccessGate& gate) noexcept {
+    WDFDEVICE device,IpcInterrupt& irq,HardwareAccessGate& gate,
+    BootDma& dma) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || memory_ || session_ || !device ||
-       !gate.Allowed())
+       !gate.Allowed() || !dma.HardwarePrepared())
         return STATUS_INVALID_DEVICE_STATE;
 
     WDF_OBJECT_ATTRIBUTES attributes;
@@ -29,7 +27,8 @@ NTSTATUS D0SessionOwner::Begin(
     }
 
     session_=::new(storage) Session(irq,gate);
-    if(session_->boot.AccessGate()!=&gate || !session_->boot.Fresh() ||
+    if(!session_->boot.BindDma(&dma) ||
+       session_->boot.AccessGate()!=&gate || !session_->boot.Fresh() ||
        !session_->boot.AccessAllowed()) {
         session_->~Session(); session_=nullptr;
         WdfObjectDelete(memory_); memory_=nullptr;

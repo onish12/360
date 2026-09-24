@@ -9,10 +9,13 @@ NTSTATUS RepeatedDeviceLifecycle::RecordD0Status(NTSTATUS status) noexcept {
 }
 
 NTSTATUS RepeatedDeviceLifecycle::CreateInterruptShell(WDFDEVICE device) noexcept {
-    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || shellCreated_ || !device)
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || shellCreated_ || device_ || !device)
         return STATUS_INVALID_DEVICE_STATE;
     const auto status=irq_.CreateDormant(device);
-    if(NT_SUCCESS(status)) shellCreated_=true;
+    if(NT_SUCCESS(status)) {
+        device_=device;
+        shellCreated_=true;
+    }
     return status;
 }
 
@@ -30,19 +33,26 @@ PnpLifecycleOps RepeatedDeviceLifecycle::Ops() noexcept {
 }
 
 bool RepeatedDeviceLifecycle::SamePreparedView(const PnpResourceView& view) const noexcept {
-    return prepared_ && view.hda && view.hdaLength==0x4000 &&
+    return prepared_ && dma_.HardwarePrepared() &&
+        view.hda && view.hdaLength==0x4000 &&
         view.dsp==binding_.dsp && view.dspLength==binding_.dspLength &&
         view.dspLength==0x100000;
 }
 
 NTSTATUS RepeatedDeviceLifecycle::Prepared(
     const PnpResourceView& view,const PnpDormantInterruptBinding& binding) noexcept {
-    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !shellCreated_ || prepared_ ||
-       active_ || irqBound_ || sessions_.Active() || gate_.Removed() || !gate_.Allowed() ||
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !shellCreated_ || !device_ || prepared_ ||
+       active_ || irqBound_ || sessions_.Active() || dma_.HardwarePrepared() ||
+       gate_.Removed() || !gate_.Allowed() ||
        binding.gate!=&gate_ || view.hdaLength!=0x4000 ||
        view.dsp!=binding.dsp || view.dspLength!=binding.dspLength ||
        view.dspLength!=0x100000 || !binding.raw || !binding.translated)
         return STATUS_INVALID_DEVICE_STATE;
+
+    // R3: DMA framework objects are created while the framework is still in
+    // PrepareHardware. D0 never creates a DMA enabler or a common buffer.
+    const auto dmaStatus=dma_.PrepareHardware(device_,kPinnedPayloadBytes);
+    if(!NT_SUCCESS(dmaStatus)) return dmaStatus;
 
     binding_=binding;
     prepared_=true;
@@ -98,11 +108,12 @@ bool RepeatedDeviceLifecycle::AbandonRemovedBeforeEnable() noexcept {
 NTSTATUS RepeatedDeviceLifecycle::D0Entry(
     WDFDEVICE device,const PnpResourceView& view) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !shellCreated_ || !prepared_ ||
-       active_ || irqBound_ || sessions_.Active() || gate_.Removed() || !device ||
+       !dma_.HardwarePrepared() || active_ || irqBound_ || sessions_.Active() ||
+       gate_.Removed() || !device || device!=device_ ||
        !gate_.Allowed() || !SamePreparedView(view))
         return RecordD0Status(STATUS_INVALID_DEVICE_STATE);
 
-    auto status=sessions_.Begin(device,irq_,gate_);
+    auto status=sessions_.Begin(device,irq_,gate_,dma_);
     if(!NT_SUCCESS(status)) return RecordD0Status(status);
 
     active_=true;
@@ -241,6 +252,17 @@ NTSTATUS RepeatedDeviceLifecycle::Release() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || active_ || irqBound_ ||
        sessions_.Active())
         return STATUS_INVALID_DEVICE_STATE;
+
+    if(gate_.Removed()) {
+        // No hardware/DMA quiescence is asserted after terminal removal.
+        // Discard local handles; WDF device-parent teardown owns the objects.
+        if(!dma_.AbandonForRemoval())
+            return STATUS_DEVICE_CONFIGURATION_ERROR;
+    } else {
+        const auto dmaStatus=dma_.ReleaseHardware();
+        if(!NT_SUCCESS(dmaStatus)) return dmaStatus;
+    }
+
     binding_=PnpDormantInterruptBinding{};
     prepared_=false;
     if(telemetry_) telemetry_->SetFlag(TelemetryResourcesPrepared,false);
@@ -248,9 +270,6 @@ NTSTATUS RepeatedDeviceLifecycle::Release() noexcept {
 }
 
 void RepeatedDeviceLifecycle::SurpriseRemoval() noexcept {
-    // KMDF does not serialize EvtDeviceSurpriseRemoval with PnP/power callbacks.
-    // Do not inspect lifecycle-owned bools here. The gate was made terminal by
-    // PnpResources first; IpcInterrupt owns synchronization of its admission bit.
     if(telemetry_) telemetry_->SetFlag(TelemetryRemoved,true);
     (void)irq_.FenceForSurpriseRemoval();
 }

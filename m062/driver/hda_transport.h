@@ -8,7 +8,7 @@
 #include "../../src/sof/hda_stream.h"
 namespace phaser360 { namespace windows {
 // Caller owns a translated, resident, read/write, noncached HDA BAR mapping.
-// No physical address literals, mapping, PnP binding or device power policy here.
+// DMA common buffers are owned by the surrounding PrepareHardware lifetime.
 class HdaTransport final {
 public:
     HdaTransport() noexcept = default;
@@ -18,16 +18,22 @@ public:
         if(attempted_ || !gate || gate->Removed() || (gate_ && gate_!=gate)) return false;
         gate_=gate; return true;
     }
+    bool BindDma(BootDma* dma) noexcept {
+        if(attempted_ || !dma || !dma->HardwarePrepared() ||
+           (dma_ && dma_!=dma)) return false;
+        dma_=dma; return true;
+    }
+    BootDma* DmaOwner() const noexcept { return dma_; }
+
     // Single boot attempt per object. All operations serialized at PASSIVE_LEVEL.
-    // Failure after allocation requires StopAndRelease before parent teardown.
-    NTSTATUS Prepare(WDFDEVICE device, UCHAR* mappedHda, ULONG length,
-                     const UCHAR* approvedPayload, SIZE_T bytes) noexcept;
+    NTSTATUS Prepare(WDFDEVICE device,UCHAR* mappedHda,ULONG length,
+                     const UCHAR* approvedPayload,SIZE_T bytes) noexcept;
     bool Start() noexcept;
     bool StopAndRelease() noexcept;
     bool QuiesceController() noexcept;
     UCHAR Tag() const noexcept { return stream_.Tag(); }
 private:
-    BootDma dma_;
+    BootDma* dma_=nullptr;
     PciConfigAttestation pci_;
     PciConfigBootPolicy pciPolicy_;
     sof::HdaController controller_;
@@ -35,7 +41,7 @@ private:
     HardwareAccessGate* gate_=nullptr;
     UCHAR* base_=nullptr;
     ULONG length_=0;
-    bool allocated_=false, published_=false, attempted_=false, controllerAttempted_=false;
+    bool allocated_=false,published_=false,attempted_=false,controllerAttempted_=false;
     static bool Read(void*,ULONG,unsigned,ULONG*) noexcept;
     static bool Write(void*,ULONG,unsigned,ULONG) noexcept;
     static void Delay(void*,unsigned) noexcept;

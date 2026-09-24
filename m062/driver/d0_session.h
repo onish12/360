@@ -4,27 +4,20 @@
 
 namespace phaser360 { namespace windows {
 
-// One WDF-owned, nonpaged boot/power object pair per D0 attempt.
-// The memory object is parented to the WDFDEVICE but is explicitly deleted
-// after confirmed clean shutdown. Terminal surprise removal has a separate
-// abandon path that performs no hardware access and makes no quiescence claim.
 class D0SessionOwner final {
 public:
     D0SessionOwner() noexcept = default;
     D0SessionOwner(const D0SessionOwner&)=delete;
     D0SessionOwner& operator=(const D0SessionOwner&)=delete;
 
-    NTSTATUS Begin(WDFDEVICE,IpcInterrupt&,HardwareAccessGate&) noexcept;
+    NTSTATUS Begin(WDFDEVICE,IpcInterrupt&,HardwareAccessGate&,BootDma&) noexcept;
     GlkBoot* Boot() noexcept;
     ColdPower* Power() noexcept;
     bool Active() const noexcept { return session_!=nullptr; }
     ULONG Generation() const noexcept { return generation_; }
 
-    // Fresh boot was never attempted; IRQ binding must already be removed.
     bool ReleaseUnused() noexcept;
-    // Normal path: ColdPower proved shutdown and command transport is closed.
     bool ReleaseClean() noexcept;
-    // Terminal Removed only. No MMIO, DMA stop or hardware-quiescence claim.
     bool AbandonRemoved(HardwareAccessGate&) noexcept;
 
 private:

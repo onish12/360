@@ -20,6 +20,7 @@ constexpr NTSTATUS STATUS_DEVICE_BUSY = -4;
 constexpr NTSTATUS STATUS_INSUFFICIENT_RESOURCES = -5;
 constexpr unsigned PASSIVE_LEVEL = 0;
 constexpr ULONG MAXULONG = UINT32_MAX;
+constexpr ULONG FILE_4096_BYTE_ALIGNMENT=0x0fffu;
 #define _IRQL_requires_(x)
 #define NT_SUCCESS(x) ((x) >= 0)
 #define NT_ASSERT(x) assert(x)

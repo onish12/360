@@ -2,10 +2,10 @@
 param([Parameter(Mandatory=$true)][string]$PackageRoot,[string]$OutputRoot='')
 $ErrorActionPreference='Stop';Set-StrictMode -Version 2
 
-$Build='m1-fast-safe-20260923-r2-interface-wait'
+$Build='m1-fast-safe-20260924-r3-dma-lifetime'
 $ExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $M1Service='Phaser360M1'
-$M1Version='0.6.15.131'
+$M1Version='0.6.15.132'
 $M1Provider='PHASER360 Experimental'
 $BaselineService='IntcAudioBus'
 $BaselineInf='oem14.inf'

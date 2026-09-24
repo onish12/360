@@ -7,12 +7,12 @@
 
 namespace phaser360 { namespace windows {
 
-// M0.6.15H5 repeated-D0 owner.
+// Repeated-D0 owner with PrepareHardware-lifetime DMA resources.
 //
-// Resource lifetime (PnpResources), device-lifetime IRQ shell (IpcInterrupt),
-// firmware identity (PinnedFirmware), and each D0 boot/power session have
-// separate ownership. A fresh GlkBoot+ColdPower pair is allocated for every
-// D0Entry attempt and destroyed after confirmed clean exit or terminal removal.
+// PnpResources owns BAR mappings and HardwareAccessGate. This owner keeps one
+// dormant framework interrupt shell plus one BootDma resource bundle for the
+// whole prepared PnP lifetime. Every D0 still gets a fresh GlkBoot+ColdPower
+// session; those sessions only borrow the already-created DMA resources.
 class RepeatedDeviceLifecycle final {
 public:
     RepeatedDeviceLifecycle(IpcInterrupt& irq,PinnedFirmware& firmware,
@@ -27,8 +27,6 @@ public:
 
     bool PreparedResources() const noexcept { return prepared_; }
     bool ActiveD0() const noexcept { return active_; }
-    // HardwareAccessGate is the single atomic terminal-removal truth shared
-    // with the unsynchronized EvtDeviceSurpriseRemoval callback.
     bool Removed() const noexcept { return gate_.Removed(); }
     ULONG SessionGeneration() const noexcept { return sessions_.Generation(); }
     ULONG CompletedD0() const noexcept { return completedD0_; }
@@ -40,6 +38,8 @@ private:
     HardwareAccessGate& gate_;
     TelemetryState* telemetry_=nullptr;
     D0SessionOwner sessions_;
+    BootDma dma_;
+    WDFDEVICE device_=nullptr;
     PnpDormantInterruptBinding binding_={};
     bool shellCreated_=false;
     bool prepared_=false;

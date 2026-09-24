@@ -1,6 +1,6 @@
-; PHASER360 M0.6.15H13.1
-; First-M1 exact-target package metadata. NOT FOR INSTALLATION YET.
-; Hardware execution remains unauthorized until a later physical-deployment gate.
+; PHASER360 M1 FAST-SAFE R3
+; Exact-target M1 package metadata. R3 keeps DMA framework objects in the
+; PrepareHardware-to-ReleaseHardware lifetime; audio output remains disabled.
 
 [Version]
 Signature="$WINDOWS NT$"
@@ -9,7 +9,7 @@ ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider=%ProviderName%
 CatalogFile=phaser360_m1_boot.cat
 PnpLockdown=1
-DriverVer=09/21/2026,0.6.15.131
+DriverVer=09/24/2026,0.6.15.132
 
 [DestinationDirs]
 DefaultDestDir=13
