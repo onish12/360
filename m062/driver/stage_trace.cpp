@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "stage_trace.h"
 
+#if defined(PHASER_KERNEL_BUILD)
+
 namespace phaser360 { namespace windows {
 
 const GUID kStageTraceProviderGuid={
@@ -39,7 +41,7 @@ void StageTraceUnregister() noexcept {
     (void)EtwUnregister(handle);
 }
 
-void StageTraceStatus(PCWSTR stage,NTSTATUS status) noexcept {
+void StageTraceStatus(const wchar_t* stage,NTSTATUS status) noexcept {
     const auto handle=gStageTraceHandle;
     if(handle==0 || !stage) return;
 
@@ -60,3 +62,5 @@ void StageTraceStatus(PCWSTR stage,NTSTATUS status) noexcept {
 }
 
 } }
+
+#endif // PHASER_KERNEL_BUILD
