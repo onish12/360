@@ -2,7 +2,7 @@
 param([Parameter(Mandatory=$true)][string]$PackageRoot,[string]$OutputRoot='')
 $ErrorActionPreference='Stop';Set-StrictMode -Version 2
 
-$Build='m1-fast-safe-20260924-r3-dma-lifetime'
+$Build='m1-fast-safe-20260924-r3.1-cm-interface-fallback'
 $ExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $M1Service='Phaser360M1'
 $M1Version='0.6.15.132'
@@ -103,7 +103,9 @@ function Native{
 using System;using System.ComponentModel;using System.Runtime.InteropServices;using Microsoft.Win32.SafeHandles;
 namespace Phaser360{public static class M1FastNative{
  const uint INSTALLFLAG_FORCE=1,DIGCF_PRESENT=2,DIGCF_DEVICEINTERFACE=0x10,GENERIC_READ=0x80000000,FILE_SHARE_READ=1,FILE_SHARE_WRITE=2,OPEN_EXISTING=3;
+ const uint CR_SUCCESS=0,CM_GET_DEVICE_INTERFACE_LIST_PRESENT=0;
  const int ERROR_NO_MORE_ITEMS=259;static readonly IntPtr INVALID_HANDLE_VALUE=new IntPtr(-1);
+ public static string PathSource{get;private set;}
  [DllImport("newdev.dll",CharSet=CharSet.Unicode,SetLastError=true,EntryPoint="UpdateDriverForPlugAndPlayDevicesW")]
  static extern bool UpdateDriverForPlugAndPlayDevices(IntPtr w,string h,string i,uint f,out bool r);
  [StructLayout(LayoutKind.Sequential)]struct IFACE{public int cbSize;public Guid InterfaceClassGuid;public int Flags;public UIntPtr Reserved;}
@@ -111,39 +113,67 @@ namespace Phaser360{public static class M1FastNative{
  [DllImport("setupapi.dll",SetLastError=true)]static extern bool SetupDiEnumDeviceInterfaces(IntPtr s,IntPtr d,ref Guid g,uint i,ref IFACE x);
  [DllImport("setupapi.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr s,ref IFACE x,IntPtr p,uint z,out uint n,IntPtr d);
  [DllImport("setupapi.dll",SetLastError=true)]static extern bool SetupDiDestroyDeviceInfoList(IntPtr s);
+ [DllImport("cfgmgr32.dll",CharSet=CharSet.Unicode,EntryPoint="CM_Get_Device_Interface_List_SizeW")]
+ static extern uint CM_Get_Device_Interface_List_Size(out uint len,ref Guid g,string deviceId,uint flags);
+ [DllImport("cfgmgr32.dll",CharSet=CharSet.Unicode,EntryPoint="CM_Get_Device_Interface_ListW")]
+ static extern uint CM_Get_Device_Interface_List(ref Guid g,string deviceId,IntPtr buffer,uint len,uint flags);
  [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern SafeFileHandle CreateFile(string n,uint a,uint sh,IntPtr sa,uint c,uint f,IntPtr t);
  [DllImport("kernel32.dll",SetLastError=true)]static extern bool DeviceIoControl(SafeFileHandle h,uint c,IntPtr i,uint ib,byte[] o,uint ob,out uint r,IntPtr ov);
  static void Q(bool ok,string op){if(!ok){int e=Marshal.GetLastWin32Error();throw new Win32Exception(e,op+"; WIN32_ERROR="+e);}}
  public static bool ForceUpdate(string hwid,string inf){bool reboot;Q(UpdateDriverForPlugAndPlayDevices(IntPtr.Zero,hwid,inf,INSTALLFLAG_FORCE,out reboot),"UpdateDriverForPlugAndPlayDevicesW");return reboot;}
- static string Path(Guid g){
-  IntPtr s=SetupDiGetClassDevs(ref g,IntPtr.Zero,IntPtr.Zero,DIGCF_PRESENT|DIGCF_DEVICEINTERFACE);if(s==INVALID_HANDLE_VALUE)throw new Win32Exception(Marshal.GetLastWin32Error());
+ static string SetupPath(Guid g){
+  IntPtr s=SetupDiGetClassDevs(ref g,IntPtr.Zero,IntPtr.Zero,DIGCF_PRESENT|DIGCF_DEVICEINTERFACE);if(s==INVALID_HANDLE_VALUE)throw new Win32Exception(Marshal.GetLastWin32Error(),"SetupDiGetClassDevs");
   try{var d=new IFACE();d.cbSize=Marshal.SizeOf(typeof(IFACE));Q(SetupDiEnumDeviceInterfaces(s,IntPtr.Zero,ref g,0,ref d),"EnumInterface[0]");
    var d2=new IFACE();d2.cbSize=Marshal.SizeOf(typeof(IFACE));bool second=SetupDiEnumDeviceInterfaces(s,IntPtr.Zero,ref g,1,ref d2);
-   if(second||Marshal.GetLastWin32Error()!=ERROR_NO_MORE_ITEMS)throw new InvalidOperationException("EXPECTED_EXACTLY_ONE_M1_TELEMETRY_INTERFACE");
+   if(second||Marshal.GetLastWin32Error()!=ERROR_NO_MORE_ITEMS)throw new InvalidOperationException("EXPECTED_EXACTLY_ONE_M1_TELEMETRY_INTERFACE_SETUPAPI");
    uint n=0;SetupDiGetDeviceInterfaceDetail(s,ref d,IntPtr.Zero,0,out n,IntPtr.Zero);IntPtr p=Marshal.AllocHGlobal((int)n);
-   try{for(int k=0;k<n;k++)Marshal.WriteByte(p,k,0);Marshal.WriteInt32(p,0,8);Q(SetupDiGetDeviceInterfaceDetail(s,ref d,p,n,out n,IntPtr.Zero),"InterfaceDetail");return Marshal.PtrToStringUni(IntPtr.Add(p,4));}
+   try{for(int k=0;k<n;k++)Marshal.WriteByte(p,k,0);Marshal.WriteInt32(p,0,8);Q(SetupDiGetDeviceInterfaceDetail(s,ref d,p,n,out n,IntPtr.Zero),"InterfaceDetail");PathSource="SETUPAPI";return Marshal.PtrToStringUni(IntPtr.Add(p,4));}
    finally{Marshal.FreeHGlobal(p);}
   }finally{SetupDiDestroyDeviceInfoList(s);}
  }
+ static string CmPath(Guid g){
+  uint chars=0;uint cr=CM_Get_Device_Interface_List_Size(out chars,ref g,null,CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
+  if(cr!=CR_SUCCESS||chars<2)throw new InvalidOperationException("CM_LIST_SIZE_CR="+cr+"; CHARS="+chars);
+  IntPtr p=Marshal.AllocHGlobal(checked((int)chars*2));
+  try{
+   for(int k=0;k<checked((int)chars*2);++k)Marshal.WriteByte(p,k,0);
+   cr=CM_Get_Device_Interface_List(ref g,null,p,chars,CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
+   if(cr!=CR_SUCCESS)throw new InvalidOperationException("CM_LIST_CR="+cr);
+   string multi=Marshal.PtrToStringUni(p,checked((int)chars));
+   string[] entries=multi.Split(new[]{'\0'},StringSplitOptions.RemoveEmptyEntries);
+   if(entries.Length!=1)throw new InvalidOperationException("EXPECTED_EXACTLY_ONE_M1_TELEMETRY_INTERFACE_CFGMGR32: count="+entries.Length);
+   PathSource="CFGMGR32";return entries[0];
+  }finally{Marshal.FreeHGlobal(p);}
+ }
+ static string Path(Guid g){
+  Exception setup=null;
+  try{return SetupPath(g);}catch(Exception e){setup=e;}
+  try{return CmPath(g);}catch(Exception cm){throw new InvalidOperationException("TELEMETRY_ENUM_FAILED; setup="+setup.Message+"; cfgmgr="+cm.Message,cm);}
+ }
  public static byte[] Query(Guid g,uint ioctl,int bytes){string p=Path(g);using(var h=CreateFile(p,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,IntPtr.Zero,OPEN_EXISTING,0,IntPtr.Zero)){
-  if(h.IsInvalid)throw new Win32Exception(Marshal.GetLastWin32Error(),"CreateFile M1 telemetry");var o=new byte[bytes];uint got;
-  Q(DeviceIoControl(h,ioctl,IntPtr.Zero,0,o,(uint)o.Length,out got,IntPtr.Zero),"DeviceIoControl M1 telemetry");if(got!=bytes)throw new InvalidOperationException("M1_TELEMETRY_SIZE="+got);return o;}}
+  if(h.IsInvalid)throw new Win32Exception(Marshal.GetLastWin32Error(),"CreateFile M1 telemetry via "+PathSource);var o=new byte[bytes];uint got;
+  Q(DeviceIoControl(h,ioctl,IntPtr.Zero,0,o,(uint)o.Length,out got,IntPtr.Zero),"DeviceIoControl M1 telemetry via "+PathSource);if(got!=bytes)throw new InvalidOperationException("M1_TELEMETRY_SIZE="+got);return o;}}
 }}
 '@ -Language CSharp -ErrorAction Stop
 }
-function WaitTelemetry([int]$seconds=15){
-  $end=(Get-Date).AddSeconds($seconds);$last=$null;$attempts=0
+function WaitTelemetry([string]$instance,[string]$inf,[int]$seconds=15){
+  $end=(Get-Date).AddSeconds($seconds);$last=$null;$attempts=0;$lastState=$null
   do{
     ++$attempts
     try{
       $bytes=[Phaser360.M1FastNative]::Query($TelemetryGuid,$TelemetryIoctl,32)
-      return [pscustomobject]@{Bytes=$bytes;Attempts=$attempts}
+      return [pscustomobject]@{Bytes=$bytes;Attempts=$attempts;Source=[string][Phaser360.M1FastNative]::PathSource}
     }catch{
       $last=$_.Exception
+      try{$lastState=Target}catch{$lastState=$null}
+      if($lastState -and ($lastState.InstanceId -cne $instance -or -not(IsM1 $lastState $inf))){
+        throw ("M1_TARGET_LOST_DURING_TELEMETRY_WAIT: status=$($lastState.Status); problem=$($lastState.ProblemCode); service=$($lastState.Service); inf=$($lastState.DriverInfPath); last=$($last.Message)")
+      }
       Start-Sleep -Milliseconds 250
     }
   }while((Get-Date)-lt$end)
-  throw ("M1_TELEMETRY_INTERFACE_TIMEOUT: attempts=$attempts; last="+$(if($last){$last.Message}else{'NONE'}))
+  $stateText=if($lastState){"status=$($lastState.Status); problem=$($lastState.ProblemCode); service=$($lastState.Service); inf=$($lastState.DriverInfPath)"}else{'target=UNAVAILABLE'}
+  throw ("M1_TELEMETRY_INTERFACE_TIMEOUT: attempts=$attempts; $stateText; last="+$(if($last){$last.Message}else{'NONE'}))
 }
 function U32([byte[]]$b,[int]$o){[BitConverter]::ToUInt32($b,$o)}
 function I32([byte[]]$b,[int]$o){[BitConverter]::ToInt32($b,$o)}
@@ -197,8 +227,8 @@ try{
   $reboot=[Phaser360.M1FastNative]::ForceUpdate($ExactHwid,$pkg.Inf);if($reboot){throw 'M1_BIND_REQUIRES_REBOOT'}
   $with=WaitM1 $before.InstanceId $publishedInf 20;WriteUtf8 (Join-Path $dir 'target_with_m1.json') ($with|ConvertTo-Json -Depth 8);$m1Bound=$true
 
-  $wq=WaitTelemetry 15
-  WriteUtf8 (Join-Path $dir 'telemetry_interface_wait.json') ([ordered]@{Attempts=$wq.Attempts;MaxSeconds=15}|ConvertTo-Json)
+  $wq=WaitTelemetry $before.InstanceId $publishedInf 15
+  WriteUtf8 (Join-Path $dir 'telemetry_interface_wait.json') ([ordered]@{Attempts=$wq.Attempts;MaxSeconds=15;Source=$wq.Source}|ConvertTo-Json)
   $t1=ParseTelemetry $wq.Bytes;WriteUtf8 (Join-Path $dir 'telemetry_1.json') ($t1|ConvertTo-Json -Depth 5)
   Start-Sleep -Milliseconds 500
   $with2=Target;if(-not(IsM1 $with2 $publishedInf)){throw 'M1_NOT_STABLE_AFTER_BOOT'}

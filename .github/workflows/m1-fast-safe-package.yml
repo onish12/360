@@ -1,4 +1,4 @@
-name: M1 FAST-SAFE R3 DMA-lifetime one-shot DSP boot package
+name: M1 FAST-SAFE R3.1 telemetry-fallback one-shot DSP boot package
 on:
   workflow_dispatch:
   push:
@@ -148,7 +148,7 @@ jobs:
 
             $runnerSha=(Get-FileHash (Join-Path $package 'Run-M1FastSafe.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
             [ordered]@{
-              Schema=1;Purpose='M1_FAST_SAFE_ONE_SHOT_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260924-r3-dma-lifetime';RunnerSha256=$runnerSha
+              Schema=1;Purpose='M1_FAST_SAFE_ONE_SHOT_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260924-r3.1-cm-interface-fallback';RunnerSha256=$runnerSha
               ExactHardwareId='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06';WindowsBuildExact=19044
               BaselineService='IntcAudioBus';BaselineInf='oem14.inf';BaselineVersion='9.22.0.4832';BaselineProvider='Intel(R) Corporation'
               M1Service='Phaser360M1';M1Version='0.6.15.132';M1Provider='PHASER360 Experimental'
