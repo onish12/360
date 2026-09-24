@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "pnp_resources.h"
 #include "../../m051/driver/resource_contract.h"
+#include "stage_trace.h"
 
 namespace phaser360 { namespace windows {
 
@@ -39,10 +40,14 @@ bool PnpResources::InstallLifecycle(const PnpLifecycleOps& ops) noexcept {
 }
 
 NTSTATUS PnpResources::PrepareHardware(WDFDEVICE device,WDFCMRESLIST raw,WDFCMRESLIST translated) {
+    StageTrace(L"P10_PREPARE_HARDWARE_ENTER");
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return STATUS_INVALID_DEVICE_STATE;
     auto* owner=GetPnpResourcesContext(device)->owner;
     if(!owner || owner->device_!=device) return STATUS_INVALID_DEVICE_STATE;
-    return owner->Prepare(raw,translated);
+    const auto status=owner->Prepare(raw,translated);
+    StageTraceStatus(NT_SUCCESS(status)
+        ? L"P40_PREPARE_HARDWARE_OK" : L"P40_PREPARE_HARDWARE_FAIL",status);
+    return status;
 }
 
 NTSTATUS PnpResources::ReleaseHardware(WDFDEVICE device,WDFCMRESLIST translated) {
@@ -237,7 +242,11 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
         return STATUS_DEVICE_CONFIGURATION_ERROR;
 
     hda_=static_cast<UCHAR*>(MmMapIoSpaceEx(addresses[0],lengths[0],PAGE_READWRITE|PAGE_NOCACHE));
-    if(!hda_) return STATUS_INSUFFICIENT_RESOURCES;
+    if(!hda_) {
+        StageTraceStatus(L"P11_MAP_HDA_FAIL",STATUS_INSUFFICIENT_RESOURCES);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    StageTrace(L"P11_MAP_HDA_OK");
     // SurpriseRemoval can race this callback. Do not create another mapping
     // after the terminal gate has already been observed.
     if(gate_->Removed()) {
@@ -246,9 +255,11 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
     }
     dsp_=static_cast<UCHAR*>(MmMapIoSpaceEx(addresses[1],lengths[1],PAGE_READWRITE|PAGE_NOCACHE));
     if(!dsp_) {
+        StageTraceStatus(L"P12_MAP_DSP_FAIL",STATUS_INSUFFICIENT_RESOURCES);
         (void)Release();
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+    StageTrace(L"P12_MAP_DSP_OK");
 
     candidate.hda=hda_;
     candidate.hdaLength=lengths[0];
