@@ -60,9 +60,11 @@ foreach($x in @('CM_Get_Device_Interface_List_SizeW','CM_Get_Device_Interface_Li
 foreach($x in @('phaser360_dma_owner_tests','phaser360_glk_boot_tests','phaser360_stream_tests','M1_R5_HOST_TESTS_FAILED')){
  if($w.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R5_WORKFLOW_GUARD_MISSING:$x"}
 }
-if($r.IndexOf('M1_BIND_REQUIRES_REBOOT',[StringComparison]::Ordinal)-ge0){throw 'M1_R5_BIND_REBOOT_EARLY_ABORT_FORBIDDEN'}
-foreach($x in @('$bindRebootSignalled','bind_update_result.json','BindRebootSignalled=$bindRebootSignalled')){
- if($r.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R5_BIND_REBOOT_EVIDENCE_MISSING:$x"}
+foreach($bad in @('M1_BIND_REQUIRES_REBOOT','INTEL_FALLBACK_REQUIRES_REBOOT')){
+ if($r.IndexOf($bad,[StringComparison]::Ordinal)-ge0){throw "M1_R5_REBOOT_EARLY_ABORT_FORBIDDEN:$bad"}
+}
+foreach($x in @('$bindRebootSignalled','bind_update_result.json','BindRebootSignalled=$bindRebootSignalled','$fallbackRebootSignalled','intel_fallback_update_result.json','IntelFallbackRebootSignalled=$fallbackRebootSignalled')){
+ if($r.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R5_REBOOT_EVIDENCE_MISSING:$x"}
 }
 foreach($src in @($hc,$hs)){
  if($src.IndexOf('next>=0x1000',[StringComparison]::Ordinal)-ge0 -or $src.IndexOf('0x1000-', [StringComparison]::Ordinal)-ge0){throw 'M1_R5_LEGACY_CAP_WINDOW_PRESENT'}
