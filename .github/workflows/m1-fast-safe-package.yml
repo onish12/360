@@ -1,4 +1,5 @@
 name: M1 R4 stage-trace one-shot DSP boot package
+# R4 stage-trace diagnostic package; boot logic remains R3.
 on:
   workflow_dispatch:
   push:
