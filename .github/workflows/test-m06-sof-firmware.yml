@@ -53,6 +53,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate M1 R5 fast-safe guards
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_m1_fast_safe_tests.ps1
+          if (-not $?) { throw 'M1_R5_STATIC_GUARDS_FAILED' }
+          $null = [scriptblock]::Create((Get-Content -LiteralPath '.\m062\m1_fast\Run-M1FastSafe.ps1' -Raw))
+          Write-Host 'M1_R5_PS51_PARSE=PASS'
+
       - name: Configure user-mode tests (not the WDK driver)
         shell: pwsh
         run: |
