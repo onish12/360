@@ -61,7 +61,7 @@ bool HdaController::DiscoverCapabilities() noexcept {
     pp_=0; spib_=0;
     while(next) {
         if(count==32 || next<0x400 || next<kStreamBase+total_*kStreamStride ||
-           (next&3) || next>=0x1000 || next>io_.length-4) return false;
+           (next&3) || next>io_.length-4) return false;
         for(uint32_t i=0;i<count;++i) if(seen[i]==next) return false;
         seen[count++]=next;
         uint32_t header=0;
@@ -73,7 +73,9 @@ bool HdaController::DiscoverCapabilities() noexcept {
     }
     const uint32_t ppBytes=0x10+total_*0x20;
     const uint32_t spibBytes=8+total_*8;
-    if(!pp_ || !spib_ || ppBytes>0x1000-pp_ || spibBytes>0x1000-spib_ ||
+    if(!pp_ || !spib_ ||
+       pp_>io_.length || ppBytes>io_.length-pp_ ||
+       spib_>io_.length || spibBytes>io_.length-spib_ ||
        !(pp_+ppBytes<=spib_ || spib_+spibBytes<=pp_)) return false;
     for(uint32_t i=0;i<count;++i) {
         if(seen[i]!=pp_ && seen[i]>pp_ && seen[i]<pp_+ppBytes) return false;
