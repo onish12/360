@@ -110,6 +110,22 @@ int main() {
         CHECK((h.Get(pp+4,4)&0xc0001fffu)==0 && (h.Get(0x1030,4)&0x2000)==0x2000);
     }
 
+    // Physical Lenovo H15M chain crosses 0x1000 and must remain valid:
+    // 0x0C00/ID2 -> 0x0800/ID3 -> 0x0500/ID1 -> 0x1F00/ID5 -> 0x0700/ID4.
+    {
+        Hardware h; HdaController controller; BootStream stream;
+        h.Set(0x14,4,0x0c00);
+        h.Set(0x0c00,4,0x00020800u);
+        h.Set(0x0800,4,0x00030500u);
+        h.Set(0x0500,4,0x00011f00u);
+        h.Set(0x1f00,4,0x00050700u);
+        h.Set(0x0700,4,0x00040000u);
+        CHECK(controller.Initialize(h.Io()));
+        CHECK(controller.Ready());
+        CHECK(stream.Select(h.Io()));
+        CHECK(controller.Quiesce());
+    }
+
     for(unsigned mode=0;mode<2;++mode) {
         Hardware h; HdaController controller;
         h.controllerEnterStuck=mode==0; h.controllerExitStuck=mode==1;
@@ -168,7 +184,7 @@ int main() {
         CHECK(s.StopDetach() && s.IsDetached());
     }
     // Refuse malformed capability chains and active global DMA policy.
-    for(unsigned mode=0;mode<10;++mode) {
+    for(unsigned mode=0;mode<11;++mode) {
         Hardware h; BootStream s;
         switch(mode) {
         case 0: h.Set(pp,4,0x10030000u|pp); break;
@@ -181,6 +197,7 @@ int main() {
         case 7: h.Set(0x1030,4,0x2000); break;
         case 8: h.Set(0x20,4,bit); break;
         case 9: h.Set(pp+4,4,0); break;
+        case 10: h.Set(pp,4,0x10034000u); break; // next capability is exactly past BAR end
         }
         CHECK(!s.Select(h.Io())); CHECK(h.writes.empty());
     }
