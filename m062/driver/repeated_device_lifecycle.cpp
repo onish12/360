@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "repeated_device_lifecycle.h"
+#include "stage_trace.h"
 
 namespace phaser360 { namespace windows {
 
@@ -41,6 +42,7 @@ bool RepeatedDeviceLifecycle::SamePreparedView(const PnpResourceView& view) cons
 
 NTSTATUS RepeatedDeviceLifecycle::Prepared(
     const PnpResourceView& view,const PnpDormantInterruptBinding& binding) noexcept {
+    StageTrace(L"P30_LIFECYCLE_PREPARED_ENTER");
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !shellCreated_ || !device_ || prepared_ ||
        active_ || irqBound_ || sessions_.Active() || dma_.HardwarePrepared() ||
        gate_.Removed() || !gate_.Allowed() ||
@@ -52,11 +54,15 @@ NTSTATUS RepeatedDeviceLifecycle::Prepared(
     // R3: DMA framework objects are created while the framework is still in
     // PrepareHardware. D0 never creates a DMA enabler or a common buffer.
     const auto dmaStatus=dma_.PrepareHardware(device_,kPinnedPayloadBytes);
-    if(!NT_SUCCESS(dmaStatus)) return dmaStatus;
+    if(!NT_SUCCESS(dmaStatus)) {
+        StageTraceStatus(L"P31_LIFECYCLE_DMA_FAIL",dmaStatus);
+        return dmaStatus;
+    }
 
     binding_=binding;
     prepared_=true;
     if(telemetry_) telemetry_->SetFlag(TelemetryResourcesPrepared,true);
+    StageTrace(L"P31_LIFECYCLE_PREPARED_OK");
     return STATUS_SUCCESS;
 }
 
@@ -107,6 +113,7 @@ bool RepeatedDeviceLifecycle::AbandonRemovedBeforeEnable() noexcept {
 
 NTSTATUS RepeatedDeviceLifecycle::D0Entry(
     WDFDEVICE device,const PnpResourceView& view) noexcept {
+    StageTrace(L"D20_LIFECYCLE_D0_ENTER");
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !shellCreated_ || !prepared_ ||
        !dma_.HardwarePrepared() || active_ || irqBound_ || sessions_.Active() ||
        gate_.Removed() || !device || device!=device_ ||
@@ -114,7 +121,11 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
         return RecordD0Status(STATUS_INVALID_DEVICE_STATE);
 
     auto status=sessions_.Begin(device,irq_,gate_,dma_);
-    if(!NT_SUCCESS(status)) return RecordD0Status(status);
+    if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"D21_SESSION_BEGIN_FAIL",status);
+        return RecordD0Status(status);
+    }
+    StageTrace(L"D21_SESSION_BEGIN_OK");
 
     active_=true;
     if(telemetry_) {
@@ -125,6 +136,7 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
     auto* boot=sessions_.Boot();
     auto* power=sessions_.Power();
     if(!boot || !power || !irq_.BindDormant(binding_,boot)) {
+        StageTraceStatus(L"D22_IRQ_BIND_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
         if(sessions_.ReleaseUnused()) {
             active_=false;
             if(telemetry_) telemetry_->SetFlag(TelemetryD0Active,false);
@@ -132,16 +144,21 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
         return RecordD0Status(STATUS_DEVICE_CONFIGURATION_ERROR);
     }
     irqBound_=true;
+    StageTrace(L"D22_IRQ_BIND_OK");
 
     if(!irq_.GrantBootStart()) {
+        StageTraceStatus(L"D23_BOOT_GRANT_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
         const auto result=CleanupFailedEntry()
             ? STATUS_DEVICE_CONFIGURATION_ERROR : STATUS_INVALID_DEVICE_STATE;
         return RecordD0Status(result);
     }
 
+    StageTrace(L"D23_BOOT_GRANT_OK");
+    StageTrace(L"D30_FIRMWARE_ENTER");
     status=firmware_.Enter(
         *power,device,view.hda,view.hdaLength,view.dsp,view.dspLength);
     if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"D40_FIRMWARE_ENTER_FAIL",status);
         if(gate_.Removed()) {
             const auto result=AbandonRemovedBeforeEnable()
                 ? status : STATUS_DEVICE_CONFIGURATION_ERROR;
@@ -152,6 +169,8 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
         return RecordD0Status(result);
     }
 
+    StageTrace(L"D40_FIRMWARE_COMMAND_READY");
+    StageTrace(L"D50_FRAMEWORK_ENABLE_GRANT_OK");
     if(!gate_.Allowed()) {
         const auto result=AbandonRemovedBeforeEnable()
             ? STATUS_INVALID_DEVICE_STATE : STATUS_DEVICE_CONFIGURATION_ERROR;
@@ -159,6 +178,7 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
     }
 
     if(!irq_.GrantFrameworkEnableAfterBoot()) {
+        StageTraceStatus(L"D50_FRAMEWORK_ENABLE_GRANT_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
         if(gate_.Removed()) {
             const auto result=AbandonRemovedBeforeEnable()
                 ? STATUS_INVALID_DEVICE_STATE : STATUS_DEVICE_CONFIGURATION_ERROR;
@@ -181,6 +201,7 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
 }
 
 NTSTATUS RepeatedDeviceLifecycle::PostInterruptsEnabled() noexcept {
+    StageTrace(L"POST10_ENTER");
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !active_ || !sessions_.Active())
         return STATUS_INVALID_DEVICE_STATE;
     if(gate_.Removed() || !gate_.Allowed()) {
@@ -189,7 +210,9 @@ NTSTATUS RepeatedDeviceLifecycle::PostInterruptsEnabled() noexcept {
         return STATUS_INVALID_DEVICE_STATE;
     }
     auto* power=sessions_.Power();
-    return power?power->AfterInterruptsEnabled():STATUS_INVALID_DEVICE_STATE;
+    const auto status=power?power->AfterInterruptsEnabled():STATUS_INVALID_DEVICE_STATE;
+    StageTraceStatus(NT_SUCCESS(status)?L"POST20_OK":L"POST20_FAIL",status);
+    return status;
 }
 
 NTSTATUS RepeatedDeviceLifecycle::PreInterruptsDisabled() noexcept {
