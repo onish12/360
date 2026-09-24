@@ -67,7 +67,10 @@ jobs:
           $ErrorActionPreference='Stop'
           cmake --build build-m1-fast --config Release --target phaser360_dma_owner_tests phaser360_glk_boot_tests phaser360_stream_tests
           if($LASTEXITCODE -ne 0){throw 'M1_R5_HOST_TEST_BUILD_FAILED'}
-          ctest --test-dir build-m1-fast -C Release -R '^(sof_dma_owner|sof_glk_boot|sof_stream)
+          ctest --test-dir build-m1-fast -C Release -R '^(sof_dma_owner|sof_glk_boot|sof_stream)$' --output-on-failure
+          if($LASTEXITCODE -ne 0){throw 'M1_R5_HOST_TESTS_FAILED'}
+
+      - name: Build R5 M1 cap-chain-fix driver
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -172,117 +175,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: PHASER360_M1_R5_CAP_CHAIN_FIX
-          path: _m1_fast_package/
-          if-no-files-found: error
-          retention-days: 3
- --output-on-failure
-          if($LASTEXITCODE -ne 0){throw 'M1_R5_HOST_TESTS_FAILED'}
-
-      - name: Build R5 M1 cap-chain-fix driver
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          msbuild .\m062\driver\phaser360_m1_boot.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off "/p:GeneratedFirmwareSource=$env:M1_FAST_GENERATED_PROVIDER" /verbosity:minimal
-          if($LASTEXITCODE -ne 0){throw 'M1_FAST_DRIVER_BUILD_FAILED'}
-
-      - name: Audit M1 driver PE and imports
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $sys=(Resolve-Path .\m062\driver\out-h8\phaser360_m1_boot.sys).Path
-          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-          $vsRoot=(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath|Select-Object -First 1)
-          if(-not $vsRoot){throw 'M1_FAST_VS_NOT_FOUND'}
-          $dumpbin=(Get-ChildItem (Join-Path $vsRoot 'VC\Tools\MSVC') -Filter dumpbin.exe -Recurse -File|Where-Object{$_.FullName -match '\\bin\\Hostx64\\x64\\dumpbin\.exe$'}|Sort-Object FullName -Descending|Select-Object -First 1).FullName
-          $headers=(& $dumpbin /headers $sys 2>&1|Out-String);if($LASTEXITCODE-ne0){throw 'M1_FAST_HEADERS_FAILED'}
-          $imports=(& $dumpbin /imports $sys 2>&1|Out-String);if($LASTEXITCODE-ne0){throw 'M1_FAST_IMPORTS_FAILED'}
-          if($headers -notmatch '(?im)8664\s+machine\s+\(x64\)' -or $headers -notmatch '(?im)subsystem\s+\(Native\)'){throw 'M1_FAST_PE_IDENTITY_INVALID'}
-          foreach($bad in @('KERNEL32.dll','USER32.dll','WINMM.dll','MMDEVAPI.dll','PORTCLS.SYS','KS.SYS','ACX01000.SYS')){if($imports.IndexOf($bad,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "M1_FAST_FORBIDDEN_IMPORT:$bad"}}
-          foreach($req in @('BCryptOpenAlgorithmProvider','BCryptCreateHash','BCryptHashData','BCryptFinishHash','EtwRegister','EtwWriteString','EtwUnregister')){if($imports.IndexOf($req,[StringComparison]::Ordinal)-lt0){throw "M1_FAST_EXPECTED_IMPORT_MISSING:$req"}}
-          $dmaSource=Get-Content .\m062\driver\boot_dma.cpp -Raw
-          $irqSource=Get-Content .\m062\driver\ipc_interrupt.cpp -Raw
-          foreach($req in @('WdfDmaEnablerCreate','WdfCommonBufferCreateWithConfig')){if($dmaSource.IndexOf($req,[StringComparison]::Ordinal)-lt0){throw "M1_FAST_DMA_SOURCE_CALL_MISSING:$req"}}
-          if($irqSource.IndexOf('WdfInterruptCreate',[StringComparison]::Ordinal)-lt0){throw 'M1_FAST_IRQ_SOURCE_CALL_MISSING:WdfInterruptCreate'}
-          [IO.File]::WriteAllText((Join-Path $env:GITHUB_WORKSPACE 'M1_FAST_PE_IMPORTS.txt'),$imports,[Text.UTF8Encoding]::new($false))
-
-      - name: Sign exact package and create manifest
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $package=Join-Path $env:GITHUB_WORKSPACE '_m1_fast_package'
-          New-Item -ItemType Directory -Path $package -Force|Out-Null
-          $pkgSys=Join-Path $package 'phaser360_m1_boot.sys'
-          $inf=Join-Path $package 'phaser360_m1_boot.inf'
-          Copy-Item .\m062\driver\out-h8\phaser360_m1_boot.sys $pkgSys
-          Copy-Item .\m062\m1\phaser360_m1_boot.inf $inf
-          Copy-Item .\m062\m1_fast\Run-M1FastSafe.ps1 $package
-          Copy-Item .\m062\m1_fast\RUN_M1_FAST_SAFE.cmd $package
-          Copy-Item .\m062\m1_fast\M1_FAST_WINRE_ROLLBACK.txt $package
-          Copy-Item .\SOF_REFERENCE_CHECK.json $package
-          Copy-Item .\EMBEDDED_FIRMWARE_REPORT.json $package
-          Copy-Item .\M1_FAST_PE_IMPORTS.txt $package
-
-          $buildTools=(Resolve-Path .\m062\packages\Microsoft.Windows.SDK.BuildTools.10.0.28000.2526).Path
-          $signtool=Join-Path $buildTools 'bin\10.0.28000.0\x64\signtool.exe'
-          $wdk=(Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
-          $inf2cat=Join-Path $wdk 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
-          if(-not(Test-Path $signtool -PathType Leaf) -or -not(Test-Path $inf2cat -PathType Leaf)){throw 'M1_FAST_SIGNING_TOOLS_MISSING'}
-
-          $subject='CN=PHASER360 M1 Fast Safe Signing';$cert=$null;$rootAdded=$false
-          try{
-            $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(7)
-            if(-not $cert -or -not $cert.HasPrivateKey){throw 'M1_FAST_CERT_CREATE_FAILED'}
-            $cer=Join-Path $package 'phaser360_m1_fast_safe.cer'
-            Export-Certificate -Cert $cert -FilePath $cer -Type CERT|Out-Null
-
-            & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint /s My /v $pkgSys
-            if($LASTEXITCODE-ne0){throw 'M1_FAST_SYS_SIGN_FAILED'}
-
-            & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
-            if($LASTEXITCODE-ne0){throw 'M1_FAST_INF2CAT_FAILED'}
-            $cat=Join-Path $package 'phaser360_m1_boot.cat'
-            if(-not(Test-Path $cat -PathType Leaf)){throw 'M1_FAST_CAT_MISSING'}
-
-            & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint /s My /v $cat
-            if($LASTEXITCODE-ne0){throw 'M1_FAST_CAT_SIGN_FAILED'}
-
-            $certutil=Join-Path $env:SystemRoot 'System32\certutil.exe'
-            & $certutil -f -addstore Root $cer
-            if($LASTEXITCODE-ne0){throw 'M1_FAST_CI_ROOT_ADD_FAILED'}
-            $rootAdded=$true
-            & $signtool verify /v /pa $pkgSys
-            if($LASTEXITCODE-ne0){throw 'M1_FAST_SYS_VERIFY_FAILED'}
-            & $signtool verify /v /pa $cat
-            if($LASTEXITCODE-ne0){throw 'M1_FAST_CAT_VERIFY_FAILED'}
-
-            $runnerSha=(Get-FileHash (Join-Path $package 'Run-M1FastSafe.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
-            [ordered]@{
-              Schema=1;Purpose='M1_FAST_SAFE_R4_STAGE_TRACE_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260924-r4-stage-trace';RunnerSha256=$runnerSha
-              ExactHardwareId='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06';WindowsBuildExact=19044
-              BaselineService='IntcAudioBus';BaselineInf='oem14.inf';BaselineVersion='9.22.0.4832';BaselineProvider='Intel(R) Corporation'
-              M1Service='Phaser360M1';M1Version='0.6.15.133';M1Provider='PHASER360 Experimental'
-              FirmwareBytes=287488;FirmwareSha256='40029b5a05665f19a492ef00b8c0a24c42e90d7c00fc57146e07947fd1407d5c'
-              NhltBytes=3684;NhltSha256='4764aba0316e9a039a127285cc4ff9e97e22c75bfddb6d865d9f77b59dd2a6b9'
-              StageTraceProvider='ebaed0db-f9db-42ea-a162-5f4111384051';StageTrace='ETW_PRE_BIND'
-              CertificateSubject=$subject;CertificateThumbprint=$cert.Thumbprint;PrivateKeyExported=$false
-              InfSha256=(Get-FileHash $inf -Algorithm SHA256).Hash.ToLowerInvariant()
-              SysSha256=(Get-FileHash $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant()
-              CatSha256=(Get-FileHash $cat -Algorithm SHA256).Hash.ToLowerInvariant()
-              CerSha256=(Get-FileHash $cer -Algorithm SHA256).Hash.ToLowerInvariant()
-              AudioPlayback='NO';CodecProgramming='NO';SpeakerEnable='NO';AutomaticReboot='NO';BcdWrite='NO'
-            }|ConvertTo-Json -Depth 5|Out-File (Join-Path $package 'package_manifest.json') -Encoding utf8
-
-            $lines=@(Get-ChildItem $package -File|Sort-Object Name|ForEach-Object{(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+'  '+$_.Name})
-            [IO.File]::WriteAllLines((Join-Path $package 'SHA256SUMS.txt'),$lines,[Text.Encoding]::ASCII)
-          }finally{
-            if($rootAdded){$certutil=Join-Path $env:SystemRoot 'System32\certutil.exe';& $certutil -delstore Root $cert.Thumbprint|Out-Null}
-            if($cert){Remove-Item ("Cert:\CurrentUser\My\{0}"-f$cert.Thumbprint) -Force -ErrorAction SilentlyContinue}
-          }
-
-      - name: Upload M1 fast-safe package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: PHASER360_M1_R4_STAGE_TRACE
           path: _m1_fast_package/
           if-no-files-found: error
           retention-days: 3
