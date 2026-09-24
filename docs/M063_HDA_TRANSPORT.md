@@ -10,9 +10,11 @@ firmware authentication, IPC mailbox service, PortCls or audio endpoint.
 BootStream discovers the first output stream from live GCAP and discovers PP
 and SPIB capabilities through the LLCH chain. Reads are bounded; cycles,
 duplicate required capabilities, overlapping capability regions and unsupported
-stream layouts are rejected. The conservative capability window is 0x400..0xfff
-and must also lie beyond all stream descriptors; this is a project policy,
-not an assertion that every HDA controller uses that layout.
+stream layouts are rejected. Capability pointers must be DWORD-aligned, lie
+beyond all stream descriptors, remain inside the mapped HDA BAR, and the walk
+is capped at 32 unique entries. The former project-only 0x400..0x0fff ceiling
+was removed after the physical Lenovo H15M capture proved the valid chain
+0x0c00/ID2 -> 0x0800/ID3 -> 0x0500/ID1 -> 0x1f00/ID5 -> 0x0700/ID4.
 
 Selection performs no writes. It requires exclusive cold-controller ownership:
 all streams stopped/unbound, stream interrupts and SSYNC clear, position-buffer
