@@ -2,10 +2,10 @@
 param([Parameter(Mandatory=$true)][string]$PackageRoot,[string]$OutputRoot='')
 $ErrorActionPreference='Stop';Set-StrictMode -Version 2
 
-$Build='m1-fast-safe-20260924-r3.1-cm-interface-fallback'
+$Build='m1-fast-safe-20260924-r4-stage-trace'
 $ExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $M1Service='Phaser360M1'
-$M1Version='0.6.15.132'
+$M1Version='0.6.15.133'
 $M1Provider='PHASER360 Experimental'
 $BaselineService='IntcAudioBus'
 $BaselineInf='oem14.inf'
@@ -14,6 +14,7 @@ $BaselineProvider='Intel(R) Corporation'
 $CertSubject='CN=PHASER360 M1 Fast Safe Signing'
 $TelemetryGuid=[Guid]'6c50afa1-ec12-4b89-a150-3600615b0011'
 $TelemetryIoctl=[Convert]::ToUInt32('00226000',16)
+$StageProviderGuid=[Guid]'ebaed0db-f9db-42ea-a162-5f4111384051'
 $FirmwareSha='40029b5a05665f19a492ef00b8c0a24c42e90d7c00fc57146e07947fd1407d5c'
 $NHLTSha='4764aba0316e9a039a127285cc4ff9e97e22c75bfddb6d865d9f77b59dd2a6b9'
 
@@ -25,6 +26,8 @@ function Target{
   foreach($x in $p){$m[[string]$x.KeyName]=$x.Data}
   [pscustomobject]@{
     InstanceId=$id;Status=[string]$d[0].Status;ProblemCode=[int]$m['DEVPKEY_Device_ProblemCode']
+    ProblemStatusRaw=$m['DEVPKEY_Device_ProblemStatus']
+    ProblemStatus=$(if($null-ne$m['DEVPKEY_Device_ProblemStatus']){'0x{0:X8}' -f ([uint32](([int64]$m['DEVPKEY_Device_ProblemStatus']) -band 0xffffffffL))}else{$null})
     Service=[string]$m['DEVPKEY_Device_Service'];DriverInfPath=[string]$m['DEVPKEY_Device_DriverInfPath']
     DriverVersion=[string]$m['DEVPKEY_Device_DriverVersion'];DriverProvider=[string]$m['DEVPKEY_Device_DriverProvider']
     HardwareIds=@($m['DEVPKEY_Device_HardwareIds'])
@@ -36,14 +39,50 @@ function IsIntel($s){
   $s.DriverVersion -ceq $BaselineVersion -and $s.DriverProvider -ceq $BaselineProvider -and
   @($s.HardwareIds|Where-Object{$_ -ceq $ExactHwid}).Count-eq1
 }
-function IsM1($s,[string]$inf){
-  $s -and $s.Status -ceq 'OK' -and $s.ProblemCode-eq0 -and
-  $s.Service -ceq $M1Service -and $s.DriverInfPath -ceq $inf -and
+function IsM1Identity($s,[string]$inf){
+  $s -and $s.Service -ceq $M1Service -and $s.DriverInfPath -ceq $inf -and
   $s.DriverVersion -ceq $M1Version -and $s.DriverProvider -ceq $M1Provider -and
   @($s.HardwareIds|Where-Object{$_ -ceq $ExactHwid}).Count-eq1
 }
+function IsM1($s,[string]$inf){
+  (IsM1Identity $s $inf) -and $s.Status -ceq 'OK' -and $s.ProblemCode-eq0
+}
 function PnP([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\pnputil.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
 function CertUtil([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\certutil.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
+function Logman([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\logman.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
+function StartStageTrace([string]$dir,[string]$suffix){
+  $name='PHASER360_M1_R4_'+$suffix
+  $etl=Join-Path $dir 'M1_R4_STAGE_TRACE.etl'
+  $provider='{'+$StageProviderGuid.ToString()+'}'
+  $x=Logman @('start',$name,'-ets','-p',$provider,'0x1','0xFF','-o',$etl,'-bs','64','-nb','16','64')
+  WriteUtf8 (Join-Path $dir 'stage_trace_start.txt') $x.Output
+  if($x.ExitCode-ne0){throw "M1_R4_STAGE_TRACE_START_FAILED: exit=$($x.ExitCode)"}
+  [pscustomobject]@{Name=$name;Etl=$etl;Started=$true;Stopped=$false}
+}
+function StopStageTrace($trace,[string]$dir){
+  if(-not$trace -or -not$trace.Started -or $trace.Stopped){return}
+  $x=Logman @('stop',[string]$trace.Name,'-ets')
+  WriteUtf8 (Join-Path $dir 'stage_trace_stop.txt') $x.Output
+  $trace.Stopped=$true
+  if(-not(Test-Path $trace.Etl -PathType Leaf)){WriteUtf8 (Join-Path $dir 'stage_trace_decode_error.txt') 'ETL_MISSING';return}
+  try{
+    $events=@(Get-WinEvent -Path $trace.Etl -Oldest -ErrorAction Stop|ForEach-Object{
+      [ordered]@{
+        TimeCreated=$(if($_.TimeCreated){$_.TimeCreated.ToString('o')}else{$null})
+        Id=$_.Id;ProviderName=$_.ProviderName;LevelDisplayName=$_.LevelDisplayName;Message=$_.Message
+        Properties=@($_.Properties|ForEach-Object{[string]$_.Value})
+      }
+    })
+    WriteUtf8 (Join-Path $dir 'stage_trace_events.json') ($events|ConvertTo-Json -Depth 8)
+  }catch{WriteUtf8 (Join-Path $dir 'stage_trace_getwinevent_error.txt') $_.Exception.ToString()}
+  try{
+    $tracerpt=Join-Path $env:SystemRoot 'System32\tracerpt.exe'
+    $xml=Join-Path $dir 'M1_R4_STAGE_TRACE.xml'
+    $old=$ErrorActionPreference;$ErrorActionPreference='Continue'
+    try{$o=(& $tracerpt $trace.Etl '-o' $xml '-of' 'XML' '-y' 2>&1|Out-String -Width 8192);$ec=$LASTEXITCODE}finally{$ErrorActionPreference=$old}
+    WriteUtf8 (Join-Path $dir 'stage_trace_tracerpt.txt') ("EXIT=$ec"+[Environment]::NewLine+$o)
+  }catch{WriteUtf8 (Join-Path $dir 'stage_trace_tracerpt_error.txt') $_.Exception.ToString()}
+}
 function PublishedM1{
   $r=@();foreach($f in @(Get-ChildItem (Join-Path $env:SystemRoot 'INF') -Filter 'oem*.inf' -File)){
     try{$t=Get-Content $f.FullName -Raw}catch{continue}
@@ -55,7 +94,17 @@ function WaitIntel([string]$instance,[int]$seconds=30){
   $end=(Get-Date).AddSeconds($seconds);do{Start-Sleep -Milliseconds 500;try{$s=Target}catch{$s=$null};if($s -and $s.InstanceId -ceq $instance -and (IsIntel $s)){return $s}}while((Get-Date)-lt$end);throw 'INTEL_BASELINE_TIMEOUT'
 }
 function WaitM1([string]$instance,[string]$inf,[int]$seconds=20){
-  $end=(Get-Date).AddSeconds($seconds);do{Start-Sleep -Milliseconds 250;try{$s=Target}catch{$s=$null};if($s -and $s.InstanceId -ceq $instance -and (IsM1 $s $inf)){return $s}}while((Get-Date)-lt$end);throw 'M1_TARGET_NOT_HEALTHY'
+  $end=(Get-Date).AddSeconds($seconds);do{
+    Start-Sleep -Milliseconds 250
+    try{$s=Target}catch{$s=$null}
+    if($s -and $s.InstanceId -ceq $instance -and (IsM1Identity $s $inf)){
+      if(IsM1 $s $inf){return $s}
+      if($s.ProblemCode-eq10){
+        throw ("M1_TARGET_FAILED_START_CODE10: problem_status="+$(if($s.ProblemStatus){$s.ProblemStatus}else{'UNKNOWN'}))
+      }
+    }
+  }while((Get-Date)-lt$end)
+  throw 'M1_TARGET_NOT_HEALTHY'
 }
 function Trust([string]$thumb){$t=$thumb.Replace(' ','').ToUpperInvariant();[pscustomobject]@{Root=(Test-Path "Cert:\LocalMachine\Root\$t");TrustedPublisher=(Test-Path "Cert:\LocalMachine\TrustedPublisher\$t")}}
 function CodeIntegrity{
@@ -79,7 +128,7 @@ function Package([string]$root,[switch]$Trusted){
   if(-not$c -or $c.HasPrivateKey -or $c.Subject -cne $CertSubject -or $c.Issuer -cne $CertSubject){throw 'M1_CERT_IDENTITY_INVALID'}
   if($c.NotBefore.ToUniversalTime()-gt[DateTime]::UtcNow -or $c.NotAfter.ToUniversalTime()-le[DateTime]::UtcNow){throw 'M1_CERT_NOT_CURRENTLY_VALID'}
   $m=Get-Content $man -Raw|ConvertFrom-Json
-  if([string]$m.Purpose -cne 'M1_FAST_SAFE_ONE_SHOT_DSP_BOOT' -or [string]$m.RunnerBuild -cne $Build -or
+  if([string]$m.Purpose -cne 'M1_FAST_SAFE_R4_STAGE_TRACE_DSP_BOOT' -or [string]$m.RunnerBuild -cne $Build -or
      [string]$m.ExactHardwareId -cne $ExactHwid -or [int]$m.WindowsBuildExact -ne19044 -or
      [string]$m.BaselineInf -cne $BaselineInf -or [string]$m.BaselineVersion -cne $BaselineVersion -or
      [string]$m.FirmwareSha256 -cne $FirmwareSha -or [string]$m.NhltSha256 -cne $NHLTSha -or
@@ -183,9 +232,10 @@ function ParseTelemetry([byte[]]$b){
 
 if(-not(Admin)){throw 'ADMINISTRATOR_REQUIRED'}
 if(-not[Environment]::Is64BitProcess){throw 'WINDOWS_X64_REQUIRED'}
-Write-Host 'PHASER360 M1 FAST-SAFE - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK'
+Write-Host 'PHASER360 M1 R4 STAGE-TRACE - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK'
 Write-Host "RUNNER_BUILD=$Build"
 Write-Host 'AUDIO_PLAYBACK=NO; CODEC_PROGRAMMING=NO; SPEAKER_ENABLE=NO; BCD_WRITE=NO; REBOOT=NO'
+Write-Host ("STAGE_TRACE_PROVIDER={"+$StageProviderGuid.ToString()+"}")
 if([Environment]::OSVersion.Version.Build-ne19044){throw 'EXACT_WINDOWS_BUILD_19044_REQUIRED'}
 $before=Target;if(-not(IsIntel $before)){throw 'EXACT_INTEL_BASELINE_REQUIRED'}
 if(@(PublishedM1).Count-ne0){throw 'STALE_M1_PACKAGE_PRESENT'}
@@ -210,7 +260,7 @@ if($baselineExportInfs.Count-ne1){throw "BASELINE_EXPORT_INF_COUNT_INVALID: coun
 $baselineExportInf=$baselineExportInfs[0].FullName
 WriteUtf8 (Join-Path $dir 'baseline_export_inf.txt') $baselineExportInf
 
-$rootAdded=$false;$pubAdded=$false;$published=$false;$publishedInf=$null;$bindAttempted=$false;$m1Bound=$false;$bootProved=$false;$rollbackComplete=$false;$fallbackIntel=$false;$err=$null
+$rootAdded=$false;$pubAdded=$false;$published=$false;$publishedInf=$null;$bindAttempted=$false;$m1Bound=$false;$bootProved=$false;$rollbackComplete=$false;$fallbackIntel=$false;$err=$null;$stageTrace=$null
 try{
   $x=CertUtil @('-f','-addstore','Root',$pkg.Cer);WriteUtf8 (Join-Path $dir 'cert_add_root.txt') $x.Output;if($x.ExitCode-ne0){throw 'CERT_ROOT_ADD_FAILED'};$rootAdded=$true
   $x=CertUtil @('-f','-addstore','TrustedPublisher',$pkg.Cer);WriteUtf8 (Join-Path $dir 'cert_add_publisher.txt') $x.Output;if($x.ExitCode-ne0){throw 'CERT_PUBLISHER_ADD_FAILED'};$pubAdded=$true
@@ -223,9 +273,23 @@ try{
   WriteUtf8 (Join-Path $dir 'M1_FAST_RECOVERY_POINTER.txt') $pointer
   WriteUtf8 (Join-Path $OutputRoot 'M1_FAST_RECOVERY_POINTER.txt') $pointer
 
+  $stageTrace=StartStageTrace $dir $suffix
   Native;$bindAttempted=$true
   $reboot=[Phaser360.M1FastNative]::ForceUpdate($ExactHwid,$pkg.Inf);if($reboot){throw 'M1_BIND_REQUIRES_REBOOT'}
-  $with=WaitM1 $before.InstanceId $publishedInf 20;WriteUtf8 (Join-Path $dir 'target_with_m1.json') ($with|ConvertTo-Json -Depth 8);$m1Bound=$true
+  try{
+    $with=WaitM1 $before.InstanceId $publishedInf 20
+    WriteUtf8 (Join-Path $dir 'target_with_m1.json') ($with|ConvertTo-Json -Depth 8)
+    $m1Bound=$true
+  }catch{
+    try{
+      $failed=Target
+      if($failed.InstanceId -ceq $before.InstanceId -and (IsM1Identity $failed $publishedInf)){$m1Bound=$true}
+      WriteUtf8 (Join-Path $dir 'target_failed_start.json') ($failed|ConvertTo-Json -Depth 8)
+      $props=@(Get-PnpDeviceProperty -InstanceId $before.InstanceId -ErrorAction SilentlyContinue|Select-Object KeyName,Type,Data)
+      WriteUtf8 (Join-Path $dir 'target_failed_all_properties.json') ($props|ConvertTo-Json -Depth 10)
+    }catch{WriteUtf8 (Join-Path $dir 'target_failed_capture_error.txt') $_.Exception.ToString()}
+    throw
+  }
 
   $wq=WaitTelemetry $before.InstanceId $publishedInf 15
   WriteUtf8 (Join-Path $dir 'telemetry_interface_wait.json') ([ordered]@{Attempts=$wq.Attempts;MaxSeconds=15;Source=$wq.Source}|ConvertTo-Json)
@@ -239,6 +303,7 @@ try{
   }
   if($t1.SessionGeneration-ne$t2.SessionGeneration){throw 'M1_SESSION_CHANGED_DURING_STABILITY_WINDOW'}
   $bootProved=$true
+  StopStageTrace $stageTrace $dir
 
   $x=PnP @('/delete-driver',$publishedInf,'/uninstall','/force');WriteUtf8 (Join-Path $dir 'pnputil_remove_m1.txt') $x.Output
   if($x.ExitCode-ne0){throw 'M1_UNINSTALL_FAILED'}
@@ -254,7 +319,11 @@ try{
   $x=CertUtil @('-delstore','Root',$pkg.Thumb);if($x.ExitCode-ne0){throw 'CERT_ROOT_REMOVE_FAILED'};$rootAdded=$false
   $ta=Trust $pkg.Thumb;if($ta.Root -or $ta.TrustedPublisher){throw 'CERT_TRUST_REMAINS'}
   $rollbackComplete=$true
-}catch{$err=$_.Exception}finally{
+}catch{
+  $err=$_.Exception
+  if($stageTrace){StopStageTrace $stageTrace $dir}
+}finally{
+  if($stageTrace -and -not$stageTrace.Stopped){StopStageTrace $stageTrace $dir}
   if(-not$rollbackComplete){
     $log=New-Object System.Collections.Generic.List[string]
     if($published){
@@ -284,12 +353,13 @@ if($final){WriteUtf8 (Join-Path $dir 'target_final.json') ($final|ConvertTo-Json
 WriteUtf8 (Join-Path $dir 'transaction.json') ([ordered]@{
  Status=$status;RunnerBuild=$Build;PublishedInf=$publishedInf;BindAttempted=$bindAttempted;M1Bound=$m1Bound;BootProved=$bootProved
  BaselineRestored=$baselineRestored;TrustRestored=$trustRestored;IntelFallbackUsed=$fallbackIntel
+ StageTraceProvider=$StageProviderGuid.ToString();StageTraceCaptured=[bool]($stageTrace -and $stageTrace.Stopped -and (Test-Path $stageTrace.Etl -PathType Leaf))
  TransactionError=$(if($err){$err.Message}else{$null});FirmwareSha256=$FirmwareSha;NHLTSha256=$NHLTSha
  AudioPlayback='NO';CodecProgramming='NO';SpeakerEnable='NO';AutomaticReboot='NO';BcdWrite='NO'
 }|ConvertTo-Json -Depth 6)
 $pointerFinal=@("PHASER360_M1_FAST_SAFE_RECOVERY=1","STATUS=$status","CUSTOM_INF=$publishedInf","BASELINE_RESTORED=$baselineRestored","TRUST_RESTORED=$trustRestored","DO_NOT_REBOOT=$(if($baselineRestored){'FALSE'}else{'TRUE'})") -join [Environment]::NewLine
 WriteUtf8 (Join-Path $OutputRoot 'M1_FAST_RECOVERY_POINTER.txt') $pointerFinal
 Hashes $dir;$zip=Join-Path $OutputRoot ('RESULT_M1_FAST_SAFE_'+$stamp+'_'+$suffix+'.zip');Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $zip -Force
-Write-Host "STATUS=$status";Write-Host "BOOT_PROVED=$($bootProved.ToString().ToUpperInvariant())";Write-Host "BASELINE_RESTORED=$($baselineRestored.ToString().ToUpperInvariant())";Write-Host "TRUST_RESTORED=$($trustRestored.ToString().ToUpperInvariant())";Write-Host "PUBLISHED_INF=$publishedInf";Write-Host "Trimite fisierul: $zip"
+Write-Host "STATUS=$status";Write-Host "BOOT_PROVED=$($bootProved.ToString().ToUpperInvariant())";Write-Host "STAGE_TRACE_CAPTURED=$([bool]($stageTrace -and $stageTrace.Stopped -and (Test-Path $stageTrace.Etl -PathType Leaf)))";Write-Host "BASELINE_RESTORED=$($baselineRestored.ToString().ToUpperInvariant())";Write-Host "TRUST_RESTORED=$($trustRestored.ToString().ToUpperInvariant())";Write-Host "PUBLISHED_INF=$publishedInf";Write-Host "Trimite fisierul: $zip"
 if($err){Write-Host "ERROR=$($err.Message)"}
 if($status-ne'M1_FAST_SAFE_DSP_BOOT_AND_INTEL_ROLLBACK_COMPLETE'){exit 3}
