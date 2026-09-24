@@ -45,8 +45,8 @@ bool BootStream::Select(const RegisterIo& io) noexcept {
     if(!Read(0x14,4,head)) return false;
     uint32_t seen[32]={},count=0,pp=0,spib=0,next=head & 0xffff;
     while(next) {
-        // Conservative GLK capability window; never treat stream/vendor registers as capabilities.
-        if(count==32 || next<0x400 || next<0x80+total*0x20 || (next & 3) || next>=0x1000 || next>io.length-4) return false;
+        // Follow the linked capability list anywhere inside the validated mapped BAR.
+        if(count==32 || next<0x400 || next<0x80+total*0x20 || (next & 3) || next>io.length-4) return false;
         for(uint32_t i=0;i<count;++i) if(seen[i]==next) return false;
         seen[count++]=next;
         uint32_t header=0;
@@ -57,7 +57,9 @@ bool BootStream::Select(const RegisterIo& io) noexcept {
         next=header & 0xffff;
     }
     const uint32_t ppBytes=0x10+total*0x20, spibBytes=8+total*8;
-    if(!pp || !spib || ppBytes>0x1000-pp || spibBytes>0x1000-spib ||
+    if(!pp || !spib ||
+       pp>io.length || ppBytes>io.length-pp ||
+       spib>io.length || spibBytes>io.length-spib ||
        !(pp+ppBytes<=spib || spib+spibBytes<=pp)) return false;
     for(uint32_t i=0;i<count;++i) {
         if(seen[i]!=pp && seen[i]>pp && seen[i]<pp+ppBytes) return false;
