@@ -1,9 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo PHASER360 M1 FAST-SAFE - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK
-echo RUNNER_BUILD=m1-fast-safe-20260924-r3.1-cm-interface-fallback
+echo PHASER360 M1 R4 STAGE-TRACE - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK
+echo RUNNER_BUILD=m1-fast-safe-20260924-r4-stage-trace
 echo Fara playback, codec, speaker, BCD sau reboot.
+echo Diagnostic: ETW stage trace pornit inainte de bind; rollback Intel automat.
 echo.
 for %%I in ("%~dp0.") do set "PHASER_PACKAGE=%%~fI"
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0Run-M1FastSafe.ps1" -PackageRoot "%PHASER_PACKAGE%"
