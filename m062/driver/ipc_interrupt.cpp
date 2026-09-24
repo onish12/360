@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "ipc_interrupt.h"
+#include "stage_trace.h"
 namespace phaser360 { namespace windows {
 struct IpcIrqContext { IpcInterrupt* owner; };
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(IpcIrqContext,GetIpcIrqContext)
@@ -17,7 +18,12 @@ bool IpcInterrupt::Bits(ULONG off,ULONG mask,ULONG value) noexcept {
 bool IpcInterrupt::Mask() noexcept {
     armed_=false;
     // Attempt both masks, even if one register is inaccessible.
-    const bool global=Bits(8,1,0),local=Bits(0x50,3,0);
+    const bool global=Bits(8,1,0);
+    StageTraceStatus(global?L"I20_MASK_GLOBAL_OK":L"I20_MASK_GLOBAL_FAIL",
+                     global?STATUS_SUCCESS:STATUS_DEVICE_CONFIGURATION_ERROR);
+    const bool local=Bits(0x50,3,0);
+    StageTraceStatus(local?L"I30_MASK_LOCAL_OK":L"I30_MASK_LOCAL_FAIL",
+                     local?STATUS_SUCCESS:STATUS_DEVICE_CONFIGURATION_ERROR);
     return global && local;
 }
 bool IpcInterrupt::Unmask() noexcept {
@@ -354,15 +360,29 @@ BOOLEAN IpcInterrupt::Isr(WDFINTERRUPT interrupt,ULONG) {
     return TRUE;
 }
 NTSTATUS IpcInterrupt::Enable(WDFINTERRUPT interrupt,WDFDEVICE) {
+    StageTrace(L"I10_INTERRUPT_ENABLE_ENTER");
     auto& self=*GetIpcIrqContext(interrupt)->owner;
     self.disableSeen_=false; self.disableMasked_=false; self.enableFailed_=false; self.enableSeen_=true; self.enabled_=false; self.ready_=false;
-    if(self.stopped_) return STATUS_SUCCESS;
+    if(self.stopped_) {
+        StageTrace(L"I40_INTERRUPT_ENABLE_STOPPED");
+        return STATUS_SUCCESS;
+    }
     // DeviceAdd shell remains framework-connectable but hardware-inert until a
     // later reviewed D0Entry binding explicitly permits register masking.
-    if(!self.hardwareEnableAllowed_) { self.enabled_=true; return STATUS_SUCCESS; }
+    if(!self.hardwareEnableAllowed_) {
+        self.enabled_=true;
+        StageTrace(L"I40_INTERRUPT_ENABLE_INERT_OK");
+        return STATUS_SUCCESS;
+    }
     if(!self.boot_ || !self.boot_->AccessAllowed() || !self.dsp_ ||
-       !self.Mask()) { self.enableFailed_=true; self.fault_=true; return STATUS_DEVICE_CONFIGURATION_ERROR; }
-    self.enabled_=true; return STATUS_SUCCESS;
+       !self.Mask()) {
+        self.enableFailed_=true; self.fault_=true;
+        StageTraceStatus(L"I40_INTERRUPT_ENABLE_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    self.enabled_=true;
+    StageTrace(L"I40_INTERRUPT_ENABLE_OK");
+    return STATUS_SUCCESS;
 }
 NTSTATUS IpcInterrupt::Disable(WDFINTERRUPT interrupt,WDFDEVICE) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
