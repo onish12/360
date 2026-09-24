@@ -6,6 +6,10 @@ $w=Get-Content (Join-Path $root '.github\workflows\m1-fast-safe-package.yml') -R
 $d=Get-Content (Join-Path $root 'm062\driver\boot_dma.cpp') -Raw
 $l=Get-Content (Join-Path $root 'm062\driver\repeated_device_lifecycle.cpp') -Raw
 $h=Get-Content (Join-Path $root 'm062\driver\hda_transport.cpp') -Raw
+$g=Get-Content (Join-Path $root 'm062\driver\glk_boot.cpp') -Raw
+$i=Get-Content (Join-Path $root 'm062\driver\ipc_interrupt.cpp') -Raw
+$s=Get-Content (Join-Path $root 'm062\driver\stage_trace.cpp') -Raw
+$e=Get-Content (Join-Path $root 'm062\driver\driver_entry.cpp') -Raw
 foreach($x in @(
  'm1-fast-safe-20260924-r4-stage-trace','EXACT_WINDOWS_BUILD_19044_REQUIRED','PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
  "BaselineInf='oem14.inf'","BaselineVersion='9.22.0.4832'",'/export-driver',
