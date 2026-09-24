@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "boot_dma.h"
 #include "../../src/sof/hda_bdl.h"
+#include "stage_trace.h"
 
 namespace phaser360 { namespace windows {
 
@@ -34,6 +35,7 @@ void BootDma::DeleteHardware() noexcept {
 }
 
 NTSTATUS BootDma::PrepareHardware(WDFDEVICE device,SIZE_T payloadCapacity) noexcept {
+    StageTrace(L"P20_DMA_PREPARE_ENTER");
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return STATUS_INVALID_DEVICE_STATE;
     if(abandoned_ || enabler_ || payload_ || bdl_ || staged_ || published_)
         return STATUS_INVALID_DEVICE_STATE;
@@ -49,7 +51,11 @@ NTSTATUS BootDma::PrepareHardware(WDFDEVICE device,SIZE_T payloadCapacity) noexc
         &dma,WdfDmaProfileScatterGather,sof::kMaxDmaBytes);
     NTSTATUS status=WdfDmaEnablerCreate(
         device,&dma,WDF_NO_OBJECT_ATTRIBUTES,&enabler_);
-    if(!NT_SUCCESS(status)) return status;
+    if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"P21_DMA_ENABLER_FAIL",status);
+        return status;
+    }
+    StageTrace(L"P21_DMA_ENABLER_OK");
 
     WDF_COMMON_BUFFER_CONFIG buffer;
     WDF_COMMON_BUFFER_CONFIG_INIT(&buffer,kBootDmaAlignmentRequirement);
@@ -57,16 +63,20 @@ NTSTATUS BootDma::PrepareHardware(WDFDEVICE device,SIZE_T payloadCapacity) noexc
     status=WdfCommonBufferCreateWithConfig(
         enabler_,payloadCapacity,&buffer,WDF_NO_OBJECT_ATTRIBUTES,&payload_);
     if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"P22_PAYLOAD_BUFFER_FAIL",status);
         DeleteHardware();
         return status;
     }
+    StageTrace(L"P22_PAYLOAD_BUFFER_OK");
 
     status=WdfCommonBufferCreateWithConfig(
         enabler_,sof::kBdlBytes,&buffer,WDF_NO_OBJECT_ATTRIBUTES,&bdl_);
     if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"P23_BDL_BUFFER_FAIL",status);
         DeleteHardware();
         return status;
     }
+    StageTrace(L"P23_BDL_BUFFER_OK");
 
     const auto payloadPa=WdfCommonBufferGetAlignedLogicalAddress(payload_);
     const auto bdlPa=WdfCommonBufferGetAlignedLogicalAddress(bdl_);
@@ -77,6 +87,7 @@ NTSTATUS BootDma::PrepareHardware(WDFDEVICE device,SIZE_T payloadCapacity) noexc
 
     if(payloadPa.QuadPart<0 || bdlPa.QuadPart<0 ||
        !payloadVirtual_ || !bdlVirtual_) {
+        StageTraceStatus(L"P24_DMA_ADDRESS_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
         DeleteHardware();
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
@@ -90,12 +101,14 @@ NTSTATUS BootDma::PrepareHardware(WDFDEVICE device,SIZE_T payloadCapacity) noexc
        (bdlLogical_&kBootDmaAlignmentRequirement)!=0 ||
        payloadLogical_>max32-static_cast<ULONGLONG>(payloadCapacity_-1) ||
        bdlLogical_>max32-static_cast<ULONGLONG>(sof::kBdlBytes-1)) {
+        StageTraceStatus(L"P24_DMA_32BIT_OR_ALIGNMENT_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
         DeleteHardware();
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
 
     RtlZeroMemory(payloadVirtual_,payloadCapacity_);
     RtlZeroMemory(bdlVirtual_,sof::kBdlBytes);
+    StageTrace(L"P25_DMA_PREPARE_OK");
     return STATUS_SUCCESS;
 }
 
