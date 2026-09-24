@@ -170,7 +170,6 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
     }
 
     StageTrace(L"D40_FIRMWARE_COMMAND_READY");
-    StageTrace(L"D50_FRAMEWORK_ENABLE_GRANT_OK");
     if(!gate_.Allowed()) {
         const auto result=AbandonRemovedBeforeEnable()
             ? STATUS_INVALID_DEVICE_STATE : STATUS_DEVICE_CONFIGURATION_ERROR;
@@ -191,6 +190,7 @@ NTSTATUS RepeatedDeviceLifecycle::D0Entry(
         }
         return RecordD0Status(STATUS_DEVICE_CONFIGURATION_ERROR);
     }
+    StageTrace(L"D50_FRAMEWORK_ENABLE_GRANT_OK");
 
     if(!gate_.Allowed()) {
         const auto result=AbandonRemovedBeforeEnable()
