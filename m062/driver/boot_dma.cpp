@@ -4,6 +4,12 @@
 
 namespace phaser360 { namespace windows {
 
+namespace {
+// KMDF alignment requirements are boundary-1. Wdm.h defines named constants
+// only through 512 bytes; 4 KiB is therefore expressed directly as 4096-1.
+constexpr ULONG kBootDmaAlignmentRequirement=0x0fffu;
+}
+
 void BootDma::ResetSession() noexcept {
     if(payloadVirtual_ && payloadCapacity_)
         RtlZeroMemory(payloadVirtual_,payloadCapacity_);
@@ -36,7 +42,7 @@ NTSTATUS BootDma::PrepareHardware(WDFDEVICE device,SIZE_T payloadCapacity) noexc
 
     // KMDF requires the device alignment contract before WdfDmaEnablerCreate.
     // 4096-byte alignment is also the reviewed HDA BDL/common-buffer contract.
-    WdfDeviceSetAlignmentRequirement(device,FILE_4096_BYTE_ALIGNMENT);
+    WdfDeviceSetAlignmentRequirement(device,kBootDmaAlignmentRequirement);
 
     WDF_DMA_ENABLER_CONFIG dma;
     WDF_DMA_ENABLER_CONFIG_INIT(
@@ -46,7 +52,7 @@ NTSTATUS BootDma::PrepareHardware(WDFDEVICE device,SIZE_T payloadCapacity) noexc
     if(!NT_SUCCESS(status)) return status;
 
     WDF_COMMON_BUFFER_CONFIG buffer;
-    WDF_COMMON_BUFFER_CONFIG_INIT(&buffer,FILE_4096_BYTE_ALIGNMENT);
+    WDF_COMMON_BUFFER_CONFIG_INIT(&buffer,kBootDmaAlignmentRequirement);
 
     status=WdfCommonBufferCreateWithConfig(
         enabler_,payloadCapacity,&buffer,WDF_NO_OBJECT_ATTRIBUTES,&payload_);
@@ -80,8 +86,8 @@ NTSTATUS BootDma::PrepareHardware(WDFDEVICE device,SIZE_T payloadCapacity) noexc
     payloadCapacity_=payloadCapacity;
 
     const ULONGLONG max32=static_cast<ULONGLONG>(MAXULONG);
-    if((payloadLogical_&FILE_4096_BYTE_ALIGNMENT)!=0 ||
-       (bdlLogical_&FILE_4096_BYTE_ALIGNMENT)!=0 ||
+    if((payloadLogical_&kBootDmaAlignmentRequirement)!=0 ||
+       (bdlLogical_&kBootDmaAlignmentRequirement)!=0 ||
        payloadLogical_>max32-static_cast<ULONGLONG>(payloadCapacity_-1) ||
        bdlLogical_>max32-static_cast<ULONGLONG>(sof::kBdlBytes-1)) {
         DeleteHardware();
