@@ -2,6 +2,18 @@ name: M1 R5 cap-chain fix one-shot DSP boot package
 # R5 fixes the physical Lenovo HDA extended-capability chain while retaining ETW and automatic rollback.
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'm062/m1_fast/**'
+      - 'm062/m1/**'
+      - 'm062/driver/**'
+      - 'src/sof/**'
+      - 'scripts/verify-sof-reference.py'
+      - 'scripts/generate-embedded-firmware.py'
+      - 'tests/fixtures/sof_glk_reference.json'
+      - 'tests/m0615_m1_fast_safe_tests.ps1'
+      - '.github/workflows/m1-fast-safe-package.yml'
   push:
     branches: [codex/audio-auto-20260915, codex/m1-r5-cap-chain-fix-20260924]
     paths:
