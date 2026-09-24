@@ -1,8 +1,8 @@
-name: M1 FAST-SAFE R3.1 telemetry-fallback one-shot DSP boot package
+name: M1 R4 stage-trace one-shot DSP boot package
 on:
   workflow_dispatch:
   push:
-    branches: [codex/audio-auto-20260915]
+    branches: [codex/audio-auto-20260915, codex/m1-r4-stage-trace-20260924]
     paths:
       - 'm062/m1_fast/**'
       - 'm062/m1/**'
@@ -69,7 +69,7 @@ jobs:
           ctest --test-dir build-m1-fast -C Release -R '^(sof_dma_owner|sof_glk_boot)$' --output-on-failure
           if($LASTEXITCODE -ne 0){throw 'M1_R3_HOST_TESTS_FAILED'}
 
-      - name: Build R3 M1 driver
+      - name: Build R4 M1 stage-trace driver
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -89,7 +89,7 @@ jobs:
           $imports=(& $dumpbin /imports $sys 2>&1|Out-String);if($LASTEXITCODE-ne0){throw 'M1_FAST_IMPORTS_FAILED'}
           if($headers -notmatch '(?im)8664\s+machine\s+\(x64\)' -or $headers -notmatch '(?im)subsystem\s+\(Native\)'){throw 'M1_FAST_PE_IDENTITY_INVALID'}
           foreach($bad in @('KERNEL32.dll','USER32.dll','WINMM.dll','MMDEVAPI.dll','PORTCLS.SYS','KS.SYS','ACX01000.SYS')){if($imports.IndexOf($bad,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "M1_FAST_FORBIDDEN_IMPORT:$bad"}}
-          foreach($req in @('BCryptOpenAlgorithmProvider','BCryptCreateHash','BCryptHashData','BCryptFinishHash')){if($imports.IndexOf($req,[StringComparison]::Ordinal)-lt0){throw "M1_FAST_EXPECTED_IMPORT_MISSING:$req"}}
+          foreach($req in @('BCryptOpenAlgorithmProvider','BCryptCreateHash','BCryptHashData','BCryptFinishHash','EtwRegister','EtwWriteString','EtwUnregister')){if($imports.IndexOf($req,[StringComparison]::Ordinal)-lt0){throw "M1_FAST_EXPECTED_IMPORT_MISSING:$req"}}
           $dmaSource=Get-Content .\m062\driver\boot_dma.cpp -Raw
           $irqSource=Get-Content .\m062\driver\ipc_interrupt.cpp -Raw
           foreach($req in @('WdfDmaEnablerCreate','WdfCommonBufferCreateWithConfig')){if($dmaSource.IndexOf($req,[StringComparison]::Ordinal)-lt0){throw "M1_FAST_DMA_SOURCE_CALL_MISSING:$req"}}
@@ -148,12 +148,13 @@ jobs:
 
             $runnerSha=(Get-FileHash (Join-Path $package 'Run-M1FastSafe.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
             [ordered]@{
-              Schema=1;Purpose='M1_FAST_SAFE_ONE_SHOT_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260924-r3.1-cm-interface-fallback';RunnerSha256=$runnerSha
+              Schema=1;Purpose='M1_FAST_SAFE_R4_STAGE_TRACE_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260924-r4-stage-trace';RunnerSha256=$runnerSha
               ExactHardwareId='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06';WindowsBuildExact=19044
               BaselineService='IntcAudioBus';BaselineInf='oem14.inf';BaselineVersion='9.22.0.4832';BaselineProvider='Intel(R) Corporation'
-              M1Service='Phaser360M1';M1Version='0.6.15.132';M1Provider='PHASER360 Experimental'
+              M1Service='Phaser360M1';M1Version='0.6.15.133';M1Provider='PHASER360 Experimental'
               FirmwareBytes=287488;FirmwareSha256='40029b5a05665f19a492ef00b8c0a24c42e90d7c00fc57146e07947fd1407d5c'
               NhltBytes=3684;NhltSha256='4764aba0316e9a039a127285cc4ff9e97e22c75bfddb6d865d9f77b59dd2a6b9'
+              StageTraceProvider='ebaed0db-f9db-42ea-a162-5f4111384051';StageTrace='ETW_PRE_BIND'
               CertificateSubject=$subject;CertificateThumbprint=$cert.Thumbprint;PrivateKeyExported=$false
               InfSha256=(Get-FileHash $inf -Algorithm SHA256).Hash.ToLowerInvariant()
               SysSha256=(Get-FileHash $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -172,7 +173,7 @@ jobs:
       - name: Upload M1 fast-safe package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: PHASER360_M1_FAST_SAFE_ONE_SHOT_DSP_BOOT
+          name: PHASER360_M1_R4_STAGE_TRACE
           path: _m1_fast_package/
           if-no-files-found: error
           retention-days: 3
