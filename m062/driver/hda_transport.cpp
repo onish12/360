@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "hda_transport.h"
+#include "stage_trace.h"
 namespace phaser360 { namespace windows {
 bool HdaTransport::Valid(ULONG o,unsigned w) const noexcept {
     return KeGetCurrentIrql()==PASSIVE_LEVEL && gate_ && gate_->Allowed() && base_ &&
@@ -31,6 +32,7 @@ bool HdaTransport::Verify(void* p) noexcept {
 }
 NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
                               const UCHAR* payload,SIZE_T bytes) noexcept {
+    StageTrace(L"H10_HDA_PREPARE_ENTER");
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_ || !gate_ ||
        !gate_->Allowed() || !dma_ || !dma_->HardwarePrepared())
         return STATUS_INVALID_DEVICE_STATE;
@@ -38,28 +40,56 @@ NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
        !bytes || bytes>sof::kMaxDmaBytes) return STATUS_INVALID_PARAMETER;
     attempted_=true; base_=base; length_=length;
     const auto pciStatus=pci_.Capture(device);
-    if(!NT_SUCCESS(pciStatus)) return pciStatus;
+    if(!NT_SUCCESS(pciStatus)) {
+        StageTraceStatus(L"H20_PCI_CAPTURE_FAIL",pciStatus);
+        return pciStatus;
+    }
+    StageTrace(L"H20_PCI_CAPTURE_OK");
     const sof::RegisterIo io={this,Read,Write,Delay,length_};
     controllerAttempted_=true;
-    if(!controller_.Initialize(io)) return STATUS_DEVICE_CONFIGURATION_ERROR;
-    if(!stream_.Select(io)) return STATUS_DEVICE_CONFIGURATION_ERROR;
+    if(!controller_.Initialize(io)) {
+        StageTraceStatus(L"H30_CONTROLLER_INIT_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    StageTrace(L"H30_CONTROLLER_INIT_OK");
+    if(!stream_.Select(io)) {
+        StageTraceStatus(L"H40_STREAM_SELECT_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    StageTrace(L"H40_STREAM_SELECT_OK");
 
     NTSTATUS status=dma_->Stage(payload,bytes);
-    if(!NT_SUCCESS(status)) return status;
+    if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"H50_DMA_STAGE_FAIL",status);
+        return status;
+    }
+    StageTrace(L"H50_DMA_STAGE_OK");
     allocated_=true;
 
     BootDmaView view={};
     status=dma_->Publish(&view);
-    if(!NT_SUCCESS(status)) return status;
+    if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"H60_DMA_PUBLISH_FAIL",status);
+        return status;
+    }
+    StageTrace(L"H60_DMA_PUBLISH_OK");
     published_=true;
-    if(!stream_.Configure(view.bdlLogical,view.payloadBytes,view.lastValidIndex))
+    if(!stream_.Configure(view.bdlLogical,view.payloadBytes,view.lastValidIndex)) {
+        StageTraceStatus(L"H70_STREAM_CONFIGURE_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
         return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    StageTrace(L"H70_STREAM_CONFIGURE_OK");
 
     // H15D: after HDA is cold/owned but before any DSP MMIO, apply only the
     // two SOF pre-fw PCI policy bits attested by H15C. Any failure is cleaned
     // by the mandatory Shutdown -> QuiesceController path.
     status=pciPolicy_.Apply(device,pci_.Snapshot(),*gate_);
-    if(!NT_SUCCESS(status)) return status;
+    if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"H80_PCI_POLICY_FAIL",status);
+        return status;
+    }
+    StageTrace(L"H80_PCI_POLICY_OK");
+    StageTrace(L"H90_HDA_PREPARE_OK");
     return STATUS_SUCCESS;
 }
 bool HdaTransport::Start() noexcept {
