@@ -261,7 +261,7 @@ if($baselineExportInfs.Count-ne1){throw "BASELINE_EXPORT_INF_COUNT_INVALID: coun
 $baselineExportInf=$baselineExportInfs[0].FullName
 WriteUtf8 (Join-Path $dir 'baseline_export_inf.txt') $baselineExportInf
 
-$rootAdded=$false;$pubAdded=$false;$published=$false;$publishedInf=$null;$bindAttempted=$false;$bindRebootSignalled=$false;$m1Bound=$false;$bootProved=$false;$rollbackComplete=$false;$fallbackIntel=$false;$err=$null;$stageTrace=$null
+$rootAdded=$false;$pubAdded=$false;$published=$false;$publishedInf=$null;$bindAttempted=$false;$bindRebootSignalled=$false;$m1Bound=$false;$bootProved=$false;$rollbackComplete=$false;$fallbackIntel=$false;$fallbackRebootSignalled=$false;$err=$null;$stageTrace=$null
 try{
   $x=CertUtil @('-f','-addstore','Root',$pkg.Cer);WriteUtf8 (Join-Path $dir 'cert_add_root.txt') $x.Output;if($x.ExitCode-ne0){throw 'CERT_ROOT_ADD_FAILED'};$rootAdded=$true
   $x=CertUtil @('-f','-addstore','TrustedPublisher',$pkg.Cer);WriteUtf8 (Join-Path $dir 'cert_add_publisher.txt') $x.Output;if($x.ExitCode-ne0){throw 'CERT_PUBLISHER_ADD_FAILED'};$pubAdded=$true
@@ -315,7 +315,10 @@ try{
   if(@(PublishedM1).Count-ne0){throw 'M1_PACKAGE_REMAINS_AFTER_UNINSTALL'}
   try{$after=WaitIntel $before.InstanceId 20}catch{
     if(-not(Test-Path $baselineExportInf -PathType Leaf)){throw}
-    $rb=[Phaser360.M1FastNative]::ForceUpdate($ExactHwid,$baselineExportInf);if($rb){throw 'INTEL_FALLBACK_REQUIRES_REBOOT'}
+    $fallbackRebootSignalled=[Phaser360.M1FastNative]::ForceUpdate($ExactHwid,$baselineExportInf)
+    WriteUtf8 (Join-Path $dir 'intel_fallback_update_result.json') ([ordered]@{
+      Api='UpdateDriverForPlugAndPlayDevicesW';Succeeded=$true;RebootRequired=[bool]$fallbackRebootSignalled;AutomaticReboot=$false
+    }|ConvertTo-Json)
     $fallbackIntel=$true;$after=WaitIntel $before.InstanceId 20
   }
   WriteUtf8 (Join-Path $dir 'target_after.json') ($after|ConvertTo-Json -Depth 8)
@@ -356,7 +359,7 @@ $status=if($bootProved -and $rollbackComplete -and $baselineRestored -and $trust
 if($final){WriteUtf8 (Join-Path $dir 'target_final.json') ($final|ConvertTo-Json -Depth 8)}
 WriteUtf8 (Join-Path $dir 'transaction.json') ([ordered]@{
  Status=$status;RunnerBuild=$Build;PublishedInf=$publishedInf;BindAttempted=$bindAttempted;BindRebootSignalled=$bindRebootSignalled;M1Bound=$m1Bound;BootProved=$bootProved
- BaselineRestored=$baselineRestored;TrustRestored=$trustRestored;IntelFallbackUsed=$fallbackIntel
+ BaselineRestored=$baselineRestored;TrustRestored=$trustRestored;IntelFallbackUsed=$fallbackIntel;IntelFallbackRebootSignalled=$fallbackRebootSignalled
  StageTraceProvider=$StageProviderGuid.ToString();StageTraceCaptured=[bool]($stageTrace -and $stageTrace.Stopped -and (Test-Path $stageTrace.Etl -PathType Leaf))
  TransactionError=$(if($err){$err.Message}else{$null});FirmwareSha256=$FirmwareSha;NHLTSha256=$NHLTSha
  AudioPlayback='NO';CodecProgramming='NO';SpeakerEnable='NO';AutomaticReboot='NO';BcdWrite='NO'
