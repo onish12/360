@@ -39,7 +39,7 @@ jobs:
           & .\tests\m0615_m1_fast_safe_tests.ps1
           if(-not $?){throw 'M1_FAST_STATIC_TESTS_FAILED'}
           $ps51=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-          & $ps51 -NoLogo -NoProfile -NonInteractive -Command "$null=[scriptblock]::Create((Get-Content -LiteralPath '.\m062\m1_fast\Run-M1FastSafe.ps1' -Raw));'M1_FAST_PS51_PARSE=PASS'"
+          & $ps51 -NoLogo -NoProfile -NonInteractive -Command '$null=[scriptblock]::Create((Get-Content -LiteralPath ".\m062\m1_fast\Run-M1FastSafe.ps1" -Raw)); "M1_FAST_PS51_PARSE=PASS"'
           if($LASTEXITCODE-ne0){throw 'M1_FAST_PS51_PARSE_FAILED'}
 
       - name: Build SOF inspector and verify exact upstream firmware
