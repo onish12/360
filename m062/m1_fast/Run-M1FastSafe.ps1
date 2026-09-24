@@ -132,6 +132,7 @@ function Package([string]$root,[switch]$Trusted){
      [string]$m.ExactHardwareId -cne $ExactHwid -or [int]$m.WindowsBuildExact -ne19044 -or
      [string]$m.BaselineInf -cne $BaselineInf -or [string]$m.BaselineVersion -cne $BaselineVersion -or
      [string]$m.FirmwareSha256 -cne $FirmwareSha -or [string]$m.NhltSha256 -cne $NHLTSha -or
+     [string]$m.StageTraceProvider -cne $StageProviderGuid.ToString() -or
      [string]$m.CertificateThumbprint -cne [string]$c.Thumbprint){throw 'M1_MANIFEST_CONTRACT_INVALID'}
   foreach($x in @(@($inf,[string]$m.InfSha256),@($sys,[string]$m.SysSha256),@($cat,[string]$m.CatSha256),@($cer,[string]$m.CerSha256))){
     if((Get-FileHash $x[0] -Algorithm SHA256).Hash.ToLowerInvariant() -cne $x[1].ToLowerInvariant()){throw 'M1_MANIFEST_HASH_MISMATCH'}
