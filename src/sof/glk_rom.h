@@ -12,6 +12,24 @@ struct RomIo {
 };
 enum class RomState { Unbound, Bound, Cold, Initializing, DownloadReady, Entered, Fault };
 enum class RomError { None, Argument, State, Io, Timeout, Clock, Halted, Precondition };
+enum class RomPhase {
+    None,
+    PowerDownInterruptMask,
+    PowerDownIpcControl,
+    PowerDownCores,
+    InitPreAdspcs,
+    InitPreHipci,
+    InitClearStaleDone,
+    InitPowerUpCores,
+    InitConfigureSsp,
+    InitWriteRomCommand,
+    InitRunCore0,
+    InitWaitRomDone,
+    InitClearRomDone,
+    InitPowerDownCore1,
+    InitWaitRomReady,
+    WaitFirmwareEntered
+};
 class GlkRom final {
 public:
     GlkRom() noexcept = default;
@@ -23,11 +41,13 @@ public:
     bool WaitEntered() noexcept; // caller starts prepared HDA stream first
     RomState State() const noexcept { return state_; }
     RomError Error() const noexcept { return error_; }
+    RomPhase Phase() const noexcept { return phase_; }
     uint32_t LastValue() const noexcept { return last_; }
 private:
     RomIo io_={};
     RomState state_=RomState::Unbound;
     RomError error_=RomError::None;
+    RomPhase phase_=RomPhase::None;
     uint32_t last_=0;
     bool Fail(RomError) noexcept;
     bool Read(uint32_t,uint32_t&) noexcept;
