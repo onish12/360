@@ -66,23 +66,30 @@ write contract:
 Changes to capability IDs/links, resource identity, or either owned dword still
 fail before any policy write.
 
-## R6 ETW substages
+## R6 ETW diagnostics
 
-R6 adds policy-local trace points so a later Code 10 identifies the exact
-operation instead of collapsing all failures into H80:
+The shared PCI policy object remains trace-provider agnostic because it is also
+linked by the older H15D/H15H drivers. It exposes a bounded failure enum to its
+caller. Only the M1 HDA transport translates that diagnostic into ETW.
 
-- H81 policy enter;
-- H83 evidence validation;
-- H84 BUS_INTERFACE_STANDARD;
+R6 keeps `H80_PCI_POLICY_ENTER` / `H80_PCI_POLICY_OK|FAIL` and adds one
+specific failure event before H80 FAIL:
+
+- H81 state/gate precondition;
+- H82 evidence validation;
+- H83 BUS_INTERFACE_STANDARD query;
+- H84 BUS_INTERFACE_STANDARD shape;
 - H85 live config read;
 - H86 identity drift;
 - H87 stable-header drift;
 - H88 capability-structure drift;
 - H89 owned-dword drift;
-- H8A live contract accepted;
-- H8C CGCTL write/readback;
-- H8D PGCTL write/readback;
-- H8E policy applied.
+- H8A gate closed before writes;
+- H8B/H8C/H8D CGCTL write/gate/readback failure;
+- H8E/H8F/H8G PGCTL write/gate/readback failure.
+
+This preserves the isolated H15 driver link contract while making the next
+physical M1 failure directly classifiable.
 
 No audio playback, codec programming, speaker enable, BCD write or automatic
 reboot is introduced by R6.
