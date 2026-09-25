@@ -2,10 +2,10 @@
 param([Parameter(Mandatory=$true)][string]$PackageRoot,[string]$OutputRoot='')
 $ErrorActionPreference='Stop';Set-StrictMode -Version 2
 
-$Build='m1-fast-safe-20260924-r5-cap-chain-fix'
+$Build='m1-fast-safe-20260925-r6-pci-live-contract'
 $ExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $M1Service='Phaser360M1'
-$M1Version='0.6.15.134'
+$M1Version='0.6.15.135'
 $M1Provider='PHASER360 Experimental'
 $BaselineService='IntcAudioBus'
 $BaselineInf='oem14.inf'
@@ -51,12 +51,12 @@ function PnP([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\pnputil.exe';$
 function CertUtil([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\certutil.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
 function Logman([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\logman.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
 function StartStageTrace([string]$dir,[string]$suffix){
-  $name='PHASER360_M1_R5_'+$suffix
-  $etl=Join-Path $dir 'M1_R5_STAGE_TRACE.etl'
+  $name='PHASER360_M1_R6_'+$suffix
+  $etl=Join-Path $dir 'M1_R6_STAGE_TRACE.etl'
   $provider='{'+$StageProviderGuid.ToString()+'}'
   $x=Logman @('start',$name,'-ets','-p',$provider,'0x1','0xFF','-o',$etl,'-bs','64','-nb','16','64')
   WriteUtf8 (Join-Path $dir 'stage_trace_start.txt') $x.Output
-  if($x.ExitCode-ne0){throw "M1_R5_STAGE_TRACE_START_FAILED: exit=$($x.ExitCode)"}
+  if($x.ExitCode-ne0){throw "M1_R6_STAGE_TRACE_START_FAILED: exit=$($x.ExitCode)"}
   [pscustomobject]@{Name=$name;Etl=$etl;Started=$true;Stopped=$false}
 }
 function StopStageTrace($trace,[string]$dir){
@@ -77,7 +77,7 @@ function StopStageTrace($trace,[string]$dir){
   }catch{WriteUtf8 (Join-Path $dir 'stage_trace_getwinevent_error.txt') $_.Exception.ToString()}
   try{
     $tracerpt=Join-Path $env:SystemRoot 'System32\tracerpt.exe'
-    $xml=Join-Path $dir 'M1_R5_STAGE_TRACE.xml'
+    $xml=Join-Path $dir 'M1_R6_STAGE_TRACE.xml'
     $old=$ErrorActionPreference;$ErrorActionPreference='Continue'
     try{$o=(& $tracerpt $trace.Etl '-o' $xml '-of' 'XML' '-y' 2>&1|Out-String -Width 8192);$ec=$LASTEXITCODE}finally{$ErrorActionPreference=$old}
     WriteUtf8 (Join-Path $dir 'stage_trace_tracerpt.txt') ("EXIT=$ec"+[Environment]::NewLine+$o)
@@ -128,7 +128,7 @@ function Package([string]$root,[switch]$Trusted){
   if(-not$c -or $c.HasPrivateKey -or $c.Subject -cne $CertSubject -or $c.Issuer -cne $CertSubject){throw 'M1_CERT_IDENTITY_INVALID'}
   if($c.NotBefore.ToUniversalTime()-gt[DateTime]::UtcNow -or $c.NotAfter.ToUniversalTime()-le[DateTime]::UtcNow){throw 'M1_CERT_NOT_CURRENTLY_VALID'}
   $m=Get-Content $man -Raw|ConvertFrom-Json
-  if([string]$m.Purpose -cne 'M1_FAST_SAFE_R5_CAP_CHAIN_FIX_DSP_BOOT' -or [string]$m.RunnerBuild -cne $Build -or
+  if([string]$m.Purpose -cne 'M1_FAST_SAFE_R6_PCI_LIVE_CONTRACT_DSP_BOOT' -or [string]$m.RunnerBuild -cne $Build -or
      [string]$m.ExactHardwareId -cne $ExactHwid -or [int]$m.WindowsBuildExact -ne19044 -or
      [string]$m.BaselineInf -cne $BaselineInf -or [string]$m.BaselineVersion -cne $BaselineVersion -or
      [string]$m.FirmwareSha256 -cne $FirmwareSha -or [string]$m.NhltSha256 -cne $NHLTSha -or
@@ -233,7 +233,7 @@ function ParseTelemetry([byte[]]$b){
 
 if(-not(Admin)){throw 'ADMINISTRATOR_REQUIRED'}
 if(-not[Environment]::Is64BitProcess){throw 'WINDOWS_X64_REQUIRED'}
-Write-Host 'PHASER360 M1 R5 CAP-CHAIN FIX - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK'
+Write-Host 'PHASER360 M1 R6 PCI-LIVE-CONTRACT - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK'
 Write-Host "RUNNER_BUILD=$Build"
 Write-Host 'AUDIO_PLAYBACK=NO; CODEC_PROGRAMMING=NO; SPEAKER_ENABLE=NO; BCD_WRITE=NO; REBOOT=NO'
 Write-Host ("STAGE_TRACE_PROVIDER={"+$StageProviderGuid.ToString()+"}")
