@@ -93,3 +93,23 @@ physical M1 failure directly classifiable.
 
 No audio playback, codec programming, speaker enable, BCD write or automatic
 reboot is introduced by R6.
+
+## Final CI/package evidence — 2026-09-25
+
+- M1 R6 package workflow run `36181572188`: SUCCESS.
+- R6 host transport/PCI-policy/DMA regressions: 100% PASS.
+- PowerShell 5.1 runner parse: PASS.
+- SOF reference verification: PASS.
+- SYS and CAT signing/verification: PASS.
+- Artifact: `PHASER360_M1_R6_PCI_LIVE_CONTRACT`, ID `10884747239`.
+- GitHub artifact ZIP SHA-256:
+  `8753a20e8ab8da5339e4db471274a0959fa031835f856dc33a36f620d3e0620f`.
+- Independent downloaded ZIP verification: 11/11 entries in
+  `SHA256SUMS.txt` match.
+- Full WDK/H15 regression run `36181924832`: SUCCESS, including the
+  H15D bounded-PCI filter/static guards and H15E transient-MMIO guards.
+
+The artifact source commit is `137737acf960cb3dd8242be0d28f50f48fa272cc`.
+Subsequent commits before final validation changed only this documentation and
+the H15D static textual expectation; driver, runner and package payload sources
+are unchanged.
