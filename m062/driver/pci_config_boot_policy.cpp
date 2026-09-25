@@ -1,16 +1,93 @@
 // SPDX-License-Identifier: MIT
 #include "pci_config_boot_policy.h"
+#include "stage_trace.h"
 #include <wdmguid.h>
 
 namespace phaser360 { namespace windows {
 
 namespace {
+constexpr ULONG kVendorOffset=0x00u;
+constexpr ULONG kCommandOffset=0x04u;
+constexpr ULONG kClassRevisionOffset=0x08u;
+constexpr ULONG kHeaderTypeOffset=0x0eu;
+constexpr ULONG kBarsOffset=0x10u;
+constexpr ULONG kBarsBytes=0x18u;
+constexpr ULONG kSubsystemOffset=0x2cu;
+constexpr ULONG kFirstCapabilityOffset=0x34u;
+constexpr ULONG kInterruptPinOffset=0x3du;
+constexpr UCHAR kCapabilityMin=0x50u;
+constexpr UCHAR kCapabilityMax=0xfcu;
+
+USHORT Load16(const UCHAR* p) noexcept {
+    return static_cast<USHORT>(
+        static_cast<USHORT>(p[0]) |
+        static_cast<USHORT>(static_cast<USHORT>(p[1])<<8));
+}
+ULONG Load32(const UCHAR* p) noexcept {
+    return static_cast<ULONG>(p[0]) |
+        (static_cast<ULONG>(p[1])<<8) |
+        (static_cast<ULONG>(p[2])<<16) |
+        (static_cast<ULONG>(p[3])<<24);
+}
+bool EqualRange(const UCHAR* a,const UCHAR* b,ULONG offset,ULONG bytes) noexcept {
+    return a && b && bytes!=0 &&
+        RtlCompareMemory(a+offset,b+offset,bytes)==bytes;
+}
 bool ReadConfigImage(BUS_INTERFACE_STANDARD& bus,UCHAR* config) noexcept {
     if(!config || !bus.GetBusData) return false;
     RtlZeroMemory(config,kPciConfigSnapshotBytes);
     return bus.GetBusData(
         bus.Context,PCI_WHICHSPACE_CONFIG,config,0,kPciConfigSnapshotBytes)
         ==kPciConfigSnapshotBytes;
+}
+bool IdentityMatches(const UCHAR* live,const PciConfigSnapshot& evidence) noexcept {
+    return live &&
+        Load16(live+kVendorOffset)==evidence.vendorId &&
+        Load16(live+kVendorOffset+2)==evidence.deviceId &&
+        (live[kHeaderTypeOffset]&0x7fu)==(evidence.headerType&0x7fu) &&
+        live[kFirstCapabilityOffset]==evidence.firstCapability;
+}
+bool StableHeaderMatches(const UCHAR* live,const PciConfigSnapshot& evidence) noexcept {
+    // Do not compare PCI Status or capability payload/status fields: those can
+    // legitimately change after HDA reset/stream preparation. Keep the fields
+    // that prove this is still the same function/resource contract.
+    return live &&
+        EqualRange(live,evidence.config,kCommandOffset,2) &&
+        EqualRange(live,evidence.config,kClassRevisionOffset,4) &&
+        EqualRange(live,evidence.config,kBarsOffset,kBarsBytes) &&
+        EqualRange(live,evidence.config,kSubsystemOffset,4) &&
+        live[kInterruptPinOffset]==evidence.config[kInterruptPinOffset];
+}
+bool CapabilityStructureMatches(const UCHAR* live,const PciConfigSnapshot& evidence) noexcept {
+    if(!live || !evidence.firstCapability || evidence.capabilityCount==0) return false;
+    UCHAR seen[64]={};
+    UCHAR current=evidence.firstCapability;
+    UCHAR count=0;
+    for(unsigned n=0;n<48;++n) {
+        if((current&3u)!=0 || current<kCapabilityMin || current>kCapabilityMax ||
+           static_cast<ULONG>(current)+2u>kPciConfigSnapshotBytes)
+            return false;
+        const unsigned slot=current>>2;
+        if(slot>=64 || seen[slot]) return false;
+        seen[slot]=1;
+        ++count;
+
+        // Capability ID and next-link are structural. Capability control/status
+        // payload bytes are intentionally not part of the live TOCTOU fence.
+        if(live[current]==0xffu ||
+           live[current]!=evidence.config[current] ||
+           live[current+1]!=evidence.config[current+1])
+            return false;
+        const UCHAR next=live[current+1];
+        if(!next) return count==evidence.capabilityCount;
+        current=next;
+    }
+    return false;
+}
+bool OwnedDwordsMatch(const UCHAR* live,const PciConfigSnapshot& evidence) noexcept {
+    return live &&
+        Load32(live+PciConfigBootPolicy::PgctlOffset())==evidence.pgctl &&
+        Load32(live+PciConfigBootPolicy::CgctlOffset())==evidence.cgctl;
 }
 }
 
@@ -85,9 +162,12 @@ bool PciConfigBootPolicy::RestoreWithBus(BUS_INTERFACE_STANDARD& bus) noexcept {
 NTSTATUS PciConfigBootPolicy::Apply(
     WDFDEVICE device,const PciConfigSnapshot& evidence,
     HardwareAccessGate& gate) noexcept {
+    StageTrace(L"H81_PCI_POLICY_ENTER");
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_ || !device ||
-       !gate.Allowed() || gate.Removed())
+       !gate.Allowed() || gate.Removed()) {
+        StageTraceStatus(L"H82_PCI_POLICY_STATE_FAIL",STATUS_INVALID_DEVICE_STATE);
         return STATUS_INVALID_DEVICE_STATE;
+    }
 
     attempted_=true;
     device_=device;
@@ -95,29 +175,55 @@ NTSTATUS PciConfigBootPolicy::Apply(
 
     if(evidence.vendorId!=0x8086 || evidence.deviceId!=0x3198 ||
        (evidence.headerType&0x7f)!=0 || evidence.firstCapability<0x50 ||
-       (evidence.firstCapability&3)!=0 || evidence.capabilityCount==0)
+       (evidence.firstCapability&3)!=0 || evidence.capabilityCount==0) {
+        StageTraceStatus(L"H83_PCI_EVIDENCE_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
         return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    StageTrace(L"H83_PCI_EVIDENCE_OK");
 
     BUS_INTERFACE_STANDARD bus{};
     const auto status=WdfFdoQueryForInterface(
         device,&GUID_BUS_INTERFACE_STANDARD,reinterpret_cast<PINTERFACE>(&bus),
         static_cast<USHORT>(sizeof(bus)),1,nullptr);
-    if(!NT_SUCCESS(status)) return status;
+    if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"H84_PCI_BUS_INTERFACE_FAIL",status);
+        return status;
+    }
 
     if(!bus.GetBusData || !bus.SetBusData || !bus.InterfaceDereference) {
         if(bus.InterfaceDereference) bus.InterfaceDereference(bus.Context);
+        StageTraceStatus(L"H84_PCI_BUS_INTERFACE_INVALID",STATUS_DEVICE_CONFIGURATION_ERROR);
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
+    StageTrace(L"H84_PCI_BUS_INTERFACE_OK");
 
     UCHAR liveConfig[kPciConfigSnapshotBytes]={};
-    const bool snapshotExact=
-        ReadConfigImage(bus,liveConfig) &&
-        RtlCompareMemory(liveConfig,evidence.config,kPciConfigSnapshotBytes)
-            ==kPciConfigSnapshotBytes;
-    if(!snapshotExact) {
+    if(!ReadConfigImage(bus,liveConfig)) {
         bus.InterfaceDereference(bus.Context);
+        StageTraceStatus(L"H85_PCI_LIVE_READ_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
+    if(!IdentityMatches(liveConfig,evidence)) {
+        bus.InterfaceDereference(bus.Context);
+        StageTraceStatus(L"H86_PCI_IDENTITY_DRIFT",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    if(!StableHeaderMatches(liveConfig,evidence)) {
+        bus.InterfaceDereference(bus.Context);
+        StageTraceStatus(L"H87_PCI_STABLE_HEADER_DRIFT",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    if(!CapabilityStructureMatches(liveConfig,evidence)) {
+        bus.InterfaceDereference(bus.Context);
+        StageTraceStatus(L"H88_PCI_CAP_STRUCTURE_DRIFT",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    if(!OwnedDwordsMatch(liveConfig,evidence)) {
+        bus.InterfaceDereference(bus.Context);
+        StageTraceStatus(L"H89_PCI_OWNED_DWORD_DRIFT",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    StageTrace(L"H8A_PCI_LIVE_CONTRACT_OK");
 
     const ULONG pgctl=evidence.pgctl;
     const ULONG cgctl=evidence.cgctl;
@@ -125,6 +231,7 @@ NTSTATUS PciConfigBootPolicy::Apply(
     originalCgctl_=cgctl;
     if(!gate.Allowed() || gate.Removed()) {
         bus.InterfaceDereference(bus.Context);
+        StageTraceStatus(L"H8B_PCI_GATE_CLOSED",STATUS_INVALID_DEVICE_STATE);
         return STATUS_INVALID_DEVICE_STATE;
     }
 
@@ -138,19 +245,24 @@ NTSTATUS PciConfigBootPolicy::Apply(
            !WriteDword(bus,kCgctlOffset,desiredCgctl)) {
             if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
-            return gate.Removed()?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR;
+            const auto fail=gate.Removed()?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR;
+            StageTraceStatus(L"H8C_CGCTL_WRITE_FAIL",fail);
+            return fail;
         }
         if(!gate.Allowed() || gate.Removed()) {
             bus.InterfaceDereference(bus.Context);
+            StageTraceStatus(L"H8C_CGCTL_GATE_LOST",STATUS_DELETE_PENDING);
             return STATUS_DELETE_PENDING;
         }
         ULONG verify=0;
         if(!ReadDword(bus,kCgctlOffset,&verify) || verify!=desiredCgctl) {
             if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
+            StageTraceStatus(L"H8C_CGCTL_VERIFY_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
     }
+    StageTrace(L"H8C_CGCTL_OK");
 
     // Then prevent opportunistic ADSP power gating while firmware boots.
     const ULONG desiredPgctl=pgctl|kPgctlAdspPgd;
@@ -160,22 +272,28 @@ NTSTATUS PciConfigBootPolicy::Apply(
            !WriteDword(bus,kPgctlOffset,desiredPgctl)) {
             if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
-            return gate.Removed()?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR;
+            const auto fail=gate.Removed()?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR;
+            StageTraceStatus(L"H8D_PGCTL_WRITE_FAIL",fail);
+            return fail;
         }
         if(!gate.Allowed() || gate.Removed()) {
             bus.InterfaceDereference(bus.Context);
+            StageTraceStatus(L"H8D_PGCTL_GATE_LOST",STATUS_DELETE_PENDING);
             return STATUS_DELETE_PENDING;
         }
         ULONG verify=0;
         if(!ReadDword(bus,kPgctlOffset,&verify) || verify!=desiredPgctl) {
             if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
+            StageTraceStatus(L"H8D_PGCTL_VERIFY_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
     }
+    StageTrace(L"H8D_PGCTL_OK");
 
     applied_=true;
     bus.InterfaceDereference(bus.Context);
+    StageTrace(L"H8E_PCI_POLICY_APPLIED_OK");
     return STATUS_SUCCESS;
 }
 
