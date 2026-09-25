@@ -86,12 +86,16 @@ int main() {
         CHECK(!r.Initialize(1));
         CHECK(r.Error()==(mode==2 ? RomError::Halted : mode==5 ? RomError::Io :
                          mode==6 ? RomError::Clock : RomError::Timeout));
+        if(mode==0) CHECK(r.Phase()==RomPhase::InitWaitRomDone);
+        if(mode==3) CHECK(r.Phase()==RomPhase::InitPowerUpCores);
+        if(mode==4) CHECK(r.Phase()==RomPhase::InitClearStaleDone);
         CHECK(m.delays<=1000);
     }
     {
         Model m; GlkRom r; Cold(m,r); m.words[0x48/4]=0x80000000;
         auto w=m.writes; CHECK(!r.Initialize(1)); CHECK(m.writes==w);
         CHECK(r.Error()==RomError::Precondition);
+        CHECK(r.Phase()==RomPhase::InitPreHipci);
     }
     {
         Model m; GlkRom r; Cold(m,r); CHECK(r.Initialize(1));
