@@ -1,6 +1,6 @@
-; PHASER360 M1 FAST-SAFE R5 CAP-CHAIN FIX
-; Exact-target M1 diagnostic package. R5 corrects the live HDA extended-capability
-; walk proven by H15M; ETW remains enabled and audio output remains disabled.
+; PHASER360 M1 FAST-SAFE R6 PCI LIVE-CONTRACT
+; Exact-target M1 diagnostic package. R6 keeps the physical HDA cap-chain fix and
+; uses a bounded PCI live contract before the owned 0x44/0x48 policy writes.
 
 [Version]
 Signature="$WINDOWS NT$"
@@ -9,7 +9,7 @@ ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider=%ProviderName%
 CatalogFile=phaser360_m1_boot.cat
 PnpLockdown=1
-DriverVer=09/24/2026,0.6.15.134
+DriverVer=09/25/2026,0.6.15.135
 
 [DestinationDirs]
 DefaultDestDir=13
