@@ -55,37 +55,68 @@ bool GlkRom::PowerDown() noexcept {
     if(state_==RomState::Unbound) { error_=RomError::State; return false; }
     state_=RomState::Fault; error_=RomError::None;
     // This polling implementation does not install/enable an IPC ISR.
-    if(!Update(8,1,0) || !Poll(8,1,0,50000) ||
-       !Update(0x50,3,0) || !Poll(0x50,3,0,50000) || !DownCores(3)) return false;
-    state_=RomState::Cold; return true;
+    phase_=RomPhase::PowerDownInterruptMask;
+    if(!Update(8,1,0) || !Poll(8,1,0,50000)) return false;
+    phase_=RomPhase::PowerDownIpcControl;
+    if(!Update(0x50,3,0) || !Poll(0x50,3,0,50000)) return false;
+    phase_=RomPhase::PowerDownCores;
+    if(!DownCores(3)) return false;
+    phase_=RomPhase::None; state_=RomState::Cold; return true;
 }
 bool GlkRom::Initialize(uint8_t tag) noexcept {
     if(state_!=RomState::Cold) { error_=RomError::State; return false; }
     if(tag==0 || tag>15) { error_=RomError::Argument; return false; }
     error_=RomError::None;
     uint32_t v=0;
+
+    phase_=RomPhase::InitPreAdspcs;
     if(!Read(cs,v)) return false;
     if((v&0x03030303u)!=0x303) return Fail(RomError::Precondition);
+
+    phase_=RomPhase::InitPreHipci;
     if(!Read(hipci,v)) return false;
     if(v&0x80000000u) return Fail(RomError::Precondition);
+
     state_=RomState::Initializing;
+
     // Clear stale W1C DONE before command; require observed clear before issue.
-    if(!Write(hipcie,0x40000000) || !Poll(hipcie,0x40000000,0,50000) ||
-       !Update(cs,0x30000,0x30000) || !Poll(cs,0x03000000,0x03000000,50000)) return false;
+    phase_=RomPhase::InitClearStaleDone;
+    if(!Write(hipcie,0x40000000) || !Poll(hipcie,0x40000000,0,50000)) return false;
+
+    phase_=RomPhase::InitPowerUpCores;
+    if(!Update(cs,0x30000,0x30000) || !Poll(cs,0x03000000,0x03000000,50000)) return false;
+
+    phase_=RomPhase::InitConfigureSsp;
     for(uint32_t i=0;i<6;++i)
         if(!Update(0x2004+i*0x1000,0x03000000,0x03000000) ||
            !Poll(0x2004+i*0x1000,0x03000000,0x03000000,50000)) return false;
+
     const uint32_t command=0x81004000u|((static_cast<uint32_t>(tag)-1)<<9);
-    if(!Write(hipci,command) || !Update(cs,1,0) || !Poll(cs,1,0,50000) ||
-       !Update(cs,0x100,0) || !Poll(cs,0x01010101,0x01010000,50000) ||
-       !Poll(hipcie,0x40000000,0x40000000,500000) ||
-       !Write(hipcie,0x40000000) || !Poll(hipcie,0x40000000,0,50000) ||
-       !DownCores(2) || !Poll(rom,0xffffff,1,150000,true)) return false;
-    state_=RomState::DownloadReady; return true;
+    phase_=RomPhase::InitWriteRomCommand;
+    if(!Write(hipci,command)) return false;
+
+    phase_=RomPhase::InitRunCore0;
+    if(!Update(cs,1,0) || !Poll(cs,1,0,50000) ||
+       !Update(cs,0x100,0) || !Poll(cs,0x01010101,0x01010000,50000)) return false;
+
+    phase_=RomPhase::InitWaitRomDone;
+    if(!Poll(hipcie,0x40000000,0x40000000,500000)) return false;
+
+    phase_=RomPhase::InitClearRomDone;
+    if(!Write(hipcie,0x40000000) || !Poll(hipcie,0x40000000,0,50000)) return false;
+
+    phase_=RomPhase::InitPowerDownCore1;
+    if(!DownCores(2)) return false;
+
+    phase_=RomPhase::InitWaitRomReady;
+    if(!Poll(rom,0xffffff,1,150000,true)) return false;
+
+    phase_=RomPhase::None; state_=RomState::DownloadReady; return true;
 }
 bool GlkRom::WaitEntered() noexcept {
     if(state_!=RomState::DownloadReady) { error_=RomError::State; return false; }
+    phase_=RomPhase::WaitFirmwareEntered;
     if(!Poll(rom,0xffffff,5,3000000,true)) return false;
-    state_=RomState::Entered; return true;
+    phase_=RomPhase::None; state_=RomState::Entered; return true;
 }
 } }
