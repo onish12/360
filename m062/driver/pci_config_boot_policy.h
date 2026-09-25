@@ -7,6 +7,26 @@
 
 namespace phaser360 { namespace windows {
 
+enum class PciConfigBootFailure : UCHAR {
+    None=0,
+    State,
+    Evidence,
+    BusInterfaceQuery,
+    BusInterfaceInvalid,
+    LiveRead,
+    IdentityDrift,
+    StableHeaderDrift,
+    CapabilityStructureDrift,
+    OwnedDwordDrift,
+    GateClosed,
+    CgctlWrite,
+    CgctlGateLost,
+    CgctlVerify,
+    PgctlWrite,
+    PgctlGateLost,
+    PgctlVerify
+};
+
 // H15D owns only the APL/GLK DSP power/clock-gating bits identified by SOF and gated by H15C.
 // It never writes TCSEL[1:0], LSRMD, MISCBDCGE, the PCI common header,
 // capability space, or any unrelated bit. Every write is read-modify-write,
@@ -24,6 +44,7 @@ public:
     bool Dirty() const noexcept { return pgChanged_ || cgChanged_; }
     ULONG OriginalPgctl() const noexcept { return originalPgctl_; }
     ULONG OriginalCgctl() const noexcept { return originalCgctl_; }
+    PciConfigBootFailure LastFailure() const noexcept { return failure_; }
 
     static constexpr ULONG PgctlOffset() noexcept { return kPgctlOffset; }
     static constexpr ULONG CgctlOffset() noexcept { return kCgctlOffset; }
@@ -44,6 +65,12 @@ private:
     bool applied_=false;
     bool pgChanged_=false;
     bool cgChanged_=false;
+    PciConfigBootFailure failure_=PciConfigBootFailure::None;
+
+    NTSTATUS Fail(PciConfigBootFailure failure,NTSTATUS status) noexcept {
+        failure_=failure;
+        return status;
+    }
 
     static bool ReadDword(BUS_INTERFACE_STANDARD&,ULONG,ULONG*) noexcept;
     static bool WriteDword(BUS_INTERFACE_STANDARD&,ULONG,ULONG) noexcept;
