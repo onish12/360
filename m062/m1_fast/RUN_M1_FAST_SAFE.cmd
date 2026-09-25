@@ -1,10 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo PHASER360 M1 R6 PCI-LIVE-CONTRACT - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK
-echo RUNNER_BUILD=m1-fast-safe-20260925-r6-pci-live-contract
+echo PHASER360 M1 R7 ROM-PHASE-TRACE - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK
+echo RUNNER_BUILD=m1-fast-safe-20260925-r7-rom-phase-trace
 echo Fara playback, codec, speaker, BCD sau reboot.
-echo Corectie: contract PCI live bounded dupa HDA prepare; ETW detaliat H81-H8E; rollback Intel automat.
+echo Diagnostic: aceeasi secventa hardware R6; ETW G71-G7B + valoare registru; rollback Intel automat.
 echo.
 for %%I in ("%~dp0.") do set "PHASER_PACKAGE=%%~fI"
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0Run-M1FastSafe.ps1" -PackageRoot "%PHASER_PACKAGE%"
