@@ -1,9 +1,9 @@
-name: M1 R6 PCI live-contract one-shot DSP boot package
-# R6 keeps the proven HDA cap-chain fix and bounds the live PCI pre-write contract while retaining ETW and automatic rollback.
+name: M1 R7 ROM phase-trace one-shot DSP boot package
+# R7 keeps the proven R6 hardware sequence unchanged and adds precise ROM phase/value tracing.
 on:
   workflow_dispatch:
   push:
-    branches: [codex/audio-auto-20260915, codex/m1-r6-pci-live-contract-20260925]
+    branches: [codex/audio-auto-20260915, codex/m1-r7-rom-phase-trace-20260925]
     paths:
       - 'm062/m1_fast/**'
       - 'm062/m1/**'
@@ -62,16 +62,16 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'M1_FAST_PROVIDER_GENERATION_FAILED'}
           "M1_FAST_GENERATED_PROVIDER=$generated" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Run R6 transport, PCI-policy and DMA regressions
+      - name: Run R7 transport, ROM, PCI-policy and DMA regressions
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          cmake --build build-m1-fast --config Release --target phaser360_dma_owner_tests phaser360_glk_boot_tests phaser360_stream_tests
-          if($LASTEXITCODE -ne 0){throw 'M1_R6_HOST_TEST_BUILD_FAILED'}
+          cmake --build build-m1-fast --config Release --target phaser360_dma_owner_tests phaser360_glk_boot_tests phaser360_stream_tests phaser360_rom_tests
+          if($LASTEXITCODE -ne 0){throw 'M1_R7_HOST_TEST_BUILD_FAILED'}
           ctest --test-dir build-m1-fast -C Release -R '^(sof_dma_owner|sof_glk_boot|sof_stream)$' --output-on-failure
-          if($LASTEXITCODE -ne 0){throw 'M1_R6_HOST_TESTS_FAILED'}
+          if($LASTEXITCODE -ne 0){throw 'M1_R7_HOST_TESTS_FAILED'}
 
-      - name: Build R6 M1 PCI-live-contract driver
+      - name: Build R7 M1 ROM-phase-trace driver
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -150,10 +150,10 @@ jobs:
 
             $runnerSha=(Get-FileHash (Join-Path $package 'Run-M1FastSafe.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
             [ordered]@{
-              Schema=1;Purpose='M1_FAST_SAFE_R6_PCI_LIVE_CONTRACT_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260925-r6-pci-live-contract';RunnerSha256=$runnerSha
+              Schema=1;Purpose='M1_FAST_SAFE_R7_ROM_PHASE_TRACE_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260925-r7-rom-phase-trace';RunnerSha256=$runnerSha
               ExactHardwareId='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06';WindowsBuildExact=19044
               BaselineService='IntcAudioBus';BaselineInf='oem14.inf';BaselineVersion='9.22.0.4832';BaselineProvider='Intel(R) Corporation'
-              M1Service='Phaser360M1';M1Version='0.6.15.135';M1Provider='PHASER360 Experimental'
+              M1Service='Phaser360M1';M1Version='0.6.15.136';M1Provider='PHASER360 Experimental'
               FirmwareBytes=287488;FirmwareSha256='40029b5a05665f19a492ef00b8c0a24c42e90d7c00fc57146e07947fd1407d5c'
               NhltBytes=3684;NhltSha256='4764aba0316e9a039a127285cc4ff9e97e22c75bfddb6d865d9f77b59dd2a6b9'
               StageTraceProvider='ebaed0db-f9db-42ea-a162-5f4111384051';StageTrace='ETW_PRE_BIND'
@@ -175,7 +175,7 @@ jobs:
       - name: Upload M1 fast-safe package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: PHASER360_M1_R6_PCI_LIVE_CONTRACT
+          name: PHASER360_M1_R7_ROM_PHASE_TRACE
           path: _m1_fast_package/
           if-no-files-found: error
           retention-days: 3
