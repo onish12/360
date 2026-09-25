@@ -9,7 +9,7 @@ namespace phaser360 { namespace windows {
 // {EBAED0DB-F9DB-42EA-A162-5F4111384051}
 extern const GUID kStageTraceProviderGuid;
 
-// R4 diagnostic-only ETW provider. It does not alter hardware state.
+// M1 diagnostic ETW provider. It does not alter hardware state.
 NTSTATUS StageTraceRegister() noexcept;
 void StageTraceUnregister() noexcept;
 void StageTraceStatus(const wchar_t* stage,NTSTATUS status) noexcept;
