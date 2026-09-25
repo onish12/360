@@ -80,10 +80,20 @@ foreach($x in @(
  'StableHeaderMatches(liveConfig,evidence)',
  'CapabilityStructureMatches(liveConfig,evidence)',
  'OwnedDwordsMatch(liveConfig,evidence)',
- 'H81_PCI_POLICY_ENTER','H8A_PCI_LIVE_CONTRACT_OK',
- 'H8C_CGCTL_OK','H8D_PGCTL_OK','H8E_PCI_POLICY_APPLIED_OK'
+ 'PciConfigBootFailure::IdentityDrift',
+ 'PciConfigBootFailure::CapabilityStructureDrift',
+ 'PciConfigBootFailure::OwnedDwordDrift'
 )){
  if($p.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_R6_PCI_LIVE_CONTRACT_GUARD_MISSING:$x"}
+}
+foreach($x in @(
+ 'H80_PCI_POLICY_ENTER','TracePciPolicyFailure',
+ 'H81_PCI_POLICY_STATE_FAIL','H86_PCI_IDENTITY_DRIFT',
+ 'H88_PCI_CAP_STRUCTURE_DRIFT','H89_PCI_OWNED_DWORD_DRIFT',
+ 'H8B_CGCTL_WRITE_FAIL','H8D_CGCTL_VERIFY_FAIL',
+ 'H8E_PGCTL_WRITE_FAIL','H8G_PGCTL_VERIFY_FAIL'
+)){
+ if($h.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_R6_PCI_TRACE_GUARD_MISSING:$x"}
 }
 if($p.IndexOf('RtlCompareMemory(liveConfig,evidence.config,kPciConfigSnapshotBytes)',[StringComparison]::OrdinalIgnoreCase)-ge0){
  throw 'M1_R6_FULL_256_BYTE_LIVE_FREEZE_FORBIDDEN'
