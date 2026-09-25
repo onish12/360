@@ -2,6 +2,46 @@
 #include "hda_transport.h"
 #include "stage_trace.h"
 namespace phaser360 { namespace windows {
+namespace {
+void TracePciPolicyFailure(PciConfigBootFailure failure,NTSTATUS status) noexcept {
+    switch(failure) {
+    case PciConfigBootFailure::State:
+        StageTraceStatus(L"H81_PCI_POLICY_STATE_FAIL",status); break;
+    case PciConfigBootFailure::Evidence:
+        StageTraceStatus(L"H82_PCI_EVIDENCE_FAIL",status); break;
+    case PciConfigBootFailure::BusInterfaceQuery:
+        StageTraceStatus(L"H83_PCI_BUS_INTERFACE_QUERY_FAIL",status); break;
+    case PciConfigBootFailure::BusInterfaceInvalid:
+        StageTraceStatus(L"H84_PCI_BUS_INTERFACE_INVALID",status); break;
+    case PciConfigBootFailure::LiveRead:
+        StageTraceStatus(L"H85_PCI_LIVE_READ_FAIL",status); break;
+    case PciConfigBootFailure::IdentityDrift:
+        StageTraceStatus(L"H86_PCI_IDENTITY_DRIFT",status); break;
+    case PciConfigBootFailure::StableHeaderDrift:
+        StageTraceStatus(L"H87_PCI_STABLE_HEADER_DRIFT",status); break;
+    case PciConfigBootFailure::CapabilityStructureDrift:
+        StageTraceStatus(L"H88_PCI_CAP_STRUCTURE_DRIFT",status); break;
+    case PciConfigBootFailure::OwnedDwordDrift:
+        StageTraceStatus(L"H89_PCI_OWNED_DWORD_DRIFT",status); break;
+    case PciConfigBootFailure::GateClosed:
+        StageTraceStatus(L"H8A_PCI_GATE_CLOSED",status); break;
+    case PciConfigBootFailure::CgctlWrite:
+        StageTraceStatus(L"H8B_CGCTL_WRITE_FAIL",status); break;
+    case PciConfigBootFailure::CgctlGateLost:
+        StageTraceStatus(L"H8C_CGCTL_GATE_LOST",status); break;
+    case PciConfigBootFailure::CgctlVerify:
+        StageTraceStatus(L"H8D_CGCTL_VERIFY_FAIL",status); break;
+    case PciConfigBootFailure::PgctlWrite:
+        StageTraceStatus(L"H8E_PGCTL_WRITE_FAIL",status); break;
+    case PciConfigBootFailure::PgctlGateLost:
+        StageTraceStatus(L"H8F_PGCTL_GATE_LOST",status); break;
+    case PciConfigBootFailure::PgctlVerify:
+        StageTraceStatus(L"H8G_PGCTL_VERIFY_FAIL",status); break;
+    default:
+        StageTraceStatus(L"H8Z_PCI_POLICY_UNCLASSIFIED_FAIL",status); break;
+    }
+}
+}
 bool HdaTransport::Valid(ULONG o,unsigned w) const noexcept {
     return KeGetCurrentIrql()==PASSIVE_LEVEL && gate_ && gate_->Allowed() && base_ &&
         (w==1 || w==2 || w==4) && o%w==0 && o<=length_ && w<=length_-o;
@@ -83,8 +123,10 @@ NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
     // H15D: after HDA is cold/owned but before any DSP MMIO, apply only the
     // two SOF pre-fw PCI policy bits attested by H15C. Any failure is cleaned
     // by the mandatory Shutdown -> QuiesceController path.
+    StageTrace(L"H80_PCI_POLICY_ENTER");
     status=pciPolicy_.Apply(device,pci_.Snapshot(),*gate_);
     if(!NT_SUCCESS(status)) {
+        TracePciPolicyFailure(pciPolicy_.LastFailure(),status);
         StageTraceStatus(L"H80_PCI_POLICY_FAIL",status);
         return status;
     }
