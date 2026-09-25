@@ -471,12 +471,37 @@ int main() {
         CHECK(Get(pciConfig,0x48,4)==originalCg);
         CHECK(!policy.Applied() && !policy.Dirty() && pciWriteCalls==1);
     }
-    // H15D pre-write TOCTOU fence: all 256 attested bytes must still
-    // match immediately before the first SetBusData.
+    // R6: unrelated live capability payload/status drift after the H20
+    // attestation must not be mistaken for a different PCI function. The
+    // policy still requires exact identity/resource structure and exact owned
+    // 0x44/0x48 dwords immediately before the first write.
     Reset(); {
         PciConfigAttestation attestation;
         CHECK(NT_SUCCESS(attestation.Capture(&checks)));
-        pciConfig[0x3c]^=1u;
+        pciConfig[0x52]^=1u; // payload byte inside capability at 0x50
+        const auto unrelated=pciConfig[0x52];
+        PciConfigBootPolicy policy;
+        CHECK(NT_SUCCESS(policy.Apply(&checks,attestation.Snapshot(),accessGate)));
+        CHECK(policy.Applied());
+        CHECK(policy.Restore());
+        CHECK(pciConfig[0x52]==unrelated && !policy.Dirty() && !policy.Applied());
+    }
+    // Structural capability drift remains fatal and cannot issue PCI writes.
+    Reset(); {
+        PciConfigAttestation attestation;
+        CHECK(NT_SUCCESS(attestation.Capture(&checks)));
+        pciConfig[0x51]=0; // change next capability pointer
+        const auto writesBefore=pciWriteCalls;
+        PciConfigBootPolicy policy;
+        CHECK(policy.Apply(&checks,attestation.Snapshot(),accessGate)==
+              STATUS_DEVICE_CONFIGURATION_ERROR);
+        CHECK(pciWriteCalls==writesBefore && !policy.Dirty() && !policy.Applied());
+    }
+    // Either owned dword changing between capture and Apply remains fatal.
+    Reset(); {
+        PciConfigAttestation attestation;
+        CHECK(NT_SUCCESS(attestation.Capture(&checks)));
+        Put(pciConfig,0x48,4,Get(pciConfig,0x48,4)^0x4u);
         const auto writesBefore=pciWriteCalls;
         PciConfigBootPolicy policy;
         CHECK(policy.Apply(&checks,attestation.Snapshot(),accessGate)==
