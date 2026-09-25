@@ -1,0 +1,13 @@
+PHASER360 M0.6.15H12 — M1 preflight READ-ONLY
+
+1. Ruleaza RUN_M1_PREFLIGHT.cmd ca Administrator pe Lenovo tinta.
+2. Scriptul NU instaleaza driver, NU face bind/unbind, NU reporneste dispozitivul,
+   NU scrie registry/BCD, NU face MMIO, NU booteaza DSP si NU reda sunet.
+3. Preflight-ul este intentionat ingust: primul M1 este autorizat doar pentru
+   Windows build 19044 si hardware-ul exact DEV_3198/SUBSYS_00000000/REV_06
+   verificat anterior.
+4. WinRE trebuie sa fie detectat ENABLED. Orice stare necunoscuta blocheaza
+   automat pachetul fizic.
+5. Dupa rulare, trimite RESULT_M1_PREFLIGHT_*.zip pentru audit.
+
+Nu instala nimic pe baza acestui pachet. H12 este doar preflight.

@@ -1,0 +1,63 @@
+; PHASER360 M1 FAST-SAFE R7 ROM PHASE TRACE
+; Exact-target M1 diagnostic package. R6 keeps the physical HDA cap-chain fix and
+; uses a bounded PCI live contract before the owned 0x44/0x48 policy writes.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=MEDIA
+ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider=%ProviderName%
+CatalogFile=phaser360_m1_boot.cat
+PnpLockdown=1
+DriverVer=09/25/2026,0.6.15.136
+
+[DestinationDirs]
+DefaultDestDir=13
+Phaser360M1.CopyFiles=13
+
+[SourceDisksNames]
+1=%DiskDesc%,,,""
+
+[SourceDisksFiles]
+phaser360_m1_boot.sys=1
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%ProviderName%=Phaser360M1.Models,NTamd64.10.0...19045,NTamd64.10.0...19044
+
+; TargetOSVersion BuildNumber is a minimum. The newer, intentionally empty
+; section prevents the 19044 model from being selected on build 19045 or later.
+[Phaser360M1.Models.NTamd64.10.0...19045]
+
+[Phaser360M1.Models.NTamd64.10.0...19044]
+%DeviceDesc%=Phaser360M1_Install,PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
+
+[Phaser360M1_Install.NT]
+CopyFiles=Phaser360M1.CopyFiles
+
+[Phaser360M1.CopyFiles]
+phaser360_m1_boot.sys
+
+[Phaser360M1_Install.NT.Services]
+AddService=Phaser360M1,0x00000002,Phaser360M1_Service
+
+[Phaser360M1_Service]
+DisplayName=%ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\phaser360_m1_boot.sys
+
+[Phaser360M1_Install.NT.Wdf]
+KmdfService=Phaser360M1,Phaser360M1_Wdf
+
+[Phaser360M1_Wdf]
+KmdfLibraryVersion=1.31
+
+[Strings]
+ProviderName="PHASER360 Experimental"
+DeviceDesc="PHASER360 M1 Intel SST DSP Boot Probe"
+ServiceDesc="PHASER360 M1 DSP Boot Probe"
+DiskDesc="PHASER360 M1 Driver Package"

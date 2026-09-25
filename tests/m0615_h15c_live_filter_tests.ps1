@@ -1,0 +1,151 @@
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version 2
+$root=Join-Path $PSScriptRoot '..'
+$src=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\h15c_live_filter.cpp') -Raw
+$hdr=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\h15c_live_filter.h') -Raw
+$inf=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\phaser360_h15c_live_filter.inf') -Raw
+$proj=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\phaser360_h15c_live_filter.vcxproj') -Raw
+$reader=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\Collect-H15cLive.ps1') -Raw
+$pci=Get-Content -LiteralPath (Join-Path $root 'm062\driver\pci_config_attestation.cpp') -Raw
+
+foreach($required in @(
+ 'WdfFdoInitSetFilter(deviceInit)',
+ 'WdfDeviceInitSetDeviceType(deviceInit,kH15cLiveDeviceType)',
+ 'CTL_CODE(kH15cLiveDeviceType,kH15cLiveIoctlFunction,METHOD_BUFFERED,FILE_READ_ACCESS)',
+ '0x83376454u',
+ 'WDF_FILEOBJECT_CONFIG_INIT',
+ 'H15cLiveEvtDeviceFileCreate',
+ 'WdfDeviceInitSetFileObjectConfig',
+ 'RtlInitUnicodeString(&referenceString,L"h15c")',
+ 'WdfDeviceCreateDeviceInterface(',
+ 'WdfFileObjectGetFileName',
+ 'RtlEqualUnicodeString',
+ 'STATUS_SUCCESS',
+ 'PciConfigAttestation attestation',
+ 'WdfDeviceConfigureRequestDispatching',
+ 'WdfRequestTypeDeviceControl',
+ 'WdfRequestFormatRequestUsingCurrentType(request)',
+ 'WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET',
+ 'WdfRequestSend(',
+ 'WdfDeviceGetIoTarget(device)',
+ 'WdfSpinLockCreate',
+ 'WdfSpinLockAcquire',
+ 'WdfSpinLockRelease',
+ 'queueConfig.PowerManaged=WdfFalse',
+ 'H15cLiveGetBusDataOnly',
+ 'H15cLiveNoPciWrite'
+)){
+ if(($src+$hdr).IndexOf($required,[StringComparison]::Ordinal) -lt 0){
+  throw "H15C_LIVE_FILTER_REQUIRED_MISSING: $required"
+ }
+}
+if($src.IndexOf('WDF_NO_SEND_OPTIONS',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+ throw 'H15C_LIVE_ASYNC_FORWARD_WITHOUT_COMPLETION_FORBIDDEN'
+}
+if(($src.Split('WdfSpinLockAcquire').Count-1) -lt 2 -or
+   ($src.Split('WdfSpinLockRelease').Count-1) -lt 3){
+ throw 'H15C_LIVE_SNAPSHOT_LOCKING_INCOMPLETE'
+}
+
+foreach($forbidden in @(
+ 'SetBusData(','READ_REGISTER_','WRITE_REGISTER_','MmMapIoSpace',
+ 'WdfInterruptCreate','WdfDmaEnablerCreate','WdfCommonBufferCreate',
+ 'GlkBoot','HdaController','BootStream'
+)){
+ if(($src+$hdr).IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0){
+  throw "H15C_LIVE_FILTER_FORBIDDEN_API: $forbidden"
+ }
+}
+if($pci.IndexOf('SetBusData(',[StringComparison]::Ordinal) -ge 0 -or
+   $pci.IndexOf('.SetBusData(',[StringComparison]::Ordinal) -ge 0){
+ throw 'H15C_LIVE_SHARED_ATTESTATION_WRITE_PATH_PRESENT'
+}
+
+foreach($required in @(
+ 'Class=Extension',
+ 'ClassGuid={e2f84ce7-8efa-411c-aa69-97454ca4cb57}',
+ 'ExtensionId={53f678f1-2b3c-4b2e-a15c-360031980001}',
+ '%ProviderName%=H15cLive.Models,NTamd64.10.0...19045,NTamd64.10.0...19044',
+ '[H15cLive.Models.NTamd64.10.0...19045]',
+ '[H15cLive.Models.NTamd64.10.0...19044]',
+ 'PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
+ 'AddService=Phaser360H15cLive,0x00000000',
+ 'AddFilter=Phaser360H15cLive,,H15cLive_Filter',
+ 'FilterPosition=Upper',
+ 'KmdfLibraryVersion=1.31'
+)){
+ if($inf.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+  throw "H15C_LIVE_INF_REQUIRED_MISSING: $required"
+ }
+}
+if($inf -match '(?im)^\s*[^;].*PCI\\VEN_8086&DEV_3198\s*$'){
+ throw 'H15C_LIVE_BROAD_HWID_FORBIDDEN'
+}
+if($inf.IndexOf('SPSVCINST_ASSOCSERVICE',[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+   $inf.IndexOf('AddService=Phaser360H15cLive,0x00000002',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+ throw 'H15C_LIVE_ASSOCIATED_FUNCTION_SERVICE_FORBIDDEN'
+}
+
+foreach($required in @('h15c_live_filter.cpp','pci_config_attestation.cpp','KMDF_VERSION_MINOR>31')){
+ if($proj.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+  throw "H15C_LIVE_PROJECT_REQUIRED_MISSING: $required"
+ }
+}
+foreach($forbidden in @('glk_boot.cpp','hda_transport.cpp','ipc_interrupt.cpp','boot_dma.cpp','firmware')){
+ if($proj.IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0){
+  throw "H15C_LIVE_PROJECT_FORBIDDEN_COMPONENT: $forbidden"
+ }
+}
+
+# PowerShell 5.1 intentionally constructs the vendor IOCTL with Convert.ToUInt32
+# instead of a signed hexadecimal literal. The exact numeric ABI remains
+# compile-time enforced by h15c_live_filter.h.
+foreach($required in @(
+ 'DeviceIoControl(','SnapshotBytes=292',
+ '[Convert]::ToUInt32(''83376454'',16)',
+ 'WIN32_ERROR=','ACCESS=GENERIC_READ',
+ 'DevicePathOffset=4','DetailCbSizeX64=8',
+ 'H15C_LIVE_INTERFACE_PATH_PREFIX_INVALID','H15C_LIVE_ABI_MISMATCH:',
+ '[BitConverter]::ToUInt16($b,$o)','[BitConverter]::ToUInt32($b,$o)',
+ 'head36=','ioctl=0x{2:X8}',
+ 'pci_config_256.bin','OFFSET_44','OFFSET_48',
+ 'SetBusDataCalls=0','DRIVER_BIND_REPLACEMENT=NO'
+)){
+ if($reader.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+  throw "H15C_LIVE_READER_REQUIRED_MISSING: $required"
+ }
+}
+foreach($forbidden in @(
+ 'pnputil /add-driver','pnputil.exe /add-driver','/restart-device',
+ '/disable-device','/enable-device','sc.exe','reg.exe','Set-ItemProperty',
+ 'New-ItemProperty','Remove-ItemProperty','bcdedit','devcon'
+)){
+ if($reader.IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0){
+  throw "H15C_LIVE_READER_MUTATION_FORBIDDEN: $forbidden"
+ }
+}
+
+if($reader.IndexOf('[uint32]0x83376454',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+ throw 'H15C_LIVE_POWERSHELL_SIGNED_HEX_CAST_FORBIDDEN'
+}
+if($reader.IndexOf('$b[$o+1] -shl 8',[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+   $reader.IndexOf('$b[$o+2] -shl 16',[StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+   $reader.IndexOf('$b[$o+3] -shl 24',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+ throw 'H15C_LIVE_POWERSHELL_BYTE_SHIFT_PARSER_FORBIDDEN'
+}
+if(($src+$hdr+$reader).IndexOf('0x00226004',[StringComparison]::OrdinalIgnoreCase) -ge 0){
+ throw 'H15C_LIVE_MICROSOFT_DEVICE_TYPE_IOCTL_FORBIDDEN'
+}
+if($src.IndexOf('L"\\h15c"',[StringComparison]::Ordinal) -lt 0){
+ throw 'H15C_LIVE_REFERENCE_CREATE_MATCH_MISSING'
+}
+if(($src.Split('WdfDeviceGetIoTarget(device)').Count-1) -lt 2){
+ throw 'H15C_LIVE_CREATE_OR_IOCTL_PASSTHROUGH_INCOMPLETE'
+}
+if($reader.IndexOf('PtrToStringUni(IntPtr.Add(detail,8))',[StringComparison]::Ordinal) -ge 0){
+ throw 'H15C_LIVE_X64_DETAIL_PATH_OFFSET_8_FORBIDDEN'
+}
+if($reader.IndexOf('PtrToStringUni(IntPtr.Add(detail,DevicePathOffset))',[StringComparison]::Ordinal) -lt 0){
+ throw 'H15C_LIVE_X64_DETAIL_PATH_OFFSET_4_REQUIRED'
+}
+Write-Host 'H15C_LIVE_STATIC_TESTS=PASS; role=EXACT_TARGET_EXTENSION_UPPER_FILTER; function_driver_replacement=NO; pci_access=GETBUSDATA_ONLY; setbusdata=FORBIDDEN; mmio=NONE; dma=NONE; irq=NONE; unknown_ioctl=SEND_AND_FORGET; snapshot_sync=WDFSPINLOCK; reader_install_actions=NONE'

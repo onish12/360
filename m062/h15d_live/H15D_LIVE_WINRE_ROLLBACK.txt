@@ -1,0 +1,20 @@
+PHASER360 H15D-LIVE R1 OFFLINE ROLLBACK
+
+Use only if Windows cannot boot after the H15D-LIVE upper-filter transaction.
+1. Enter Windows Recovery Environment -> Command Prompt.
+2. Identify the offline Windows volume. Do NOT assume C:.
+3. Read H15dPublishedInf.txt from the transaction evidence.
+4. Confirm with:
+   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
+5. Remove ONLY the recorded PHASER360 H15D-LIVE package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
+6. Reboot only after DISM reports success.
+
+Do not remove the Intel IntcAudioBus package.
+
+After Windows boots and DEV_3198 is healthy on IntcAudioBus, remove only the
+exact PackageCertificateThumbprint recorded by the transaction if trust was
+retained:
+  certutil -delstore TrustedPublisher <THUMBPRINT>
+  certutil -delstore Root <THUMBPRINT>
+Never remove a certificate by subject-name wildcard.

@@ -1,0 +1,50 @@
+; PHASER360 M0.6.15H15D-LIVE R1 - manual bounded transaction only
+[Version]
+Signature="$WINDOWS NT$"
+Class=Extension
+ClassGuid={e2f84ce7-8efa-411c-aa69-97454ca4cb57}
+Provider=%ProviderName%
+ExtensionId={53f678f1-2b3c-4b2e-a15d-360031980001}
+CatalogFile=phaser360_h15d_live_filter.cat
+PnpLockdown=1
+DriverVer=09/22/2026,0.6.15.161
+
+[DestinationDirs]
+DefaultDestDir=13
+H15dLive.CopyFiles=13
+[SourceDisksNames]
+1=%DiskDesc%,,,""
+[SourceDisksFiles]
+phaser360_h15d_live_filter.sys=1
+[ControlFlags]
+ExcludeFromSelect=*
+[Manufacturer]
+%ProviderName%=H15dLive.Models,NTamd64.10.0...19045,NTamd64.10.0...19044
+[H15dLive.Models.NTamd64.10.0...19045]
+[H15dLive.Models.NTamd64.10.0...19044]
+%DeviceDesc%=H15dLive_Install,PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
+[H15dLive_Install.NT]
+CopyFiles=H15dLive.CopyFiles
+[H15dLive.CopyFiles]
+phaser360_h15d_live_filter.sys
+[H15dLive_Install.NT.Services]
+AddService=Phaser360H15dLive,0x00000000,H15dLive_Service
+[H15dLive_Service]
+DisplayName=%ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\phaser360_h15d_live_filter.sys
+[H15dLive_Install.NT.Filters]
+AddFilter=Phaser360H15dLive,,H15dLive_Filter
+[H15dLive_Filter]
+FilterPosition=Upper
+[H15dLive_Install.NT.Wdf]
+KmdfService=Phaser360H15dLive,H15dLive_Wdf
+[H15dLive_Wdf]
+KmdfLibraryVersion=1.31
+[Strings]
+ProviderName="PHASER360 Experimental"
+DeviceDesc="PHASER360 H15D-LIVE R1 Bounded PCI Transaction Extension"
+ServiceDesc="PHASER360 H15D-LIVE R1 PCI Transaction Upper Filter"
+DiskDesc="PHASER360 H15D-LIVE R1 Filter Package"

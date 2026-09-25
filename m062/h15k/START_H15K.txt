@@ -1,0 +1,37 @@
+PHASER360 H15K — ISOLATED ADSPCS CSTALL/CRST GATE
+
+H15K temporarily replaces IntcAudioBus as the DEV_3198 function driver.
+
+It requires the exact verified Lenovo baseline and HDA transport idle:
+  GCTL=0
+  CORBCTL.RUN=0
+  RIRBCTL.DMA_EN=0
+  all 13 stream RUN bits=0
+  ADSPCS=0x001D003C
+
+The only DSP MMIO register written is ADSPCS at offset 0x04.
+The only writable fields touched are for host-managed cores 0/1:
+  CSTALL[1:0]: 0 -> 3
+  CRST[1:0]:   0 -> 3
+then exact reverse rollback:
+  CRST[1:0]:   3 -> 0
+  CSTALL[1:0]: 3 -> 0
+
+SPA and CPA bits are never written.
+HDA BAR is PAGE_READONLY.
+DSP BAR is PAGE_READWRITE only for ADSPCS.
+
+No HDA MMIO write, PCI config write, DMA, interrupt ownership, firmware load,
+DSP boot, codec programming or playback is permitted.
+
+Run only RUN_H15K_TRANSACTION.cmd as Administrator.
+
+Expected success:
+  STATUS=H15K_ADSPCS_STALL_RESET_AND_ROLLBACK_COMPLETE
+  HANDOFF_COMPLETED=TRUE
+  WRITE_RESTORE_COMPLETED=TRUE
+  SNAPSHOT_COMPLETED=TRUE
+  BASELINE_RESTORED=TRUE
+  TRUST_RESTORED=TRUE
+
+Then send RESULT_H15K_TRANSACTION_*.zip.

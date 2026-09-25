@@ -1,6 +1,6 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
-param()
+param([string]$ResultFile = '')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 $root = Split-Path -Parent $PSScriptRoot
@@ -19,6 +19,7 @@ try {
     $runDir = Join-Path $env:SystemDrive "PHASER360_M051_RECOVERY\$runId"
     New-Item -ItemType Directory -Path $runDir -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $root 'RECOVER_WINRE.cmd') -Destination $runDir
+    Copy-Item -LiteralPath (Join-Path $root 'CLEANUP_AUDIO.cmd') -Destination $runDir
     Copy-Item -LiteralPath (Join-Path $root 'runtime') -Destination $runDir -Recurse
     Copy-Item -LiteralPath (Join-Path $root 'PHASER360_M051_TEST_SIGNING.cer') -Destination $runDir
     $script:M051 = [ordered]@{
@@ -88,6 +89,10 @@ try {
         Compress-Archive -Path (Join-Path $runDir '*') -DestinationPath $zip
         Write-Host "Trimite fisierul: $zip"
     } catch { Write-Host "Raportul este in $runDir (arhivarea a esuat: $($_.Exception.Message))." }
+    if (-not [string]::IsNullOrWhiteSpace($ResultFile)) {
+        [ordered]@{ Transaction=$result; RecoveryDirectory=$runDir; ResultZip=$zip } |
+            ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ResultFile -Encoding UTF8 -ErrorAction Stop
+    }
     if (-not $result.Clean) { exit 2 }
     if ($result.Error) { exit 1 }
 } finally { $mutex.ReleaseMutex(); $mutex.Dispose() }

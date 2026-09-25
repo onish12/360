@@ -1,0 +1,9 @@
+PHASER360 H15N
+
+Testeaza izolat PPCTL.GPROCEN bit30, descoperit lipsa de H15M.
+GCTL.CRST 0->1, verifica PP capability exact la 0x0800, seteaza numai GPROCEN,
+observa CPA0 maximum 50 ms, restaureaza PPCTL exact, apoi GCTL exact.
+Lipsa CPA0 nu invalideaza tranzactia daca write/readback si rollback sunt exacte.
+
+Fara ADSPCS write, EM2 write, PCI write, DMA, IRQ ownership, firmware sau playback.
+Ruleaza RUN_H15N_TRANSACTION.cmd ca Administrator si trimite RESULT_H15N_TRANSACTION_*.zip.

@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: MIT
+#include "hda_transport.h"
+#include "stage_trace.h"
+namespace phaser360 { namespace windows {
+namespace {
+void TracePciPolicyFailure(PciConfigBootFailure failure,NTSTATUS status) noexcept {
+    switch(failure) {
+    case PciConfigBootFailure::State:
+        StageTraceStatus(L"H81_PCI_POLICY_STATE_FAIL",status); break;
+    case PciConfigBootFailure::Evidence:
+        StageTraceStatus(L"H82_PCI_EVIDENCE_FAIL",status); break;
+    case PciConfigBootFailure::BusInterfaceQuery:
+        StageTraceStatus(L"H83_PCI_BUS_INTERFACE_QUERY_FAIL",status); break;
+    case PciConfigBootFailure::BusInterfaceInvalid:
+        StageTraceStatus(L"H84_PCI_BUS_INTERFACE_INVALID",status); break;
+    case PciConfigBootFailure::LiveRead:
+        StageTraceStatus(L"H85_PCI_LIVE_READ_FAIL",status); break;
+    case PciConfigBootFailure::IdentityDrift:
+        StageTraceStatus(L"H86_PCI_IDENTITY_DRIFT",status); break;
+    case PciConfigBootFailure::StableHeaderDrift:
+        StageTraceStatus(L"H87_PCI_STABLE_HEADER_DRIFT",status); break;
+    case PciConfigBootFailure::CapabilityStructureDrift:
+        StageTraceStatus(L"H88_PCI_CAP_STRUCTURE_DRIFT",status); break;
+    case PciConfigBootFailure::OwnedDwordDrift:
+        StageTraceStatus(L"H89_PCI_OWNED_DWORD_DRIFT",status); break;
+    case PciConfigBootFailure::GateClosed:
+        StageTraceStatus(L"H8A_PCI_GATE_CLOSED",status); break;
+    case PciConfigBootFailure::CgctlWrite:
+        StageTraceStatus(L"H8B_CGCTL_WRITE_FAIL",status); break;
+    case PciConfigBootFailure::CgctlGateLost:
+        StageTraceStatus(L"H8C_CGCTL_GATE_LOST",status); break;
+    case PciConfigBootFailure::CgctlVerify:
+        StageTraceStatus(L"H8D_CGCTL_VERIFY_FAIL",status); break;
+    case PciConfigBootFailure::PgctlWrite:
+        StageTraceStatus(L"H8E_PGCTL_WRITE_FAIL",status); break;
+    case PciConfigBootFailure::PgctlGateLost:
+        StageTraceStatus(L"H8F_PGCTL_GATE_LOST",status); break;
+    case PciConfigBootFailure::PgctlVerify:
+        StageTraceStatus(L"H8G_PGCTL_VERIFY_FAIL",status); break;
+    default:
+        StageTraceStatus(L"H8Z_PCI_POLICY_UNCLASSIFIED_FAIL",status); break;
+    }
+}
+}
+bool HdaTransport::Valid(ULONG o,unsigned w) const noexcept {
+    return KeGetCurrentIrql()==PASSIVE_LEVEL && gate_ && gate_->Allowed() && base_ &&
+        (w==1 || w==2 || w==4) && o%w==0 && o<=length_ && w<=length_-o;
+}
+bool HdaTransport::Read(void* p,ULONG o,unsigned w,ULONG* value) noexcept {
+    auto& self=*static_cast<HdaTransport*>(p);
+    if(!value || !self.Valid(o,w)) return false;
+    if(w==1) *value=READ_REGISTER_UCHAR(self.base_+o);
+    else if(w==2) *value=READ_REGISTER_USHORT(reinterpret_cast<USHORT*>(self.base_+o));
+    else *value=READ_REGISTER_ULONG(reinterpret_cast<ULONG*>(self.base_+o));
+    return true;
+}
+bool HdaTransport::Write(void* p,ULONG o,unsigned w,ULONG value) noexcept {
+    auto& self=*static_cast<HdaTransport*>(p);
+    if(!self.Valid(o,w)) return false;
+    if(w==1) WRITE_REGISTER_UCHAR(self.base_+o,static_cast<UCHAR>(value));
+    else if(w==2) WRITE_REGISTER_USHORT(reinterpret_cast<USHORT*>(self.base_+o),static_cast<USHORT>(value));
+    else WRITE_REGISTER_ULONG(reinterpret_cast<ULONG*>(self.base_+o),value);
+    return true;
+}
+void HdaTransport::Delay(void*,unsigned us) noexcept {
+    if(us<=50) { KeStallExecutionProcessor(us); return; }
+    LARGE_INTEGER interval; interval.QuadPart=-static_cast<LONGLONG>(us)*10;
+    (void)KeDelayExecutionThread(KernelMode,FALSE,&interval);
+}
+bool HdaTransport::Verify(void* p) noexcept {
+    return static_cast<HdaTransport*>(p)->stream_.IsDetached();
+}
+NTSTATUS HdaTransport::Prepare(WDFDEVICE device,UCHAR* base,ULONG length,
+                              const UCHAR* payload,SIZE_T bytes) noexcept {
+    StageTrace(L"H10_HDA_PREPARE_ENTER");
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_ || !gate_ ||
+       !gate_->Allowed() || !dma_ || !dma_->HardwarePrepared())
+        return STATUS_INVALID_DEVICE_STATE;
+    if(!base || (reinterpret_cast<ULONG_PTR>(base)&3) || !device || !payload ||
+       !bytes || bytes>sof::kMaxDmaBytes) return STATUS_INVALID_PARAMETER;
+    attempted_=true; base_=base; length_=length;
+    const auto pciStatus=pci_.Capture(device);
+    if(!NT_SUCCESS(pciStatus)) {
+        StageTraceStatus(L"H20_PCI_CAPTURE_FAIL",pciStatus);
+        return pciStatus;
+    }
+    StageTrace(L"H20_PCI_CAPTURE_OK");
+    const sof::RegisterIo io={this,Read,Write,Delay,length_};
+    controllerAttempted_=true;
+    if(!controller_.Initialize(io)) {
+        StageTraceStatus(L"H30_CONTROLLER_INIT_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    StageTrace(L"H30_CONTROLLER_INIT_OK");
+    if(!stream_.Select(io)) {
+        StageTraceStatus(L"H40_STREAM_SELECT_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    StageTrace(L"H40_STREAM_SELECT_OK");
+
+    NTSTATUS status=dma_->Stage(payload,bytes);
+    if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"H50_DMA_STAGE_FAIL",status);
+        return status;
+    }
+    StageTrace(L"H50_DMA_STAGE_OK");
+    allocated_=true;
+
+    BootDmaView view={};
+    status=dma_->Publish(&view);
+    if(!NT_SUCCESS(status)) {
+        StageTraceStatus(L"H60_DMA_PUBLISH_FAIL",status);
+        return status;
+    }
+    StageTrace(L"H60_DMA_PUBLISH_OK");
+    published_=true;
+    if(!stream_.Configure(view.bdlLogical,view.payloadBytes,view.lastValidIndex)) {
+        StageTraceStatus(L"H70_STREAM_CONFIGURE_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    StageTrace(L"H70_STREAM_CONFIGURE_OK");
+
+    // H15D: after HDA is cold/owned but before any DSP MMIO, apply only the
+    // two SOF pre-fw PCI policy bits attested by H15C. Any failure is cleaned
+    // by the mandatory Shutdown -> QuiesceController path.
+    StageTrace(L"H80_PCI_POLICY_ENTER");
+    status=pciPolicy_.Apply(device,pci_.Snapshot(),*gate_);
+    if(!NT_SUCCESS(status)) {
+        TracePciPolicyFailure(pciPolicy_.LastFailure(),status);
+        StageTraceStatus(L"H80_PCI_POLICY_FAIL",status);
+        return status;
+    }
+    StageTrace(L"H80_PCI_POLICY_OK");
+    StageTrace(L"H90_HDA_PREPARE_OK");
+    return STATUS_SUCCESS;
+}
+bool HdaTransport::Start() noexcept {
+    return KeGetCurrentIrql()==PASSIVE_LEVEL && controller_.Ready() &&
+        pciPolicy_.Applied() && allocated_ && published_ && stream_.Start();
+}
+bool HdaTransport::StopAndRelease() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
+    if(!allocated_) return true;
+    if(published_ && !stream_.StopDetach()) return false;
+    if(!dma_ || !NT_SUCCESS(dma_->ReleaseSession(published_ ? Verify : nullptr,this)))
+        return false;
+    allocated_=false; published_=false;
+    return true;
+}
+} }
+
+bool phaser360::windows::HdaTransport::QuiesceController() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
+
+    bool controllerOk=true;
+    if(controllerAttempted_) {
+        controllerOk=controller_.Quiesce();
+        if(controllerOk) controllerAttempted_=false;
+    }
+
+    // Restore H15D-owned PCI bits even when HDA quiesce reported failure.
+    const bool pciOk=pciPolicy_.Restore();
+    return controllerOk && pciOk;
+}

@@ -1,0 +1,24 @@
+PHASER360 H15L R2 - WINRE RECOVERY REFERENCE
+
+Aceasta etapa nu modifica BCD si nu reporneste Windows.
+WinRE trebuie sa fie deja activ inainte de rulare.
+
+Tinta exacta:
+PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
+
+Baseline Intel asteptat:
+Service=IntcAudioBus
+INF=oem14.inf
+Version=9.22.0.4832
+Provider=Intel(R) Corporation
+
+H15L R2 autorizeaza numai write SPA1 in DSP ADSPCS.
+CSTALL, CRST, Core0 si CPA nu sunt scrise.
+
+Starea hardware finala acceptata:
+ADSPCS=0x001D003C
+
+Daca runner-ul raporteaza BASELINE_RESTORED=FALSE sau TRUST_RESTORED=FALSE,
+nu continua cu alta etapa. Pastreaza arhiva RESULT_H15L_TRANSACTION_*.zip
+pentru analiza exacta a starii si foloseste WinRE numai pentru recuperarea
+driverului/bindingului daca Windows nu mai poate reveni singur la Intel.

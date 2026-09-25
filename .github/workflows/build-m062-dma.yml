@@ -1,0 +1,802 @@
+name: M0.6.15 H15C/H15D/H15E hardware gates - NOT AUTO-INSTALL
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'm062/**'
+      - 'src/sof/hda_bdl*'
+      - 'src/sof/hda_stream*'
+      - 'src/sof/glk_rom*'
+      - 'src/sof/ipc3*'
+      - 'tests/sof_*tests.cpp'
+      - 'tests/m0615_live_irq_tests.ps1'
+      - 'tests/m0615_h6_owner_tests.ps1'
+      - 'tests/m0615_h7_firmware_source_tests.ps1'
+      - 'tests/m0615_h8_link_only_tests.ps1'
+      - 'tests/m0615_h9_pe_audit_tests.ps1'
+      - 'tests/m0615_h10_repro_tests.ps1'
+      - 'tests/m0615_h11_telemetry_tests.ps1'
+      - 'tests/m0615_h12_preflight_tests.ps1'
+      - 'tests/m0615_h12_1_win10_kmdf_tests.ps1'
+      - 'tests/m0615_h13_package_tests.ps1'
+      - 'tests/m0615_h14_signing_tests.ps1'
+      - 'tests/m0615_h15a_surprise_race_tests.ps1'
+      - 'tests/m0615_h15b_hda_controller_tests.ps1'
+      - 'tests/m0615_h15c_pci_config_tests.ps1'
+      - 'tests/m0615_h15c_live_filter_tests.ps1'
+      - 'tests/m0615_h15c_live_transaction_tests.ps1'
+      - 'tests/m0615_h15c_live_r2_tests.ps1'
+      - 'tests/m0615_h15d_live_tests.ps1'
+      - 'tests/m0615_h15e_live_tests.ps1'
+      - 'docs/M0615_H15E_LIVE_R0.md'
+      - 'scripts/audit-pe-repro.py'
+      - 'scripts/generate-embedded-firmware.py'
+      - 'tests/sof_ipc_fixture.h'
+      - 'tests/fake_wdf/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/build-m062-dma.yml'
+  pull_request:
+    paths:
+      - 'm062/**'
+      - 'src/sof/hda_bdl*'
+      - 'src/sof/hda_stream*'
+      - 'src/sof/glk_rom*'
+      - 'src/sof/ipc3*'
+      - 'tests/sof_*tests.cpp'
+      - 'tests/m0615_live_irq_tests.ps1'
+      - 'tests/m0615_h6_owner_tests.ps1'
+      - 'tests/m0615_h7_firmware_source_tests.ps1'
+      - 'tests/m0615_h8_link_only_tests.ps1'
+      - 'tests/m0615_h9_pe_audit_tests.ps1'
+      - 'tests/m0615_h10_repro_tests.ps1'
+      - 'tests/m0615_h11_telemetry_tests.ps1'
+      - 'tests/m0615_h12_preflight_tests.ps1'
+      - 'tests/m0615_h12_1_win10_kmdf_tests.ps1'
+      - 'tests/m0615_h13_package_tests.ps1'
+      - 'tests/m0615_h14_signing_tests.ps1'
+      - 'tests/m0615_h15a_surprise_race_tests.ps1'
+      - 'tests/m0615_h15b_hda_controller_tests.ps1'
+      - 'tests/m0615_h15c_pci_config_tests.ps1'
+      - 'tests/m0615_h15c_live_filter_tests.ps1'
+      - 'tests/m0615_h15c_live_transaction_tests.ps1'
+      - 'tests/m0615_h15c_live_r2_tests.ps1'
+      - 'tests/m0615_h15d_live_tests.ps1'
+      - 'tests/m0615_h15e_live_tests.ps1'
+      - 'docs/M0615_H15E_LIVE_R0.md'
+      - 'scripts/audit-pe-repro.py'
+      - 'scripts/generate-embedded-firmware.py'
+      - 'tests/sof_ipc_fixture.h'
+      - 'tests/fake_wdf/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/build-m062-dma.yml'
+permissions:
+  contents: read
+jobs:
+  wdk:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 
+      - uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+      - name: Compile kernel library against real WDK and KMDF
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          nuget restore .\m062\packages.config -PackagesDirectory .\m062\packages -NonInteractive
+          if ($LASTEXITCODE -ne 0) { throw 'RESTORE_FAILED' }
+          msbuild .\m062\driver\phaser360_boot_dma.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'WDK_COMPILE_FAILED' }
+          if (-not (Test-Path .\m062\driver\out\phaser360_boot_dma.lib)) { throw 'LIBRARY_MISSING' }
+          Write-Host 'WDK_DMA_LIBRARY=PASS'
+      - name: Test descriptor boundaries and allocation failure cleanup
+        shell: pwsh
+        run: |
+          cmake -S . -B build-dma -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'CONFIGURE_FAILED' }
+          cmake --build build-dma --config Release --target phaser360_pnp_resources_tests phaser360_pinned_owner_tests phaser360_telemetry_tests phaser360_cng_pin_tests phaser360_bdl_tests phaser360_dma_owner_tests phaser360_stream_tests phaser360_rom_tests phaser360_glk_boot_tests phaser360_ipc_tests phaser360_command_tests phaser360_sof_inspect
+          if ($LASTEXITCODE -ne 0) { throw 'BUILD_FAILED' }
+          ctest --test-dir build-dma -C Release -R 'sof_(pnp_resources|pinned_owner|telemetry|cng_pin|bdl|dma_owner|stream|rom|glk_boot|ipc|command)' -V
+          if ($LASTEXITCODE -ne 0) { throw 'TEST_FAILED' }
+      - name: Verify read-only live IRQ collector
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_live_irq_tests.ps1
+          if (-not $?) { throw 'IRQ_CAPTURE_STATIC_TESTS_FAILED' }
+      - name: Verify H6 DeviceAdd ownership guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h6_owner_tests.ps1
+          if (-not $?) { throw 'H6_DEVICE_OWNER_STATIC_TESTS_FAILED' }
+      - name: Verify H7 firmware source guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h7_firmware_source_tests.ps1
+          if (-not $?) { throw 'H7_FIRMWARE_SOURCE_STATIC_TESTS_FAILED' }
+      - name: Link H8 KMDF boot driver then destroy SYS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = (Resolve-Path .\build-dma).Path
+          $inspector = Join-Path $build 'Release\phaser360_sof_inspect.exe'
+          if (-not (Test-Path -LiteralPath $inspector)) { throw 'H8_INSPECTOR_MISSING' }
+
+          $fixture = Join-Path $build 'fixtures\sof-apl.ri'
+          $referenceReport = Join-Path $build 'H8_REFERENCE_CHECK.json'
+          python .\scripts\verify-sof-reference.py --inspector $inspector --fixture $fixture --download --report $referenceReport
+          if ($LASTEXITCODE -ne 0) { throw 'H8_REFERENCE_VERIFY_FAILED' }
+
+          $generatedDir = Join-Path $build 'h8-generated'
+          New-Item -ItemType Directory -Path $generatedDir -Force | Out-Null
+          $generated = Join-Path $generatedDir 'embedded_firmware.cpp'
+          $firmwareReport = Join-Path $build 'H8_EMBEDDED_FIRMWARE_REPORT.json'
+          python .\scripts\generate-embedded-firmware.py --input $fixture --output $generated --report $firmwareReport
+          if ($LASTEXITCODE -ne 0) { throw 'H8_PROVIDER_GENERATION_FAILED' }
+
+          $provider = (Resolve-Path -LiteralPath $generated).Path
+          msbuild .\m062\driver\phaser360_m1_boot.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off "/p:GeneratedFirmwareSource=$provider" /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'H8_DRIVER_LINK_FAILED' }
+
+          $sys = (Resolve-Path .\m062\driver\out-h8\phaser360_m1_boot.sys).Path
+          $pe = [IO.File]::ReadAllBytes($sys)
+          if ($pe.Length -lt 1024 -or $pe[0] -ne 0x4d -or $pe[1] -ne 0x5a) {
+            throw 'H8_DRIVER_PE_INVALID'
+          }
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) { throw 'H9_VSWHERE_MISSING' }
+          $vsRoot = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+          if (-not $vsRoot) { throw 'H9_VS_INSTALLATION_NOT_FOUND' }
+          $dumpbinItem = Get-ChildItem -LiteralPath (Join-Path $vsRoot 'VC\Tools\MSVC') -Filter dumpbin.exe -Recurse -File |
+            Where-Object { $_.FullName -match '\\bin\\Hostx64\\x64\\dumpbin\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $dumpbinItem) { throw 'H9_DUMPBIN_NOT_FOUND' }
+          $dumpbinPath = $dumpbinItem.FullName
+          Write-Host "H9_DUMPBIN=$dumpbinPath"
+
+          $headers = (& $dumpbinPath /headers $sys 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'H9_DUMPBIN_HEADERS_FAILED' }
+          $imports = (& $dumpbinPath /imports $sys 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'H9_DUMPBIN_IMPORTS_FAILED' }
+
+          $headersReport = Join-Path $build 'H9_PE_HEADERS.txt'
+          $importsReport = Join-Path $build 'H9_PE_IMPORTS.txt'
+          $headers | Set-Content -LiteralPath $headersReport
+          $imports | Set-Content -LiteralPath $importsReport
+
+          if ($headers -notmatch '(?im)8664\s+machine\s+\(x64\)') {
+            throw 'H9_PE_MACHINE_NOT_X64'
+          }
+          if ($headers -notmatch '(?im)subsystem\s+\(Native\)') {
+            throw 'H9_PE_SUBSYSTEM_NOT_NATIVE'
+          }
+
+          foreach ($requiredImport in @(
+            'BCryptOpenAlgorithmProvider',
+            'BCryptCloseAlgorithmProvider',
+            'BCryptCreateHash',
+            'BCryptHashData',
+            'BCryptFinishHash',
+            'BCryptDestroyHash'
+          )) {
+            if ($imports.IndexOf($requiredImport,[StringComparison]::Ordinal) -lt 0) {
+              throw "H9_CNG_IMPORT_MISSING: $requiredImport"
+            }
+          }
+
+          foreach ($forbiddenImport in @(
+            'KERNEL32.dll','USER32.dll','NTDLL.dll','ADVAPI32.dll','BCRYPT.dll',
+            'WINMM.dll','MMDEVAPI.dll','AUDIOSES.dll',
+            'PORTCLS.SYS','KS.SYS','DRMK.SYS','ACX01000.SYS'
+          )) {
+            if ($imports.IndexOf($forbiddenImport,[StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              throw "H9_FORBIDDEN_IMPORT: $forbiddenImport"
+            }
+          }
+
+          $firstHash = (Get-FileHash -LiteralPath $sys -Algorithm SHA256).Hash.ToLowerInvariant()
+          $firstBytes = (Get-Item -LiteralPath $sys).Length
+          $reproFirst = Join-Path $build 'H10_PE_REPRO_FIRST.json'
+          python .\scripts\audit-pe-repro.py --input $sys --report $reproFirst
+          if ($LASTEXITCODE -ne 0) { throw 'H10_FIRST_REPRO_MARKER_MISSING' }
+
+          Write-Host "H10_REPRO_FIRST_SHA256=$firstHash"
+          Remove-Item -LiteralPath $sys -Force
+          if (Test-Path -LiteralPath $sys) { throw 'H10_FIRST_SYS_DELETE_FAILED' }
+
+          msbuild .\m062\driver\phaser360_m1_boot.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off "/p:GeneratedFirmwareSource=$provider" /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'H10_SECOND_DRIVER_LINK_FAILED' }
+
+          $sys = (Resolve-Path .\m062\driver\out-h8\phaser360_m1_boot.sys).Path
+          $secondHash = (Get-FileHash -LiteralPath $sys -Algorithm SHA256).Hash.ToLowerInvariant()
+          $secondBytes = (Get-Item -LiteralPath $sys).Length
+          $reproSecond = Join-Path $build 'H10_PE_REPRO_SECOND.json'
+          python .\scripts\audit-pe-repro.py --input $sys --report $reproSecond
+          if ($LASTEXITCODE -ne 0) { throw 'H10_SECOND_REPRO_MARKER_MISSING' }
+
+          Write-Host "H10_REPRO_SECOND_SHA256=$secondHash"
+          if ($firstBytes -ne $secondBytes) {
+            throw "H10_REPRO_SIZE_MISMATCH: first=$firstBytes second=$secondBytes"
+          }
+          if ($firstHash -cne $secondHash) {
+            throw "H10_REPRO_HASH_MISMATCH: first=$firstHash second=$secondHash"
+          }
+
+          $sysHash = $secondHash
+          $sysBytes = $secondBytes
+          $metadata = Join-Path $build 'H8_DRIVER_LINK_REPORT.txt'
+          @(
+            "COMMIT=$env:GITHUB_SHA",
+            'H8_DRIVER_LINK=PASS',
+            'H9_PE_AUDIT=PASS',
+            'H10_REPRODUCIBLE_BUILD=PASS',
+            "H10_REPRO_FIRST_SHA256=$firstHash",
+            "H10_REPRO_SECOND_SHA256=$secondHash",
+            'H10_IMAGE_DEBUG_TYPE_REPRO=PRESENT',
+            'PE_MACHINE=X64',
+            'PE_SUBSYSTEM=NATIVE',
+            'CNG_IMPORTS=REQUIRED_AND_PRESENT',
+            'USERMODE_IMPORTS=NONE',
+            'AUDIO_IMPORTS=NONE',
+            "SYS_SHA256=$sysHash",
+            "SYS_BYTES=$sysBytes",
+            'SYS_UPLOADED=FALSE',
+            'INF=ABSENT',
+            'SIGN_MODE=OFF',
+            'FIRMWARE_SOURCE=GENERATED_EMBEDDED_PINNED',
+            'FIRMWARE_SHA256=40029b5a05665f19a492ef00b8c0a24c42e90d7c00fc57146e07947fd1407d5c',
+            'HARDWARE_EXECUTION=NONE',
+            'TARGET_OS=WINDOWS10_21H2_19044',
+            'KMDF_TARGET=1.31',
+            'AUDIO_PLAYBACK=NOT_IMPLEMENTED'
+          ) | Set-Content -LiteralPath $metadata
+
+          Write-Host "H8_DRIVER_LINK=PASS; sys_bytes=$sysBytes; sys_sha256=$sysHash; sys_uploaded=FALSE; inf=ABSENT; hardware=NONE; playback=NO"
+          Write-Host 'H9_PE_AUDIT=PASS; machine=X64; subsystem=NATIVE; cng_imports=PRESENT; usermode_imports=NONE; audio_imports=NONE; sys_uploaded=FALSE'
+          Write-Host "H10_REPRODUCIBLE_BUILD=PASS; sha256=$secondHash; bytes=$secondBytes; image_debug_type_repro=PRESENT; sys_uploaded=FALSE"
+
+          Remove-Item -LiteralPath $sys -Force
+          if (Test-Path -LiteralPath $sys) { throw 'H8_SYS_DELETE_FAILED' }
+          Remove-Item -LiteralPath $generated -Force
+          if (Test-Path -LiteralPath $generated) { throw 'H8_GENERATED_PROVIDER_DELETE_FAILED' }
+          Remove-Item -LiteralPath $fixture -Force
+          if (Test-Path -LiteralPath $fixture) { throw 'H8_FIRMWARE_FIXTURE_DELETE_FAILED' }
+
+      - name: Verify H8 link-only guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h8_link_only_tests.ps1
+          if (-not $?) { throw 'H8_LINK_ONLY_STATIC_TESTS_FAILED' }
+
+      - name: Verify H9 PE audit guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h9_pe_audit_tests.ps1
+          if (-not $?) { throw 'H9_PE_AUDIT_STATIC_TESTS_FAILED' }
+
+      - name: Verify H10 reproducible-build guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h10_repro_tests.ps1
+          if (-not $?) { throw 'H10_REPRO_STATIC_TESTS_FAILED' }
+
+      - name: Verify H11 read-only telemetry guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h11_telemetry_tests.ps1
+          if (-not $?) { throw 'H11_READONLY_TELEMETRY_STATIC_TESTS_FAILED' }
+          Write-Host 'H11_READONLY_TELEMETRY_STATIC_TESTS=PASS'
+
+      - name: Verify H12 M1 preflight and recovery guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\m062\m1\Collect-M1Preflight.ps1 -SelfTest
+          if (-not $?) { throw 'H12_M1_PREFLIGHT_SELFTEST_FAILED' }
+          Write-Host 'H12_M1_PREFLIGHT_SELFTEST=PASS'
+          & .\tests\m0615_h12_preflight_tests.ps1
+          if (-not $?) { throw 'H12_M1_PREFLIGHT_STATIC_TESTS_FAILED' }
+          Write-Host 'H12_M1_PREFLIGHT_STATIC_TESTS=PASS'
+
+      - name: Verify H12.1 Windows 10 KMDF compatibility
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h12_1_win10_kmdf_tests.ps1
+          if (-not $?) { throw 'H12_1_WIN10_KMDF_COMPAT_FAILED' }
+          Write-Host 'H12_1_WIN10_KMDF_COMPAT=PASS'
+
+      - name: Validate H13 exact-target INF package then destroy package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = (Resolve-Path .\build-dma).Path
+          $inspector = Join-Path $build 'Release\phaser360_sof_inspect.exe'
+          if (-not (Test-Path -LiteralPath $inspector)) { throw 'H13_INSPECTOR_MISSING' }
+
+          $fixture = Join-Path $build 'h13-fixtures\sof-apl.ri'
+          $referenceReport = Join-Path $build 'H13_REFERENCE_CHECK.json'
+          python .\scripts\verify-sof-reference.py --inspector $inspector --fixture $fixture --download --report $referenceReport
+          if ($LASTEXITCODE -ne 0) { throw 'H13_REFERENCE_VERIFY_FAILED' }
+
+          $generatedDir = Join-Path $build 'h13-generated'
+          New-Item -ItemType Directory -Path $generatedDir -Force | Out-Null
+          $generated = Join-Path $generatedDir 'embedded_firmware.cpp'
+          python .\scripts\generate-embedded-firmware.py --input $fixture --output $generated
+          if ($LASTEXITCODE -ne 0) { throw 'H13_PROVIDER_GENERATION_FAILED' }
+          $provider = (Resolve-Path -LiteralPath $generated).Path
+
+          msbuild .\m062\driver\phaser360_m1_boot.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off "/p:GeneratedFirmwareSource=$provider" /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'H13_DRIVER_LINK_FAILED' }
+
+          $sys = (Resolve-Path .\m062\driver\out-h8\phaser360_m1_boot.sys).Path
+          $package = Join-Path $build 'h13-package'
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+          Copy-Item -LiteralPath $sys -Destination (Join-Path $package 'phaser360_m1_boot.sys')
+          Copy-Item -LiteralPath .\m062\m1\phaser360_m1_boot.inf -Destination (Join-Path $package 'phaser360_m1_boot.inf')
+
+          $searchRoots = @(
+            (Join-Path $env:GITHUB_WORKSPACE 'm062\packages'),
+            (Join-Path $env:USERPROFILE '.nuget\packages'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin')
+          ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
+          $inf2catCandidates = @(
+            foreach($root in $searchRoots) {
+              Get-ChildItem -LiteralPath $root -Filter Inf2Cat.exe -Recurse -File -ErrorAction SilentlyContinue
+            }
+          )
+          $inf2catItem = $inf2catCandidates |
+            Sort-Object @{Expression={ if($_.FullName -match '(?i)\\x64\\'){0}else{1} }},FullName -Descending |
+            Select-Object -First 1
+          if (-not $inf2catItem) {
+            Write-Host ('H13_INF2CAT_SEARCH_ROOTS=' + ($searchRoots -join ';'))
+            throw 'H13_INF2CAT_NOT_FOUND'
+          }
+          $inf2cat = $inf2catItem.FullName
+          Write-Host "H13_INF2CAT_PATH=$inf2cat"
+          & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+          if ($LASTEXITCODE -ne 0) { throw 'H13_INF2CAT_FAILED' }
+
+          $cat = Join-Path $package 'phaser360_m1_boot.cat'
+          $inf = Join-Path $package 'phaser360_m1_boot.inf'
+          $pkgSys = Join-Path $package 'phaser360_m1_boot.sys'
+          if (-not (Test-Path -LiteralPath $cat -PathType Leaf)) { throw 'H13_CAT_MISSING' }
+
+          $infHash=(Get-FileHash -LiteralPath $inf -Algorithm SHA256).Hash.ToLowerInvariant()
+          $catHash=(Get-FileHash -LiteralPath $cat -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sysHash=(Get-FileHash -LiteralPath $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant()
+          $report=Join-Path $build 'H13_PACKAGE_REPORT.txt'
+          @(
+            "COMMIT=$env:GITHUB_SHA",
+            'H13_INF2CAT=PASS',
+            'H13_OS_SIGNABILITY=10_VB_X64',
+            'TARGET_BUILD_EXACT_GATE=19044',
+            'INF_TARGET_BUILD_ALLOW=19044_ONLY',
+            'INF_TARGET_BUILD_19045_PLUS=EMPTY_SECTION_BLOCK',
+            'TARGET_HWID=PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
+            'SERVICE=Phaser360M1',
+            'SERVICE_START=DEMAND',
+            'KMDF_TARGET=1.31',
+            "INF_SHA256=$infHash",
+            "CAT_SHA256=$catHash",
+            "SYS_SHA256=$sysHash",
+            'CAT_SIGNED=FALSE',
+            'H13_PACKAGE_UPLOADED=FALSE',
+            'H13_INSTALL_EXECUTED=FALSE',
+            'BASELINE_BACKUP=EXPORT_ONLY_SCRIPT_NOT_EXECUTED_CI',
+            'AUDIO_ENDPOINTS=NONE',
+            'FILTERS=NONE',
+            'PLAYBACK=NO'
+          ) | Set-Content -LiteralPath $report
+          Write-Host "H13_INF2CAT=PASS; os=10_VB_X64; exact_hwid=YES; exact_os_build=19044; build_19045_plus=BLOCKED; kmdf=1.31; package_uploaded=FALSE; install_executed=FALSE; playback=NO"
+          Remove-Item -LiteralPath $package -Recurse -Force
+          if (Test-Path -LiteralPath $package) { throw 'H13_PACKAGE_DELETE_FAILED' }
+          Remove-Item -LiteralPath $sys -Force
+          if (Test-Path -LiteralPath $sys) { throw 'H13_SYS_DELETE_FAILED' }
+          Remove-Item -LiteralPath $generated -Force
+          Remove-Item -LiteralPath $fixture -Force
+          if ((Test-Path -LiteralPath $generated) -or (Test-Path -LiteralPath $fixture)) {
+            throw 'H13_TEMP_INPUT_DELETE_FAILED'
+          }
+
+      - name: Verify H13 package guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h13_package_tests.ps1
+          if (-not $?) { throw 'H13_PACKAGE_STATIC_TESTS_FAILED' }
+
+      - name: H14 ephemeral sign and verify package then destroy all signing material
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = (Resolve-Path .\build-dma).Path
+          $inspector = Join-Path $build 'Release\phaser360_sof_inspect.exe'
+          if (-not (Test-Path -LiteralPath $inspector)) { throw 'H14_INSPECTOR_MISSING' }
+
+          $fixture = Join-Path $build 'h14-fixtures\sof-apl.ri'
+          $referenceReport = Join-Path $build 'H14_REFERENCE_CHECK.json'
+          python .\scripts\verify-sof-reference.py --inspector $inspector --fixture $fixture --download --report $referenceReport
+          if ($LASTEXITCODE -ne 0) { throw 'H14_REFERENCE_VERIFY_FAILED' }
+
+          $generatedDir = Join-Path $build 'h14-generated'
+          New-Item -ItemType Directory -Path $generatedDir -Force | Out-Null
+          $generated = Join-Path $generatedDir 'embedded_firmware.cpp'
+          python .\scripts\generate-embedded-firmware.py --input $fixture --output $generated
+          if ($LASTEXITCODE -ne 0) { throw 'H14_PROVIDER_GENERATION_FAILED' }
+          $provider = (Resolve-Path -LiteralPath $generated).Path
+
+          msbuild .\m062\driver\phaser360_m1_boot.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off "/p:GeneratedFirmwareSource=$provider" /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'H14_DRIVER_LINK_FAILED' }
+
+          $sys = (Resolve-Path .\m062\driver\out-h8\phaser360_m1_boot.sys).Path
+          $package = Join-Path $build 'h14-package'
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+          $pkgSys = Join-Path $package 'phaser360_m1_boot.sys'
+          $inf = Join-Path $package 'phaser360_m1_boot.inf'
+          Copy-Item -LiteralPath $sys -Destination $pkgSys
+          Copy-Item -LiteralPath .\m062\m1\phaser360_m1_boot.inf -Destination $inf
+
+          Write-Host 'H14_TOOL_DISCOVERY_BEGIN'
+          $buildToolsPackage = (Resolve-Path .\m062\packages\Microsoft.Windows.SDK.BuildTools.10.0.28000.2526).Path
+          $signtool = Join-Path $buildToolsPackage 'bin\10.0.28000.0\x64\signtool.exe'
+          $wdkPackage = (Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
+          $inf2cat = Join-Path $wdkPackage 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
+          if (-not (Test-Path -LiteralPath $signtool -PathType Leaf)) { throw 'H14_SIGNTOOL_NOT_FOUND' }
+          if (-not (Test-Path -LiteralPath $inf2cat -PathType Leaf)) { throw 'H14_INF2CAT_NOT_FOUND' }
+          Write-Host "H14_SIGNTOOL_PATH=$signtool"
+          Write-Host "H14_INF2CAT_PATH=$inf2cat"
+          Write-Host 'H14_TOOL_DISCOVERY_END'
+
+          Write-Host 'H14_CERT_CREATE_BEGIN'
+          $subject = 'CN=PHASER360 H14 CI Ephemeral Code Signing'
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(1)
+          if (-not $cert -or -not $cert.HasPrivateKey) { throw 'H14_CERT_CREATE_FAILED' }
+          Write-Host 'H14_CERT_CREATE_END'
+          $thumb = $cert.Thumbprint
+          $cer = Join-Path $build 'H14_EPHEMERAL_PUBLIC.cer'
+          $certutil = Join-Path $env:SystemRoot 'System32\certutil.exe'
+          if (-not (Test-Path -LiteralPath $certutil -PathType Leaf)) { throw 'H14_CERTUTIL_NOT_FOUND' }
+          Write-Host 'H14_CERT_TRUST_BEGIN'
+          Export-Certificate -Cert $cert -FilePath $cer -Type CERT | Out-Null
+          Write-Host 'H14_CERT_ROOT_ADD_BEGIN'
+          & $certutil -f -addstore Root $cer
+          if ($LASTEXITCODE -ne 0) { throw 'H14_CERT_ROOT_ADD_FAILED' }
+          Write-Host 'H14_CERT_ROOT_ADD_END'
+          Write-Host 'H14_CERT_TRUST_END'
+          # Embedded-sign SYS first. Inf2Cat must hash the already-signed SYS.
+          Write-Host 'H14_SYS_SIGN_BEGIN'
+          & $signtool sign /fd SHA256 /sha1 $thumb /s My /v $pkgSys
+          if ($LASTEXITCODE -ne 0) { throw 'H14_SYS_SIGN_FAILED' }
+          Write-Host 'H14_SYS_SIGN_END'
+
+          Write-Host 'H14_INF2CAT_BEGIN'
+          & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+          if ($LASTEXITCODE -ne 0) { throw 'H14_INF2CAT_FAILED' }
+          Write-Host 'H14_INF2CAT_END'
+          $cat = Join-Path $package 'phaser360_m1_boot.cat'
+          if (-not (Test-Path -LiteralPath $cat -PathType Leaf)) { throw 'H14_CAT_MISSING' }
+
+          Write-Host 'H14_CAT_SIGN_BEGIN'
+          & $signtool sign /fd SHA256 /sha1 $thumb /s My /v $cat
+          if ($LASTEXITCODE -ne 0) { throw 'H14_CAT_SIGN_FAILED' }
+          Write-Host 'H14_CAT_SIGN_END'
+
+          Write-Host 'H14_VERIFY_BEGIN'
+          & $signtool verify /v /pa $pkgSys
+          if ($LASTEXITCODE -ne 0) { throw 'H14_SYS_VERIFY_FAILED' }
+          & $signtool verify /v /pa $cat
+          if ($LASTEXITCODE -ne 0) { throw 'H14_CAT_VERIFY_FAILED' }
+          Write-Host 'H14_VERIFY_END'
+
+          $sysSig = Get-AuthenticodeSignature -LiteralPath $pkgSys
+          $catSig = Get-AuthenticodeSignature -LiteralPath $cat
+          if ($sysSig.Status -ne 'Valid' -or $catSig.Status -ne 'Valid') {
+            throw "H14_AUTHENTICODE_STATUS_INVALID: sys=$($sysSig.Status) cat=$($catSig.Status)"
+          }
+
+          $report = Join-Path $build 'H14_SIGNING_REPORT.txt'
+          @(
+            "COMMIT=$env:GITHUB_SHA",
+            'H14_SIGNING=PASS',
+            "CERT_SUBJECT=$subject",
+            "CERT_THUMBPRINT=$thumb",
+            "CERT_NOT_AFTER=$($cert.NotAfter.ToUniversalTime().ToString('o'))",
+            'CERT_TYPE=SELF_SIGNED_EPHEMERAL_CODE_SIGNING',
+            'KEY_EXPORT_POLICY=NONEXPORTABLE',
+            'PRIVATE_KEY_EXPORTED=FALSE',
+            'TIMESTAMP=NONE',
+            'SYS_AUTHENTICODE=VALID',
+            'CAT_AUTHENTICODE=VALID',
+            "SIGNED_SYS_SHA256=$((Get-FileHash -LiteralPath $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant())",
+            "SIGNED_CAT_SHA256=$((Get-FileHash -LiteralPath $cat -Algorithm SHA256).Hash.ToLowerInvariant())",
+            'CI_TRUST_TEMPORARY=YES',
+            'TARGET_TRUST_MODIFIED=FALSE',
+            'KERNEL_ACCEPTANCE_ON_TARGET=NOT_CLAIMED',
+            'H14_PACKAGE_UPLOADED=FALSE',
+            'H14_INSTALL_EXECUTED=FALSE',
+            'AUDIO_ENDPOINTS=NONE',
+            'PLAYBACK=NO'
+          ) | Set-Content -LiteralPath $report
+
+          Write-Host "H14_SIGNING=PASS; private_key_exported=FALSE; target_trust_modified=FALSE; package_uploaded=FALSE; install_executed=FALSE; playback=NO"
+
+          Write-Host 'H14_CLEANUP_BEGIN'
+          Remove-Item -LiteralPath $package -Recurse -Force
+          Remove-Item -LiteralPath $sys -Force
+          Remove-Item -LiteralPath $generated -Force
+          Remove-Item -LiteralPath $fixture -Force
+          Write-Host 'H14_CERT_ROOT_REMOVE_BEGIN'
+          & $certutil -delstore Root $thumb
+          if ($LASTEXITCODE -ne 0) { throw 'H14_CERT_ROOT_REMOVE_FAILED' }
+          Write-Host 'H14_CERT_ROOT_REMOVE_END'
+          Remove-Item -LiteralPath "Cert:\CurrentUser\My\$thumb" -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $cer -Force
+
+          if ((Test-Path -LiteralPath $package) -or (Test-Path -LiteralPath $sys) -or
+              (Test-Path -LiteralPath $generated) -or (Test-Path -LiteralPath $fixture) -or
+              (Test-Path -LiteralPath $cer) -or
+              (Test-Path -LiteralPath "Cert:\CurrentUser\My\$thumb")) {
+            throw 'H14_TEMP_PAYLOAD_OR_SIGNER_DELETE_FAILED'
+          }
+          Write-Host 'H14_CLEANUP_END'
+
+      - name: Verify H14 signing guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h14_signing_tests.ps1
+          if (-not $?) { throw 'H14_SIGNING_STATIC_TESTS_FAILED' }
+
+      - name: Verify H15A surprise-removal race guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15a_surprise_race_tests.ps1
+          if (-not $?) { throw 'H15A_SURPRISE_RACE_STATIC_TESTS_FAILED' }
+
+      - name: Verify H15B HDA controller ownership guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15b_hda_controller_tests.ps1
+          if (-not $?) { throw 'H15B_HDA_CONTROLLER_STATIC_TESTS_FAILED' }
+
+      - name: Verify H15C PCI config read-only attestation guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15c_pci_config_tests.ps1
+          if (-not $?) { throw 'H15C_PCI_CONFIG_ATTESTATION_STATIC_TESTS_FAILED' }
+
+      - name: Build and validate H15C-LIVE read-only filter then destroy package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild .\m062\h15c_live\phaser360_h15c_live_filter.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'H15C_LIVE_FILTER_LINK_FAILED' }
+
+          $sys=(Resolve-Path .\m062\h15c_live\out\phaser360_h15c_live_filter.sys).Path
+          $build=(Resolve-Path .\build-dma).Path
+          $package=Join-Path $build 'h15c-live-package'
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+          $pkgSys=Join-Path $package 'phaser360_h15c_live_filter.sys'
+          $inf=Join-Path $package 'phaser360_h15c_live_filter.inf'
+          Copy-Item -LiteralPath $sys -Destination $pkgSys
+          Copy-Item -LiteralPath .\m062\h15c_live\phaser360_h15c_live_filter.inf -Destination $inf
+
+          $wdkPackage=(Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
+          $inf2cat=Join-Path $wdkPackage 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
+          if (-not (Test-Path -LiteralPath $inf2cat -PathType Leaf)) { throw 'H15C_LIVE_INF2CAT_NOT_FOUND' }
+          & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+          if ($LASTEXITCODE -ne 0) { throw 'H15C_LIVE_INF2CAT_FAILED' }
+
+          $cat=Join-Path $package 'phaser360_h15c_live_filter.cat'
+          if (-not (Test-Path -LiteralPath $cat -PathType Leaf)) { throw 'H15C_LIVE_CAT_MISSING' }
+          $report=Join-Path $build 'H15C_LIVE_FILTER_REPORT.txt'
+          @(
+            "COMMIT=$env:GITHUB_SHA",
+            'H15C_LIVE_FILTER_LINK=PASS',
+            'H15C_LIVE_INF2CAT=PASS',
+            'TARGET_BUILD_EXACT_GATE=19044',
+            'TARGET_HWID=PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
+            'INF_CLASS=EXTENSION',
+            'FILTER_POSITION=UPPER',
+            'FUNCTION_DRIVER_REPLACEMENT=NO',
+            'PCI_CONFIG_ACCESS=GETBUSDATA_ONLY',
+            'SETBUSDATA=FORBIDDEN',
+            'MMIO=NONE',
+            'DMA=NONE',
+            'IRQ=NONE',
+            'DSP_BOOT=NO',
+            'PACKAGE_SIGNED=FALSE',
+            'PACKAGE_UPLOADED=FALSE',
+            'INSTALL_EXECUTED=FALSE',
+            "SYS_SHA256=$((Get-FileHash -LiteralPath $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant())",
+            "INF_SHA256=$((Get-FileHash -LiteralPath $inf -Algorithm SHA256).Hash.ToLowerInvariant())",
+            "CAT_SHA256=$((Get-FileHash -LiteralPath $cat -Algorithm SHA256).Hash.ToLowerInvariant())"
+          ) | Set-Content -LiteralPath $report
+
+          Remove-Item -LiteralPath $package -Recurse -Force
+          Remove-Item -LiteralPath $sys -Force
+          if ((Test-Path -LiteralPath $package) -or (Test-Path -LiteralPath $sys)) {
+            throw 'H15C_LIVE_PACKAGE_DELETE_FAILED'
+          }
+          Write-Host 'H15C_LIVE_FILTER=PASS; link=PASS; inf2cat=PASS; extension_upper_filter=YES; install=NO; package_upload=NO; setbusdata=NO; mmio=NO'
+
+      - name: Verify H15C-LIVE filter guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15c_live_filter_tests.ps1
+          if (-not $?) { throw 'H15C_LIVE_STATIC_TESTS_FAILED' }
+
+      - name: Verify H15C-LIVE-R2 transaction and trust rollback guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15c_live_transaction_tests.ps1
+          if (-not $?) { throw 'H15C_LIVE_R2_TRANSACTION_TESTS_FAILED' }
+
+      - name: Verify H15C-LIVE-R2 package readiness guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15c_live_r2_tests.ps1
+          if (-not $?) { throw 'H15C_LIVE_R2_STATIC_TESTS_FAILED' }
+
+      - name: Build and validate H15D-LIVE R1 bounded PCI filter then destroy package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild .\m062\h15d_live\phaser360_h15d_live_filter.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'H15D_LIVE_FILTER_LINK_FAILED' }
+
+          $sys=(Resolve-Path .\m062\h15d_live\out\phaser360_h15d_live_filter.sys).Path
+          $build=(Resolve-Path .\build-dma).Path
+          $package=Join-Path $build 'h15d-live-package'
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+          $pkgSys=Join-Path $package 'phaser360_h15d_live_filter.sys'
+          $inf=Join-Path $package 'phaser360_h15d_live_filter.inf'
+          Copy-Item -LiteralPath $sys -Destination $pkgSys
+          Copy-Item -LiteralPath .\m062\h15d_live\phaser360_h15d_live_filter.inf -Destination $inf
+
+          $wdkPackage=(Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
+          $inf2cat=Join-Path $wdkPackage 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
+          if (-not (Test-Path -LiteralPath $inf2cat -PathType Leaf)) { throw 'H15D_LIVE_INF2CAT_NOT_FOUND' }
+          & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+          if ($LASTEXITCODE -ne 0) { throw 'H15D_LIVE_INF2CAT_FAILED' }
+          $cat=Join-Path $package 'phaser360_h15d_live_filter.cat'
+          if (-not (Test-Path -LiteralPath $cat -PathType Leaf)) { throw 'H15D_LIVE_CAT_MISSING' }
+
+          $report=Join-Path $build 'H15D_LIVE_FILTER_REPORT.txt'
+          @(
+            "COMMIT=$env:GITHUB_SHA",
+            'H15D_LIVE_FILTER_LINK=PASS',
+            'H15D_LIVE_INF2CAT=PASS',
+            'TARGET_BUILD_EXACT_GATE=19044',
+            'TARGET_HWID=PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
+            'FILTER_POSITION=UPPER',
+            'EXPECTED_PGCTL=0x00000010',
+            'EXPECTED_CGCTL=0x807B0DFF',
+            'APPLIED_PGCTL=0x00000014',
+            'APPLIED_CGCTL=0x807B0DFD',
+            'PCI_WRITE=ONLY_0x44_BIT2_AND_0x48_BIT1',
+            'RESTORE=EXACT_BASELINE_REQUIRED',
+            'ONE_SHOT=YES',
+            'MMIO=NONE',
+            'DMA=NONE',
+            'DSP_BOOT=NO',
+            'PLAYBACK=NO',
+            'PACKAGE_SIGNED=FALSE',
+            'PACKAGE_UPLOADED=FALSE',
+            'INSTALL_EXECUTED=FALSE'
+          ) | Set-Content -LiteralPath $report
+
+          Remove-Item -LiteralPath $package -Recurse -Force
+          Remove-Item -LiteralPath $sys -Force
+          if ((Test-Path -LiteralPath $package) -or (Test-Path -LiteralPath $sys)) {
+            throw 'H15D_LIVE_PACKAGE_DELETE_FAILED'
+          }
+          Write-Host 'H15D_LIVE_FILTER=PASS; pci_write=BOUNDED_TWO_BITS; exact_restore=REQUIRED; one_shot=YES; mmio=NO; dma=NO; dsp_boot=NO'
+
+      - name: Verify H15D-LIVE R1 transaction guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15d_live_tests.ps1
+          if (-not $?) { throw 'H15D_LIVE_R1_STATIC_TESTS_FAILED' }
+
+      - name: Build and validate H15E-LIVE R0 transient read-only MMIO filter then destroy package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild .\m062\h15e_live\phaser360_h15e_live_filter.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'H15E_LIVE_FILTER_LINK_FAILED' }
+
+          $sys=(Resolve-Path .\m062\h15e_live\out\phaser360_h15e_live_filter.sys).Path
+          $build=(Resolve-Path .\build-dma).Path
+          $package=Join-Path $build 'h15e-live-package'
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+          $pkgSys=Join-Path $package 'phaser360_h15e_live_filter.sys'
+          $inf=Join-Path $package 'phaser360_h15e_live_filter.inf'
+          Copy-Item -LiteralPath $sys -Destination $pkgSys
+          Copy-Item -LiteralPath .\m062\h15e_live\phaser360_h15e_live_filter.inf -Destination $inf
+
+          $wdkPackage=(Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
+          $inf2cat=Join-Path $wdkPackage 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
+          if (-not (Test-Path -LiteralPath $inf2cat -PathType Leaf)) { throw 'H15E_LIVE_INF2CAT_NOT_FOUND' }
+          & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+          if ($LASTEXITCODE -ne 0) { throw 'H15E_LIVE_INF2CAT_FAILED' }
+          $cat=Join-Path $package 'phaser360_h15e_live_filter.cat'
+          if (-not (Test-Path -LiteralPath $cat -PathType Leaf)) { throw 'H15E_LIVE_CAT_MISSING' }
+
+          @(
+            "COMMIT=$env:GITHUB_SHA",
+            'H15E_LIVE_FILTER_LINK=PASS',
+            'H15E_LIVE_INF2CAT=PASS',
+            'TARGET_BUILD_EXACT_GATE=19044',
+            'TARGET_HWID=PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
+            'FILTER_POSITION=UPPER',
+            'HDA_RESOURCE_BYTES=0x4000',
+            'DSP_RESOURCE_BYTES=0x100000',
+            'MMIO_MAPPING=PAGE_READONLY_NOCACHE_TRANSIENT',
+            'MMIO_READ=REVIEWED_REGISTERS_ONLY',
+            'MMIO_WRITE=NONE',
+            'PCI_WRITE=NONE',
+            'DMA=NONE',
+            'IRQ=NONE',
+            'DSP_BOOT=NO',
+            'PLAYBACK=NO',
+            'PACKAGE_SIGNED=FALSE',
+            'PACKAGE_UPLOADED=FALSE',
+            'INSTALL_EXECUTED=FALSE'
+          ) | Set-Content -LiteralPath (Join-Path $build 'H15E_LIVE_R0_FILTER_REPORT.txt')
+
+          Remove-Item -LiteralPath $package -Recurse -Force
+          Remove-Item -LiteralPath $sys -Force
+          if ((Test-Path -LiteralPath $package) -or (Test-Path -LiteralPath $sys)) {
+            throw 'H15E_LIVE_PACKAGE_DELETE_FAILED'
+          }
+
+      - name: Verify H15E-LIVE R0 transient read-only MMIO guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\tests\m0615_h15e_live_tests.ps1
+          if (-not $?) { throw 'H15E_LIVE_R0_STATIC_TESTS_FAILED' }
+
+      - name: Stage development library
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory _artifact_m062 | Out-Null
+          Copy-Item m062/driver/out/phaser360_boot_dma.lib _artifact_m062/
+          Copy-Item build-dma/H8_DRIVER_LINK_REPORT.txt,build-dma/H8_REFERENCE_CHECK.json,build-dma/H8_EMBEDDED_FIRMWARE_REPORT.json,build-dma/H9_PE_HEADERS.txt,build-dma/H9_PE_IMPORTS.txt,build-dma/H10_PE_REPRO_FIRST.json,build-dma/H10_PE_REPRO_SECOND.json,build-dma/H13_PACKAGE_REPORT.txt,build-dma/H13_REFERENCE_CHECK.json,build-dma/H14_SIGNING_REPORT.txt,build-dma/H14_REFERENCE_CHECK.json,build-dma/H15C_LIVE_FILTER_REPORT.txt,build-dma/H15D_LIVE_FILTER_REPORT.txt,build-dma/H15E_LIVE_R0_FILTER_REPORT.txt _artifact_m062/
+          Copy-Item m062/driver/boot_dma.h,m062/driver/boot_dma.cpp,m062/driver/cm_resource_abi.cpp,src/sof/hda_bdl.h,src/sof/hda_bdl.cpp,src/sof/hda_controller.h,src/sof/hda_controller.cpp,src/sof/hda_stream.h,src/sof/hda_stream.cpp,m062/driver/hda_transport.h,m062/driver/hda_transport.cpp,m062/driver/pci_config_attestation.h,m062/driver/pci_config_attestation.cpp,m062/h15e_live/h15e_live_filter.h,m062/h15e_live/h15e_live_filter.cpp,m062/h15e_live/phaser360_h15e_live_filter.vcxproj,docs/M0615_H15E_LIVE_R0.md,docs/M062_WINDOWS_DMA.md,docs/M063_HDA_TRANSPORT.md,src/sof/glk_rom.h,src/sof/glk_rom.cpp,m062/driver/glk_boot.h,m062/driver/glk_boot.cpp,docs/M064_GLK_ROM.md,src/sof/ipc3_ready.h,src/sof/ipc3_ready.cpp,src/sof/ipc3_receive.h,src/sof/ipc3_receive.cpp,docs/M065_IPC_READY.md,src/sof/ipc3_command.h,src/sof/ipc3_command.cpp,docs/M066_IPC_COMMAND.md,docs/M067_IPC_NOTIFICATIONS.md,m062/driver/ipc_interrupt.h,m062/driver/ipc_interrupt.cpp,docs/M068_KMDF_INTERRUPTS.md,m062/driver/cold_power.h,m062/driver/cold_power.cpp,docs/M069_COLD_POWER.md,docs/M0610_D0_REBIND.md,docs/M0611_DEFERRED_DRAIN.md,m062/driver/firmware_pin.h,m062/driver/firmware_pin.cpp,m062/driver/pinned_firmware.h,m062/driver/pinned_firmware.cpp,docs/M0612_PINNED_FIRMWARE.md,m062/driver/pnp_resources.h,m062/driver/pnp_resources.cpp,m062/driver/hardware_access_gate.h,m051/driver/resource_contract.h,docs/M0613_PNP_RESOURCES.md,docs/M0614_IRQ_EXIT.md,docs/M0615_ACCESS_FENCE.md,docs/M0615_PNP_RESOURCE_BUNDLE.md,docs/M0615_SURPRISE_CALLBACK.md,docs/M0615_POWER_SKELETON.md,docs/M0615_IRQ_INVENTORY.md,docs/M0615_LIVE_IRQ_EVIDENCE.md,docs/M0615F4_LIVE_CAPTURE_20260921.md,docs/M0615_SINGLE_IRQ_ADMISSION.md,docs/M0615_DORMANT_IRQ_SHELL.md,docs/M0615_DORMANT_IRQ_BINDING.md,docs/M0615_TWO_STAGE_IRQ_PERMISSION.md,docs/M0615_COMPOSED_PNP_D0.md,docs/M0615_REPEATED_D0.md,docs/M0615_DEVICEADD_OWNER.md,docs/M0615_FIRMWARE_SOURCE.md,docs/M0615_LINK_ONLY_DRIVER.md,docs/M0615_PE_IMPORT_AUDIT.md,docs/M0615_REPRODUCIBLE_DRIVER.md,docs/M0615_READONLY_TELEMETRY.md,docs/M0615_M1_PREFLIGHT_RECOVERY.md,docs/M0615_WIN10_KMDF_COMPAT.md,docs/M0615_EPHEMERAL_SIGNING.md,docs/M0615_H15A_SURPRISE_RACE.md,docs/M0615_H15B_HDA_CONTROLLER.md,docs/M0615_H15C_PCI_CONFIG_ATTESTATION.md,docs/M0615_H15C_LIVE_FILTER.md,m062/driver/telemetry.h,m062/driver/telemetry_ioctl.h,m062/driver/telemetry_ioctl.cpp,m062/driver/phaser360_m1_boot.vcxproj,m062/driver/firmware_source.h,m062/driver/firmware_source.cpp,m062/driver/device_lifecycle.h,m062/driver/device_lifecycle.cpp,m062/driver/repeated_device_lifecycle.h,m062/driver/repeated_device_lifecycle.cpp,m062/driver/d0_session.h,m062/driver/d0_session.cpp,m062/driver/device_owner.h,m062/driver/device_owner.cpp,m062/driver/driver_entry.h,m062/driver/driver_entry.cpp _artifact_m062/
+          New-Item -ItemType Directory _artifact_m062/live_irq | Out-Null
+          Copy-Item m062/live_irq/Collect-IrqEvidence.ps1,m062/live_irq/COLLECT_IRQ_EVIDENCE.cmd,m062/live_irq/START_AICI.txt _artifact_m062/live_irq/
+          New-Item -ItemType Directory _artifact_m062/h15c_live | Out-Null
+          Copy-Item m062/h15c_live/h15c_live_filter.h,m062/h15c_live/h15c_live_filter.cpp,m062/h15c_live/phaser360_h15c_live_filter.vcxproj,m062/h15c_live/Collect-H15cLive.ps1,m062/h15c_live/COLLECT_H15C_LIVE.cmd,m062/h15c_live/H15cLive-Common.ps1,m062/h15c_live/Collect-H15cLiveInstallPreflight.ps1,m062/h15c_live/RUN_H15C_LIVE_PREFLIGHT.cmd,m062/h15c_live/Run-H15cLiveTransaction.ps1,m062/h15c_live/RUN_H15C_LIVE_TRANSACTION.cmd,m062/h15c_live/H15C_LIVE_WINRE_ROLLBACK.txt,m062/h15c_live/Check-H15cLivePackageTrust.ps1,m062/h15c_live/CHECK_H15C_LIVE_R2_TRUST.cmd,m062/h15c_live/START_H15C_LIVE_R2.txt _artifact_m062/h15c_live/
+          Copy-Item docs/M0615_H15C_LIVE_TRANSACTION.md,docs/M0615_H15C_LIVE_R2_TRUSTED_PACKAGE.md _artifact_m062/
+          New-Item -ItemType Directory _artifact_m062/m1 | Out-Null
+          Copy-Item m062/m1/target_contract.json,m062/m1/Collect-M1Preflight.ps1,m062/m1/RUN_M1_PREFLIGHT.cmd,m062/m1/Backup-BaselineDriver.ps1,m062/m1/RUN_M1_BASELINE_BACKUP.cmd,m062/m1/START_AICI.txt _artifact_m062/m1/
+          @("COMMIT=$env:GITHUB_SHA",'WDK_COMPILE=PASS','INSTALLABLE=FALSE','HARDWARE_EXECUTION=NOT_TESTED','DMA_MEMORY_COMPONENT=IMPLEMENTED','HDA_STREAM_MMIO=IMPLEMENTED_UNTESTED_ON_HARDWARE','ROM_POWER_SEQUENCE=IMPLEMENTED_UNTESTED_ON_HARDWARE','IPC_READY=IMPLEMENTED_UNTESTED_ON_HARDWARE','IPC_COMMAND=IMPLEMENTED_UNTESTED_ON_HARDWARE','IPC_NOTIFICATIONS=BOUNDED_POLLING_FIFO','IPC_INTERRUPT=DIRQL_ISR_DPC_PASSIVE_WORKITEM_UNTESTED_ON_HARDWARE','COLD_POWER=GUARDED_D0_REBIND_NOT_PNP_DRIVER','DEFERRED_DRAIN=WDF_DPC_CANCEL_THEN_WORKITEM_FLUSH','FIRMWARE_IDENTITY=OWNED_SHA256_PIN_NOT_DEPLOYMENT_APPROVAL','PNP_RESOURCES=COMPOSED_SINGLE_D0_PNP_POWER_MODEL','IRQ_FAILURE_EXIT=ADMISSION_GATE_AND_D0_DISCONNECT_FALLBACK','HARDWARE_ACCESS_FENCE=TERMINAL_AFTER_SURPRISE_REMOVAL','PNP_RESOURCE_BUNDLE=PAIRED_RAW_TRANSLATED_IRQ_SELECTION_DEFERRED','SURPRISE_REMOVAL=FRAMEWORK_CALLBACK_TERMINAL_GATE','PNP_POWER_SKELETON=D0_CALLBACK_ORDER_NO_HARDWARE','IRQ_INVENTORY=LINE_AND_MESSAGE','IRQ_ADMISSION=SINGLE_PAIR_LINE_OR_ONE_MESSAGE','WDF_INTERRUPT_SHELL=DEVICEADD_DORMANT_NO_MMIO','DORMANT_IRQ_BINDING=PNP_ADMITTED_SINGLE_IRQ_PLUS_DSP','DORMANT_IRQ_PERMISSION=TWO_STAGE_BOOT_START_THEN_COMMAND_READY_ENABLE','PNP_D0_COMPOSITION=FRESH_SESSION_PER_D0_WITH_RETRY_REBALANCE_AND_TERMINAL_REMOVAL','D0_SESSION_STORAGE=WDFMEMORY_NONPAGED_FRESH_GLKBOOT_COLDPOWER','KMDF_DRIVER_ENTRY=COMPILED_STATIC_LIBRARY_ONLY','KMDF_DEVICEADD_OWNER=DEVICE_CONTEXT_COMPOSED','FIRMWARE_SOURCE=BUILD_TIME_EMBEDDED_PROVIDER_STAGED_IN_DEVICEADD','FIRMWARE_BYTES=NOT_COMMITTED_NOT_STAGED_IN_ARTIFACT','KMDF_SYS_LINK=PASS_CI_ONLY_NOT_UPLOADED','PE_AUDIT=X64_NATIVE_CNG_PRESENT_USERMODE_AUDIO_IMPORTS_NONE','REPRO_BUILD=BIT_IDENTICAL_TWO_REBUILDS_IMAGE_DEBUG_TYPE_REPRO','OBSERVABILITY=READ_ONLY_NON_POWER_MANAGED_IOCTL_SOFTWARE_MIRROR','M1_PREFLIGHT=READ_ONLY_EXACT_TARGET_WIN10_19044_WINRE_REQUIRED','RECOVERY=WINRE_OFFLINE_DISM_DOCUMENTED_NOT_EXECUTED','BASELINE_DRIVER_BACKUP=REQUIRED_BEFORE_FUTURE_INSTALL_NOT_EXECUTED_H12','TARGET_OS=WINDOWS10_21H2_19044','KMDF_TARGET=1.31','KMDF_1_33=FORBIDDEN_FOR_WIN10_19044','H12_1_WIN10_KMDF_COMPAT=PASS','H13_INF2CAT=PASS','H13_PACKAGE_UPLOADED=FALSE','H13_INSTALL_EXECUTED=FALSE','H14_SIGNING=PASS','H14_PRIVATE_KEY_EXPORTED=FALSE','H14_TARGET_TRUST_MODIFIED=FALSE','H14_PACKAGE_UPLOADED=FALSE','H14_INSTALL_EXECUTED=FALSE','H15A_SURPRISE_RACE=PASS','H15A_REMOVAL_TRUTH=HARDWARE_ACCESS_GATE_ATOMIC','H15A_PREPARE_POST_CALLBACK_RECHECK=YES','H15B_HDA_CONTROLLER=PASS','H15B_CONTROLLER_LIFETIME=THROUGH_IPC_RUNTIME','H15B_PCI_CGCTL_PGCTL=NOT_IMPLEMENTED','H15C_PCI_ATTESTATION=PASS','H15C_PCI_ACCESS=GETBUSDATA_ONLY','H15C_VENDOR_WINDOW=0x40_0x4F_ATTESTED','H15C_SETBUSDATA=FORBIDDEN','H15C_PCI_WRITE=NOT_AUTHORIZED','H15C_LIVE_FILTER_LINK=PASS','H15C_LIVE_INF2CAT=PASS','H15C_LIVE_ROLE=EXTENSION_UPPER_FILTER','H15C_LIVE_R2_PREFLIGHT=READ_ONLY','H15C_LIVE_R2_TESTSIGN=REQUIRED_ALREADY_ON','H15C_LIVE_R2_ROLLBACK=DRIVER_THEN_EXACT_TRUST','H15C_LIVE_R2_TRUST_CHANGE=TEMPORARY_ROOT_PLUS_TRUSTEDPUBLISHER','H15C_LIVE_R2_TRUST_ROLLBACK=REQUIRED_AFTER_BASELINE','H15C_LIVE_R2_PACKAGE_WORKFLOW=MANUAL_ONLY','H15C_LIVE_R2_PRIVATE_KEY_DISTRIBUTED=FALSE','H15C_LIVE_R2_TARGET_CHECKER=READ_ONLY','H15C_LIVE_INSTALL_EXECUTED_IN_CI=FALSE','H15C_LIVE_PACKAGE_UPLOADED_BY_MAIN_CI=FALSE','BASELINE_DRIVER_BACKUP=EXPORT_ONLY_NOT_EXECUTED_CI','SYS_UPLOADED=FALSE','INF=ABSENT_FROM_ARTIFACT','CAT=ABSENT_FROM_ARTIFACT','PHYSICAL_EXECUTION=NOT_AUTHORIZED','LIVE_IRQ_CAPTURE=WIN10_CFGMGR_ALLOC_LOG_CONF_OR_WIN11_PNPUTIL_READ_ONLY','AUDIO_PLAYBACK=NOT_IMPLEMENTED','TEST_BACKEND=WDF_SHIM') | Set-Content _artifact_m062/BUILD_STATUS.txt
+          if (Get-ChildItem _artifact_m062 -Recurse -File | Where-Object { $_.Extension -in @('.sys','.ri','.inf','.cat','.cer','.pfx','.p12') }) {
+            throw 'H12_INSTALLABLE_FIRMWARE_OR_KEY_ARTIFACT_FORBIDDEN'
+          }
+          Get-ChildItem _artifact_m062 -File | Sort-Object Name | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash + '  ' + $_.Name } | Set-Content _artifact_m062/SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: PHASER360_M0615H15C_LIVE_R2_TRANSACTIONAL_TRUST_SOURCE_GATE
+          path: _artifact_m062/
+          if-no-files-found: error

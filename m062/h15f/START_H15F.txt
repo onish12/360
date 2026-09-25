@@ -1,0 +1,16 @@
+PHASER360 H15F FUNCTION DRIVER OWNERSHIP HANDOFF
+
+This package intentionally replaces IntcAudioBus only for a short PnP ownership
+test. The PHASER360 function driver has no MMIO, PCI config write, DMA,
+interrupt ownership, firmware loading, DSP boot or playback path.
+
+Run only RUN_H15F_HANDOFF.cmd as Administrator.
+
+Expected success:
+  STATUS=H15F_FUNCTION_DRIVER_HANDOFF_AND_ROLLBACK_COMPLETE
+  HANDOFF_COMPLETED=TRUE
+  SNAPSHOT_COMPLETED=TRUE
+  BASELINE_RESTORED=TRUE
+  TRUST_RESTORED=TRUE
+
+Then send RESULT_H15F_HANDOFF_*.zip for audit.

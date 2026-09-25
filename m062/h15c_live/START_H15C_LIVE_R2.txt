@@ -1,0 +1,43 @@
+PHASER360 H15C-LIVE-R2 SIGNED PACKAGE
+
+This package is produced only by the manual GitHub Actions workflow
+H15C-LIVE-R2 signed test package.
+
+Files:
+- phaser360_h15c_live_filter.sys
+- phaser360_h15c_live_filter.inf
+- phaser360_h15c_live_filter.cat
+- phaser360_h15c_live_filter.cer
+- package_manifest.json
+- the H15C-LIVE read-only collector and transactional scripts
+
+The CER is public-key-only. No PFX/P12/private key is distributed.
+
+Before any driver installation:
+1. Keep Windows build 19044 and Intel IntcAudioBus healthy.
+2. TESTSIGNING must already be effective.
+3. Windows RE must be enabled.
+4. Run CHECK_H15C_LIVE_R2_TRUST.cmd "<package folder>".
+5. Continue only when it reports H15C_LIVE_R2_PACKAGE_READY_FOR_TRANSACTION.
+   If it reports H15C_LIVE_R2_PACKAGE_TRUST_PREEXISTS, stop. The R2
+   transaction requires the exact signer certificate to be absent initially so
+   rollback can prove that trust returned to the original state.
+6. Run RUN_H15C_LIVE_PREFLIGHT.cmd "<package folder>".
+7. Continue only when it reports H15C_LIVE_R2_INSTALL_READY.
+8. Run RUN_H15C_LIVE_TRANSACTION.cmd "<package folder>".
+   The transaction itself temporarily adds the exact package CER to
+   LocalMachine Root and TrustedPublisher, installs only the extension filter,
+   captures PCI configuration read-only, uninstalls the filter, restores the
+   Intel baseline, then removes the exact certificate thumbprint.
+9. Success requires CAPTURE_COMPLETED=TRUE, BASELINE_RESTORED=TRUE and
+   TRUST_RESTORED=TRUE.
+
+Do not manually import the certificate before the transaction.
+Do not remove the Intel IntcAudioBus package.
+Do not enable/disable unrelated devices.
+Do not modify BCD as part of this package procedure.
+
+If a failed transaction reports TRUST_RETAINED_FOR_SAFETY, leave that exact
+certificate trusted until the H15C-LIVE package/filter has been removed and
+the Intel device is healthy. Use the recorded WinRE rollback instructions if
+Windows cannot boot.

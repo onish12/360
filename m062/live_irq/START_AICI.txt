@@ -1,0 +1,18 @@
+PHASER360 M0.6.15F4 - CAPTURA IRQ READ-ONLY (Windows 10/11)
+
+1. Extrage integral pachetul.
+2. Click dreapta pe COLLECT_IRQ_EVIDENCE.cmd si alege Run as administrator.
+3. Fereastra ramane deschisa la final.
+4. Trimite RESULT_IRQ_READONLY_*.zip.
+
+Windows 10 21H2 build 19044:
+- NU mai foloseste SPDRP_ALLOC_CONFIG;
+- citeste ALLOC_LOG_CONF prin Configuration Manager;
+- salveaza fiecare resource descriptor ca binar si un inventar JSON;
+- descriptorul IRQ este marcat SIGNALING_UNDETERMINED, nu este ghicit LINE/MSI.
+
+Windows 11 22H2+ pastreaza PnPUtil /enum-devices /resources read-only.
+
+NU instaleaza/bindeaza drivere, NU reporneste/dezactiveaza dispozitivul,
+NU scrie registry/PnP, NU face MMIO, NU porneste DSP-ul,
+NU creeaza WDF interrupt, NU selecteaza IRQ-ul si NU reda sunet.

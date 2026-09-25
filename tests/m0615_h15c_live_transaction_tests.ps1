@@ -1,0 +1,91 @@
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version 2
+$root=Join-Path $PSScriptRoot '..'
+$common=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\H15cLive-Common.ps1') -Raw
+$pre=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\Collect-H15cLiveInstallPreflight.ps1') -Raw
+$tx=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\Run-H15cLiveTransaction.ps1') -Raw
+$rollback=Get-Content -LiteralPath (Join-Path $root 'm062\h15c_live\H15C_LIVE_WINRE_ROLLBACK.txt') -Raw
+
+foreach($required in @(
+ 'Get-H15cCertificatePresence',
+ 'Invoke-H15cCertUtil',
+ 'Assert-H15cPackage([string]$PackageRoot,[switch]$RequireTrusted)',
+ 'SIGNER_CERT_MISMATCH',
+ 'foreach($pair in @(@(''SYS'',$sysSig),@(''CAT'',$catSig)))',
+ 'MANIFEST_HASH_MISMATCH',
+ 'phaser360_h15c_live_filter.cer',
+ 'package_manifest.json',
+ 'IntcAudioBus'
+)){
+ if($common.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+  throw "H15C_LIVE_R2_COMMON_REQUIRED_MISSING: $required"
+ }
+}
+foreach($required in @(
+ 'H15C_LIVE_R2_INSTALL_READY',
+ 'CertificateAlreadyInRoot',
+ 'CertificateAlreadyInTrustedPublisher',
+ 'TrustChange=''NO_PREFLIGHT''',
+ 'DriverInstall=''NO'''
+)){
+ if($pre.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+  throw "H15C_LIVE_R2_PREFLIGHT_REQUIRED_MISSING: $required"
+ }
+}
+foreach($required in @(
+ "'/export-driver'",
+ "'-addstore','Root'",
+ "'-addstore','TrustedPublisher'",
+ 'Assert-H15cPackage $PackageRoot -RequireTrusted',
+ "'/add-driver'","'/install'",
+ "'/restart-device'",
+ "'/delete-driver'","'/uninstall'","'/force'",
+ "'-delstore','TrustedPublisher'",
+ "'-delstore','Root'",
+ 'TRUST_RETAINED_FOR_SAFETY=TRUE',
+ 'safeToDropTrust',
+ '$rollbackTarget.InstanceId -ceq $before.InstanceId',
+ '$rollbackTarget.Service -ceq $before.Service',
+ '$rollbackTarget.DriverInfPath -ceq $before.DriverInfPath',
+ '$rollbackTarget.DriverVersion -ceq $before.DriverVersion',
+ '$rollbackTarget.DriverProvider -ceq $before.DriverProvider',
+ '$rollbackTarget.HardwareIds|Where-Object {$_ -ceq $script:H15cExactHwid}',
+ 'BaseProvider=$before.DriverProvider',
+ 'CaptureCompleted=$captureCompleted',
+ 'CompoundUpperFilterObserved=$compoundFilterObserved',
+ 'compound_upper_filters_observation.json',
+ 'PrimaryProof=''DEVICE_INTERFACE_PLUS_READ_ONLY_IOCTL''',
+ 'filter_service_after_restart.json',
+ 'TrustRestored=',
+ 'RegistryWrite=''PNP_AND_CERT_STORES_TRANSACTIONAL''',
+ 'TrustChange=''TEMPORARY_LOCALMACHINE_ROOT_AND_TRUSTEDPUBLISHER''',
+ 'PciConfigWrite=''NO''',
+ 'Mmio=''NO''',
+ 'DspBoot=''NO'''
+)){
+ if($tx.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+  throw "H15C_LIVE_R2_TRANSACTION_REQUIRED_MISSING: $required"
+ }
+}
+foreach($forbidden in @(
+ '/reboot','bcdedit','Import-Certificate',
+ 'New-ItemProperty','Set-ItemProperty','Remove-ItemProperty',
+ '/disable-device','/enable-device','Phaser360M1',
+ 'H15C_FILTER_NOT_PRESENT_IN_COMPOUND_UPPER_FILTERS'
+)){
+ if(($pre+$tx+$common).IndexOf($forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0){
+  throw "H15C_LIVE_R2_FORBIDDEN_MUTATION: $forbidden"
+ }
+}
+foreach($required in @(
+ 'dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf',
+ 'Do not remove the Intel IntcAudioBus package',
+ 'certutil -delstore TrustedPublisher <THUMBPRINT>',
+ 'certutil -delstore Root <THUMBPRINT>',
+ 'Never remove another certificate by subject-name wildcard'
+)){
+ if($rollback.IndexOf($required,[StringComparison]::OrdinalIgnoreCase) -lt 0){
+  throw "H15C_LIVE_R2_WINRE_REQUIRED_MISSING: $required"
+ }
+}
+Write-Host 'H15C_LIVE_R2_TRANSACTION_TESTS=PASS; preflight=READ_ONLY; baseline_export=YES; trust=TEMPORARY_EXACT_CERT; install=EXTENSION_ONLY; capture=READ_ONLY; rollback=DRIVER_THEN_TRUST; emergency=EXACT_BASELINE_IDENTITY_OR_RETAIN_TRUST; reboot=NONE; pci_write=NONE; mmio=NONE'

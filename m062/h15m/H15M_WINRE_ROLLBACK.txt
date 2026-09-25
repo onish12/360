@@ -1,0 +1,16 @@
+PHASER360 H15M - WINRE RECOVERY REFERENCE
+
+Tinta exacta:
+PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
+
+Baseline Intel:
+Service=IntcAudioBus
+INF=oem14.inf
+Version=9.22.0.4832
+Provider=Intel(R) Corporation
+
+Singurul MMIO write H15M este HDA GCTL.CRST bit0 0->1->0.
+PPCTL, PPSTS, EM2, DSP BAR si PCI config sunt read-only.
+
+Daca WRITE_RESTORE_COMPLETED=FALSE sau BASELINE_RESTORED=FALSE,
+nu continua cu alta etapa. Pastreaza RESULT_H15M_TRANSACTION_*.zip.

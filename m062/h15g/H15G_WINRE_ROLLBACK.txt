@@ -1,0 +1,20 @@
+PHASER360 H15G OFFLINE ROLLBACK
+
+Use only if Windows cannot boot after the H15G function-driver transaction.
+
+1. Enter Windows Recovery Environment -> Command Prompt.
+2. Identify the offline Windows volume. Do NOT assume C:.
+3. Read H15gPublishedInf.txt and note the PHASER360 oemNN.inf.
+4. Confirm it:
+   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
+5. Remove ONLY the recorded H15G package:
+   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
+6. Reboot.
+
+Do NOT remove oem14.inf.
+
+Verified Intel baseline:
+  Service=IntcAudioBus
+  INF=oem14.inf
+  Version=9.22.0.4832
+  Provider=Intel(R) Corporation

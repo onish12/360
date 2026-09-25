@@ -1,0 +1,60 @@
+; PHASER360 M0.6.15H15KR
+; Exact-target function driver. Read-only MMIO mapping through D0.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=MEDIA
+ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider=%ProviderName%
+CatalogFile=phaser360_h15kr_readonly_recovery_probe.cat
+PnpLockdown=1
+DriverVer=09/23/2026,0.6.15.231
+
+[DestinationDirs]
+DefaultDestDir=13
+H15kr.CopyFiles=13
+
+[SourceDisksNames]
+1=%DiskDesc%,,,""
+
+[SourceDisksFiles]
+phaser360_h15kr_readonly_recovery_probe.sys=1
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%ProviderName%=H15kr.Models,NTamd64.10.0...19045,NTamd64.10.0...19044
+
+[H15kr.Models.NTamd64.10.0...19045]
+
+[H15kr.Models.NTamd64.10.0...19044]
+%DeviceDesc%=H15kr_Install,PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
+
+[H15kr_Install.NT]
+CopyFiles=H15kr.CopyFiles
+
+[H15kr.CopyFiles]
+phaser360_h15kr_readonly_recovery_probe.sys
+
+[H15kr_Install.NT.Services]
+AddService=Phaser360H15kr,0x00000002,H15kr_Service
+
+[H15kr_Service]
+DisplayName=%ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\phaser360_h15kr_readonly_recovery_probe.sys
+
+[H15kr_Install.NT.Wdf]
+KmdfService=Phaser360H15kr,H15kr_Wdf
+
+[H15kr_Wdf]
+KmdfLibraryVersion=1.31
+
+[Strings]
+ProviderName="PHASER360 Experimental"
+DeviceDesc="PHASER360 H15KR Read-Only ADSPCS Recovery Probe"
+ServiceDesc="PHASER360 H15KR Function Driver"
+DiskDesc="PHASER360 H15KR Read-Only Recovery Package"

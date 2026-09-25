@@ -1,0 +1,23 @@
+PHASER360 M1 FAST-SAFE - WINRE ROLLBACK
+
+Acest pachet NU modifica BCD si NU reporneste automat sistemul.
+
+Inainte de bind, runnerul creeaza M1_FAST_RECOVERY_POINTER.txt cu numele exact oemNN.inf al pachetului experimental.
+
+Daca Windows nu mai porneste:
+1. Intra in Windows Recovery Environment -> Command Prompt.
+2. Identifica litera partitiei Windows; nu presupune ca este C:.
+3. Citeste M1_FAST_RECOVERY_POINTER.txt din folderul din care ai rulat pachetul si noteaza CUSTOM_INF=oemNN.inf.
+4. Verifica:
+   dism /Image:<WINDOWS_VOLUME>:\ /Get-Drivers /Format:Table
+5. Elimina NUMAI CUSTOM_INF:
+   dism /Image:<WINDOWS_VOLUME>:\ /Remove-Driver /Driver:oemNN.inf
+6. Reporneste numai dupa ce DISM confirma eliminarea.
+
+Intel baseline asteptat de tranzactie:
+Service=IntcAudioBus
+PublishedInf=oem14.inf
+Version=9.22.0.4832
+Provider=Intel(R) Corporation
+
+Nu elimina oem14.inf.

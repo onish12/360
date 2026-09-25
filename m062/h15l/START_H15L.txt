@@ -1,0 +1,17 @@
+PHASER360 H15L R3 - SPA1 WRITE/READBACK TELEMETRY
+
+Scop:
+- NU incearca sa forteze power-up;
+- scrie exclusiv SPA1;
+- captureaza ADSPCS imediat, +10 us, +100 us si +500 us;
+- CPA1 este doar citit;
+- apoi sterge SPA1 si cere rollback exact la ADSPCS=0x001D003C.
+
+Interzis:
+CSTALL/CRST write, Core0 write, CPA write, HDA MMIO write, PCI write,
+DMA, IRQ ownership, firmware, DSP boot/run, codec programming, playback.
+
+Pornire:
+RUN_H15L_TRANSACTION.cmd
+
+Trimite RESULT_H15L_TRANSACTION_*.zip.

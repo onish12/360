@@ -1,0 +1,6 @@
+PHASER360 H15N - WINRE RECOVERY REFERENCE
+Tinta: PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
+Baseline Intel: IntcAudioBus / oem14.inf / 9.22.0.4832 / Intel(R) Corporation
+Write scope: HDA GCTL.CRST bit0 si PPCTL.GPROCEN bit30, ambele set/clear cu restore exact.
+Fara DSP MMIO write, EM2 write sau PCI config write.
+Daca WRITE_RESTORE_COMPLETED=FALSE ori BASELINE_RESTORED=FALSE, nu continua.

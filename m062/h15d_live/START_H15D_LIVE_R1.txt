@@ -1,0 +1,28 @@
+PHASER360 H15D-LIVE R1
+
+This package is manual-only. It performs one bounded PCI transaction and then
+returns the machine to the Intel baseline.
+
+Required baseline:
+  PGCTL 0x44 = 0x00000010
+  CGCTL 0x48 = 0x807B0DFF
+Authorized applied state:
+  PGCTL 0x44 = 0x00000014
+  CGCTL 0x48 = 0x807B0DFD
+Required final state:
+  PGCTL 0x44 = 0x00000010
+  CGCTL 0x48 = 0x807B0DFF
+
+The kernel IOCTL is one-shot. Any mismatch prevents success. H15D uses the
+already-tested PciConfigAttestation and PciConfigBootPolicy owners.
+
+No DSP MMIO. No DMA. No firmware boot. No playback. No Windows reboot. No BCD
+write. The script may restart only DEV_3198 to attach/detach the Extension
+upper filter.
+
+Run RUN_H15D_LIVE_R1.cmd from an elevated prompt. Success requires:
+WRITE_RESTORE_COMPLETED=TRUE
+BASELINE_RESTORED=TRUE
+TRUST_RESTORED=TRUE
+
+Send the RESULT_H15D_LIVE_R1_TRANSACTION_*.zip after execution.

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A3D50E0E-50B5-44CE-A6EA-360000000062}</ProjectGuid>
+    <RootNamespace>phaser360_boot_dma</RootNamespace>
+    <ProjectName>phaser360_boot_dma</ProjectName>
+    <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
+    <KMDF_VERSION_MINOR>31</KMDF_VERSION_MINOR>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <DriverType>KMDF</DriverType>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <TargetVersion>Windows10</TargetVersion>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <SignMode>Off</SignMode>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(MSBuildProjectDirectory)\out\</OutDir>
+    <IntDir>$(MSBuildProjectDirectory)\obj\</IntDir>
+    <TargetName>phaser360_boot_dma</TargetName>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <PreprocessorDefinitions>PHASER_KERNEL_BUILD;_AMD64_;AMD64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="boot_dma.cpp" />
+    <ClCompile Include="hda_transport.cpp" />
+    <ClCompile Include="pci_config_attestation.cpp" />
+    <ClCompile Include="pci_config_boot_policy.cpp" />
+    <ClCompile Include="glk_boot.cpp" />
+    <ClCompile Include="ipc_interrupt.cpp" />
+    <ClCompile Include="cold_power.cpp" />
+    <ClCompile Include="firmware_pin.cpp" />
+    <ClCompile Include="pinned_firmware.cpp" />
+    <ClCompile Include="firmware_source.cpp" />
+    <ClCompile Include="pnp_resources.cpp" />
+    <ClCompile Include="device_lifecycle.cpp" />
+    <ClCompile Include="repeated_device_lifecycle.cpp" />
+    <ClCompile Include="d0_session.cpp" />
+    <ClCompile Include="device_owner.cpp" />
+    <ClCompile Include="telemetry_ioctl.cpp" />
+    <ClCompile Include="driver_entry.cpp" />
+    <ClCompile Include="cm_resource_abi.cpp" />
+    <ClCompile Include="..\..\src\sof\ipc3_command.cpp" />
+    <ClCompile Include="..\..\src\sof\ipc3_ready.cpp" />
+    <ClCompile Include="..\..\src\sof\ipc3_receive.cpp" />
+    <ClCompile Include="..\..\src\sof\glk_rom.cpp" />
+    <ClCompile Include="..\..\src\sof\hda_controller.cpp" />
+    <ClCompile Include="..\..\src\sof\hda_stream.cpp" />
+    <ClCompile Include="..\..\src\sof\hda_bdl.cpp" />
+  </ItemGroup>
+
+
+
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

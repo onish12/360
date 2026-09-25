@@ -1,5 +1,9 @@
 # M0.5.1: fresh-Windows read-only probe
 
+The current user entry point is [RUN_AUDIO.cmd](M051_AUDIO_AUTO.md), which handles
+an existing driver using the separate [reviewed Intel handoff](M051_HANDOFF.md).
+The legacy unbound transaction described below retains its original guard.
+
 This continuation replaces the retired M0.5 **installer**, not the installed Intel
 stack. It accepts only the unique present exact PCI target with problem code 28,
 no function-driver service and no INF binding. The hardware identity and NHLT

@@ -1,0 +1,85 @@
+name: H15D-LIVE-R1 ONE-SHOT signed package
+# Re-armed for the D0 + full-256 pre-write hardening commit only.
+on:
+  push:
+    branches:
+      - codex/audio-auto-20260915
+    paths:
+      - '.github/workflows/h15d-live-r1-one-shot-package.yml'
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+      - name: Restore pinned WDK packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          nuget restore .\m062\packages.config -PackagesDirectory .\m062\packages -NonInteractive
+          if($LASTEXITCODE-ne0){throw 'H15D_R1_RESTORE_FAILED'}
+      - name: Build H15D-LIVE filter unsigned
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          msbuild .\m062\h15d_live\phaser360_h15d_live_filter.vcxproj /m /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:KMDF_VERSION_MAJOR=1 /p:KMDF_VERSION_MINOR=31 /p:TargetVersion=Windows10 /p:SignMode=Off /verbosity:minimal
+          if($LASTEXITCODE-ne0){throw 'H15D_R1_FILTER_BUILD_FAILED'}
+      - name: Validate H15D source and Windows PowerShell 5.1 runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\tests\m0615_h15d_live_tests.ps1
+          if(-not $?){throw 'H15D_R1_SOURCE_GATE_FAILED'}
+
+      - name: Create ephemeral signer and signed package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $package=Join-Path $env:GITHUB_WORKSPACE '_h15d_live_r1_package'
+          New-Item -ItemType Directory -Path $package -Force|Out-Null
+          $sys=(Resolve-Path .\m062\h15d_live\out\phaser360_h15d_live_filter.sys).Path
+          $pkgSys=Join-Path $package 'phaser360_h15d_live_filter.sys'
+          $inf=Join-Path $package 'phaser360_h15d_live_filter.inf'
+          $cat=Join-Path $package 'phaser360_h15d_live_filter.cat'
+          $cer=Join-Path $package 'phaser360_h15d_live_filter.cer'
+          Copy-Item $sys $pkgSys
+          Copy-Item .\m062\h15d_live\phaser360_h15d_live_filter.inf $inf
+          $bt=(Resolve-Path .\m062\packages\Microsoft.Windows.SDK.BuildTools.10.0.28000.2526).Path
+          $signtool=Join-Path $bt 'bin\10.0.28000.0\x64\signtool.exe'
+          $wdk=(Resolve-Path .\m062\packages\Microsoft.Windows.WDK.x64.10.0.28000.2526).Path
+          $inf2cat=Join-Path $wdk 'c\bin\10.0.28000.0\x86\Inf2Cat.exe'
+          $subject='CN=PHASER360 H15D-LIVE R1 Ephemeral Test Signing'
+          $cert=$null
+          try{
+            $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(7)
+            $thumb=[string]$cert.Thumbprint
+            Export-Certificate -Cert $cert -FilePath $cer -Type CERT|Out-Null
+            & $signtool sign /fd SHA256 /sha1 $thumb /s My /v $pkgSys
+            if($LASTEXITCODE-ne0){throw 'H15D_R1_SYS_SIGN_FAILED'}
+            & $inf2cat "/driver:$package" '/os:10_VB_X64' '/uselocaltime' '/verbose'
+            if($LASTEXITCODE-ne0){throw 'H15D_R1_INF2CAT_FAILED'}
+            & $signtool sign /fd SHA256 /sha1 $thumb /s My /v $cat
+            if($LASTEXITCODE-ne0){throw 'H15D_R1_CAT_SIGN_FAILED'}
+            $manifest=[ordered]@{Schema=1;Purpose='H15D_LIVE_R1_BOUNDED_PCI_TRANSACTION_PACKAGE';SourceCommit=$env:GITHUB_SHA;CertificateSubject=$subject;CertificateThumbprint=$thumb;CertificateNotAfterUtc=$cert.NotAfter.ToUniversalTime().ToString('o');PrivateKeyExported=$false;InfSha256=(Get-FileHash $inf -Algorithm SHA256).Hash.ToLowerInvariant();SysSha256=(Get-FileHash $pkgSys -Algorithm SHA256).Hash.ToLowerInvariant();CatSha256=(Get-FileHash $cat -Algorithm SHA256).Hash.ToLowerInvariant();CerSha256=(Get-FileHash $cer -Algorithm SHA256).Hash.ToLowerInvariant();ExpectedPgctl='0x00000010';ExpectedCgctl='0x807B0DFF';AppliedPgctl='0x00000014';AppliedCgctl='0x807B0DFD';PciConfigWrite='ONLY_0x44_BIT2_AND_0x48_BIT1_WITH_EXACT_RESTORE';Mmio='NO';Dma='NO';DspBoot='NO';AudioPlayback='NO'}
+            $manifest|ConvertTo-Json -Depth 6|Set-Content (Join-Path $package 'package_manifest.json') -Encoding UTF8
+            Copy-Item -LiteralPath .\m062\h15d_live\Run-H15dLiveR1.ps1 -Destination $package
+            Copy-Item -LiteralPath .\m062\h15d_live\RUN_H15D_LIVE_R1.cmd -Destination $package
+            Copy-Item -LiteralPath .\m062\h15d_live\H15D_LIVE_WINRE_ROLLBACK.txt -Destination $package
+            Copy-Item -LiteralPath .\m062\h15d_live\START_H15D_LIVE_R1.txt -Destination $package
+            Get-ChildItem $package -File|Sort-Object Name|ForEach-Object {(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+'  '+$_.Name}|Set-Content (Join-Path $package 'SHA256SUMS.txt') -Encoding ASCII
+            if(Get-ChildItem $package -File|Where-Object {$_.Extension -in @('.pfx','.p12','.pvk','.key')}){throw 'H15D_R1_PRIVATE_KEY_ARTIFACT_FORBIDDEN'}
+          }finally{
+            if($cert){Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue}
+          }
+      - name: Upload signed H15D-LIVE R1 package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: PHASER360_H15D_LIVE_R1_BOUNDED_PCI_TRANSACTION_PACKAGE
+          path: _h15d_live_r1_package/
+          if-no-files-found: error
+          retention-days: 3

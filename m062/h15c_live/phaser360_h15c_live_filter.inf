@@ -1,0 +1,68 @@
+; PHASER360 M0.6.15H15C-LIVE
+; Exact-target Extension INF for a read-only upper filter.
+; CI SIGNABILITY ONLY. INSTALLATION IS NOT AUTHORIZED.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=Extension
+ClassGuid={e2f84ce7-8efa-411c-aa69-97454ca4cb57}
+Provider=%ProviderName%
+ExtensionId={53f678f1-2b3c-4b2e-a15c-360031980001}
+CatalogFile=phaser360_h15c_live_filter.cat
+PnpLockdown=1
+DriverVer=09/22/2026,0.6.15.151
+
+[DestinationDirs]
+DefaultDestDir=13
+H15cLive.CopyFiles=13
+
+[SourceDisksNames]
+1=%DiskDesc%,,,""
+
+[SourceDisksFiles]
+phaser360_h15c_live_filter.sys=1
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%ProviderName%=H15cLive.Models,NTamd64.10.0...19045,NTamd64.10.0...19044
+
+[H15cLive.Models.NTamd64.10.0...19045]
+
+[H15cLive.Models.NTamd64.10.0...19044]
+%DeviceDesc%=H15cLive_Install,PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06
+
+[H15cLive_Install.NT]
+CopyFiles=H15cLive.CopyFiles
+
+[H15cLive.CopyFiles]
+phaser360_h15c_live_filter.sys
+
+[H15cLive_Install.NT.Services]
+AddService=Phaser360H15cLive,0x00000000,H15cLive_Service
+
+[H15cLive_Service]
+DisplayName=%ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\phaser360_h15c_live_filter.sys
+
+[H15cLive_Install.NT.Filters]
+AddFilter=Phaser360H15cLive,,H15cLive_Filter
+
+[H15cLive_Filter]
+FilterPosition=Upper
+
+[H15cLive_Install.NT.Wdf]
+KmdfService=Phaser360H15cLive,H15cLive_Wdf
+
+[H15cLive_Wdf]
+KmdfLibraryVersion=1.31
+
+[Strings]
+ProviderName="PHASER360 Experimental"
+DeviceDesc="PHASER360 H15C-LIVE PCI Read-Only Attestation Extension"
+ServiceDesc="PHASER360 H15C-LIVE PCI Read-Only Upper Filter"
+DiskDesc="PHASER360 H15C-LIVE Filter Package"
