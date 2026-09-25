@@ -50,11 +50,30 @@ void StageTraceStatus(const wchar_t* stage,NTSTATUS status) noexcept {
     // when its data is resident in system space.
     WCHAR message[160]={};
     SIZE_T used=0;
-    Append(message,RTL_NUMBER_OF(message),&used,L"PHASER360_R6 ");
+    Append(message,RTL_NUMBER_OF(message),&used,L"PHASER360_R7 ");
     Append(message,RTL_NUMBER_OF(message),&used,stage);
     Append(message,RTL_NUMBER_OF(message),&used,L" status=0x");
     AppendHex32(message,RTL_NUMBER_OF(message),&used,
                 static_cast<ULONG>(status));
+    message[(used<RTL_NUMBER_OF(message))?used:RTL_NUMBER_OF(message)-1]=L'\0';
+
+    (void)EtwWriteString(
+        handle,4u,1ull,nullptr,message);
+}
+
+void StageTraceStatusValue(const wchar_t* stage,NTSTATUS status,ULONG value) noexcept {
+    const auto handle=gStageTraceHandle;
+    if(handle==0 || !stage) return;
+
+    WCHAR message[192]={};
+    SIZE_T used=0;
+    Append(message,RTL_NUMBER_OF(message),&used,L"PHASER360_R7 ");
+    Append(message,RTL_NUMBER_OF(message),&used,stage);
+    Append(message,RTL_NUMBER_OF(message),&used,L" status=0x");
+    AppendHex32(message,RTL_NUMBER_OF(message),&used,
+                static_cast<ULONG>(status));
+    Append(message,RTL_NUMBER_OF(message),&used,L" value=0x");
+    AppendHex32(message,RTL_NUMBER_OF(message),&used,value);
     message[(used<RTL_NUMBER_OF(message))?used:RTL_NUMBER_OF(message)-1]=L'\0';
 
     (void)EtwWriteString(
