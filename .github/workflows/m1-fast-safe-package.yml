@@ -3,7 +3,7 @@ name: M1 R6 PCI live-contract one-shot DSP boot package
 on:
   workflow_dispatch:
   push:
-    branches: [codex/audio-auto-20260915, codex/m1-r5-cap-chain-fix-20260924]
+    branches: [codex/audio-auto-20260915, codex/m1-r6-pci-live-contract-20260925]
     paths:
       - 'm062/m1_fast/**'
       - 'm062/m1/**'
