@@ -34,7 +34,7 @@ foreach($bad in @('bcdedit','Restart-Computer','shutdown.exe','AUDIO_PLAYBACK=YE
  if($r.IndexOf($bad,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "M1_FAST_FORBIDDEN:$bad"}
 }
 foreach($x in @('-NonInteractive','Run-M1FastSafe.ps1','m1-fast-safe-20260925-r6-pci-live-contract')){if($c.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_CMD_MISSING:$x"}}
-foreach($x in @('verify-sof-reference.py','generate-embedded-firmware.py','phaser360_m1_boot.vcxproj','Inf2Cat.exe','New-SelfSignedCertificate','KeyExportPolicy NonExportable','phaser360_m1_fast_safe.cer','package_manifest.json','upload-artifact','M1_FAST_SAFE_R6_PCI_LIVE_CONTRACT_DSP_BOOT','0.6.15.135')){if($w.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_WORKFLOW_MISSING:$x"}}
+foreach($x in @('verify-sof-reference.py','generate-embedded-firmware.py','phaser360_m1_boot.vcxproj','Inf2Cat.exe','New-SelfSignedCertificate','KeyExportPolicy NonExportable','phaser360_m1_fast_safe.cer','package_manifest.json','upload-artifact','M1_FAST_SAFE_R6_PCI_LIVE_CONTRACT_DSP_BOOT','PHASER360_M1_R6_PCI_LIVE_CONTRACT','0.6.15.135')){if($w.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_WORKFLOW_MISSING:$x"}}
 # R3: DMA framework objects belong to the PrepareHardware/ReleaseHardware
 # lifetime. D0 may stage/publish the preallocated buffers, but must not create
 # the DMA enabler or common buffers.
@@ -63,10 +63,10 @@ foreach($x in @('phaser360_dma_owner_tests','phaser360_glk_boot_tests','phaser36
  if($w.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R6_WORKFLOW_GUARD_MISSING:$x"}
 }
 foreach($bad in @('M1_BIND_REQUIRES_REBOOT','INTEL_FALLBACK_REQUIRES_REBOOT')){
- if($r.IndexOf($bad,[StringComparison]::Ordinal)-ge0){throw "M1_R5_REBOOT_EARLY_ABORT_FORBIDDEN:$bad"}
+ if($r.IndexOf($bad,[StringComparison]::Ordinal)-ge0){throw "M1_R6_REBOOT_EARLY_ABORT_FORBIDDEN:$bad"}
 }
 foreach($x in @('$bindRebootSignalled','bind_update_result.json','BindRebootSignalled=$bindRebootSignalled','$fallbackRebootSignalled','intel_fallback_update_result.json','IntelFallbackRebootSignalled=$fallbackRebootSignalled')){
- if($r.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R5_REBOOT_EVIDENCE_MISSING:$x"}
+ if($r.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R6_REBOOT_EVIDENCE_MISSING:$x"}
 }
 foreach($src in @($hc,$hs)){
  if($src.IndexOf('next>=0x1000',[StringComparison]::Ordinal)-ge0 -or $src.IndexOf('0x1000-', [StringComparison]::Ordinal)-ge0){throw 'M1_R6_LEGACY_CAP_WINDOW_PRESENT'}
