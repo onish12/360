@@ -13,6 +13,7 @@ extern const GUID kStageTraceProviderGuid;
 NTSTATUS StageTraceRegister() noexcept;
 void StageTraceUnregister() noexcept;
 void StageTraceStatus(const wchar_t* stage,NTSTATUS status) noexcept;
+void StageTraceStatusValue(const wchar_t* stage,NTSTATUS status,ULONG value) noexcept;
 inline void StageTrace(const wchar_t* stage) noexcept {
     StageTraceStatus(stage,STATUS_SUCCESS);
 }
@@ -24,6 +25,7 @@ inline void StageTrace(const wchar_t* stage) noexcept {
 inline NTSTATUS StageTraceRegister() noexcept { return STATUS_SUCCESS; }
 inline void StageTraceUnregister() noexcept {}
 inline void StageTraceStatus(const wchar_t*,NTSTATUS) noexcept {}
+inline void StageTraceStatusValue(const wchar_t*,NTSTATUS,ULONG) noexcept {}
 inline void StageTrace(const wchar_t*) noexcept {}
 
 #endif
