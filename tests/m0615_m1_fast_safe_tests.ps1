@@ -14,7 +14,8 @@ $hc=Get-Content (Join-Path $root 'src\sof\hda_controller.cpp') -Raw
 $hs=Get-Content (Join-Path $root 'src\sof\hda_stream.cpp') -Raw
 $p=Get-Content (Join-Path $root 'm062\driver\pci_config_boot_policy.cpp') -Raw
 $st=Get-Content (Join-Path $root 'tests\sof_stream_tests.cpp') -Raw
-$gt=Get-Content (Join-Path $root 'tests\sof_glk_boot_tests.cpp') -Raw\n$rom=Get-Content (Join-Path $root 'src\sof\glk_rom.cpp') -Raw
+$gt=Get-Content (Join-Path $root 'tests\sof_glk_boot_tests.cpp') -Raw
+$rom=Get-Content (Join-Path $root 'src\sof\glk_rom.cpp') -Raw
 foreach($x in @(
  'm1-fast-safe-20260925-r7-rom-phase-trace','EXACT_WINDOWS_BUILD_19044_REQUIRED','PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
  "BaselineInf='oem14.inf'","BaselineVersion='9.22.0.4832'",'/export-driver',
@@ -33,8 +34,8 @@ if($r.IndexOf('ForceUpdate($ExactHwid,$baselineExportInf)',[StringComparison]::O
 foreach($bad in @('bcdedit','Restart-Computer','shutdown.exe','AUDIO_PLAYBACK=YES','CODEC_PROGRAMMING=YES','SPEAKER_ENABLE=YES')){
  if($r.IndexOf($bad,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "M1_FAST_FORBIDDEN:$bad"}
 }
-foreach($x in @('-NonInteractive','Run-M1FastSafe.ps1','m1-fast-safe-20260925-r6-pci-live-contract')){if($c.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_CMD_MISSING:$x"}}
-foreach($x in @('verify-sof-reference.py','generate-embedded-firmware.py','phaser360_m1_boot.vcxproj','Inf2Cat.exe','New-SelfSignedCertificate','KeyExportPolicy NonExportable','phaser360_m1_fast_safe.cer','package_manifest.json','upload-artifact','M1_FAST_SAFE_R7_ROM_PHASE_TRACE_DSP_BOOT','PHASER360_M1_R6_PCI_LIVE_CONTRACT','0.6.15.136')){if($w.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_WORKFLOW_MISSING:$x"}}
+foreach($x in @('-NonInteractive','Run-M1FastSafe.ps1','m1-fast-safe-20260925-r7-rom-phase-trace')){if($c.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_CMD_MISSING:$x"}}
+foreach($x in @('verify-sof-reference.py','generate-embedded-firmware.py','phaser360_m1_boot.vcxproj','Inf2Cat.exe','New-SelfSignedCertificate','KeyExportPolicy NonExportable','phaser360_m1_fast_safe.cer','package_manifest.json','upload-artifact','M1_FAST_SAFE_R7_ROM_PHASE_TRACE_DSP_BOOT','PHASER360_M1_R7_ROM_PHASE_TRACE','0.6.15.136')){if($w.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_WORKFLOW_MISSING:$x"}}
 # R3: DMA framework objects belong to the PrepareHardware/ReleaseHardware
 # lifetime. D0 may stage/publish the preallocated buffers, but must not create
 # the DMA enabler or common buffers.
