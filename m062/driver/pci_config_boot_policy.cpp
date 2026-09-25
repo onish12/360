@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 #include "pci_config_boot_policy.h"
-#include "stage_trace.h"
 #include <wdmguid.h>
 
 namespace phaser360 { namespace windows {
@@ -162,12 +161,10 @@ bool PciConfigBootPolicy::RestoreWithBus(BUS_INTERFACE_STANDARD& bus) noexcept {
 NTSTATUS PciConfigBootPolicy::Apply(
     WDFDEVICE device,const PciConfigSnapshot& evidence,
     HardwareAccessGate& gate) noexcept {
-    StageTrace(L"H81_PCI_POLICY_ENTER");
+    failure_=PciConfigBootFailure::None;
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || attempted_ || !device ||
-       !gate.Allowed() || gate.Removed()) {
-        StageTraceStatus(L"H82_PCI_POLICY_STATE_FAIL",STATUS_INVALID_DEVICE_STATE);
-        return STATUS_INVALID_DEVICE_STATE;
-    }
+       !gate.Allowed() || gate.Removed())
+        return Fail(PciConfigBootFailure::State,STATUS_INVALID_DEVICE_STATE);
 
     attempted_=true;
     device_=device;
@@ -175,55 +172,48 @@ NTSTATUS PciConfigBootPolicy::Apply(
 
     if(evidence.vendorId!=0x8086 || evidence.deviceId!=0x3198 ||
        (evidence.headerType&0x7f)!=0 || evidence.firstCapability<0x50 ||
-       (evidence.firstCapability&3)!=0 || evidence.capabilityCount==0) {
-        StageTraceStatus(L"H83_PCI_EVIDENCE_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
-    }
-    StageTrace(L"H83_PCI_EVIDENCE_OK");
+       (evidence.firstCapability&3)!=0 || evidence.capabilityCount==0)
+        return Fail(PciConfigBootFailure::Evidence,STATUS_DEVICE_CONFIGURATION_ERROR);
 
     BUS_INTERFACE_STANDARD bus{};
     const auto status=WdfFdoQueryForInterface(
         device,&GUID_BUS_INTERFACE_STANDARD,reinterpret_cast<PINTERFACE>(&bus),
         static_cast<USHORT>(sizeof(bus)),1,nullptr);
-    if(!NT_SUCCESS(status)) {
-        StageTraceStatus(L"H84_PCI_BUS_INTERFACE_FAIL",status);
-        return status;
-    }
+    if(!NT_SUCCESS(status))
+        return Fail(PciConfigBootFailure::BusInterfaceQuery,status);
 
     if(!bus.GetBusData || !bus.SetBusData || !bus.InterfaceDereference) {
         if(bus.InterfaceDereference) bus.InterfaceDereference(bus.Context);
-        StageTraceStatus(L"H84_PCI_BUS_INTERFACE_INVALID",STATUS_DEVICE_CONFIGURATION_ERROR);
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
+        return Fail(PciConfigBootFailure::BusInterfaceInvalid,
+                    STATUS_DEVICE_CONFIGURATION_ERROR);
     }
-    StageTrace(L"H84_PCI_BUS_INTERFACE_OK");
 
     UCHAR liveConfig[kPciConfigSnapshotBytes]={};
     if(!ReadConfigImage(bus,liveConfig)) {
         bus.InterfaceDereference(bus.Context);
-        StageTraceStatus(L"H85_PCI_LIVE_READ_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
+        return Fail(PciConfigBootFailure::LiveRead,
+                    STATUS_DEVICE_CONFIGURATION_ERROR);
     }
     if(!IdentityMatches(liveConfig,evidence)) {
         bus.InterfaceDereference(bus.Context);
-        StageTraceStatus(L"H86_PCI_IDENTITY_DRIFT",STATUS_DEVICE_CONFIGURATION_ERROR);
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
+        return Fail(PciConfigBootFailure::IdentityDrift,
+                    STATUS_DEVICE_CONFIGURATION_ERROR);
     }
     if(!StableHeaderMatches(liveConfig,evidence)) {
         bus.InterfaceDereference(bus.Context);
-        StageTraceStatus(L"H87_PCI_STABLE_HEADER_DRIFT",STATUS_DEVICE_CONFIGURATION_ERROR);
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
+        return Fail(PciConfigBootFailure::StableHeaderDrift,
+                    STATUS_DEVICE_CONFIGURATION_ERROR);
     }
     if(!CapabilityStructureMatches(liveConfig,evidence)) {
         bus.InterfaceDereference(bus.Context);
-        StageTraceStatus(L"H88_PCI_CAP_STRUCTURE_DRIFT",STATUS_DEVICE_CONFIGURATION_ERROR);
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
+        return Fail(PciConfigBootFailure::CapabilityStructureDrift,
+                    STATUS_DEVICE_CONFIGURATION_ERROR);
     }
     if(!OwnedDwordsMatch(liveConfig,evidence)) {
         bus.InterfaceDereference(bus.Context);
-        StageTraceStatus(L"H89_PCI_OWNED_DWORD_DRIFT",STATUS_DEVICE_CONFIGURATION_ERROR);
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
+        return Fail(PciConfigBootFailure::OwnedDwordDrift,
+                    STATUS_DEVICE_CONFIGURATION_ERROR);
     }
-    StageTrace(L"H8A_PCI_LIVE_CONTRACT_OK");
 
     const ULONG pgctl=evidence.pgctl;
     const ULONG cgctl=evidence.cgctl;
@@ -231,8 +221,7 @@ NTSTATUS PciConfigBootPolicy::Apply(
     originalCgctl_=cgctl;
     if(!gate.Allowed() || gate.Removed()) {
         bus.InterfaceDereference(bus.Context);
-        StageTraceStatus(L"H8B_PCI_GATE_CLOSED",STATUS_INVALID_DEVICE_STATE);
-        return STATUS_INVALID_DEVICE_STATE;
+        return Fail(PciConfigBootFailure::GateClosed,STATUS_INVALID_DEVICE_STATE);
     }
 
     // SOF hda_dsp_pre_fw_run(): disable ADSP clock gating first.
@@ -244,25 +233,24 @@ NTSTATUS PciConfigBootPolicy::Apply(
         if(!gate.Allowed() || gate.Removed() ||
            !WriteDword(bus,kCgctlOffset,desiredCgctl)) {
             if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
+            const bool removed=gate.Removed();
             bus.InterfaceDereference(bus.Context);
-            const auto fail=gate.Removed()?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR;
-            StageTraceStatus(L"H8C_CGCTL_WRITE_FAIL",fail);
-            return fail;
+            return Fail(removed?PciConfigBootFailure::CgctlGateLost:
+                                PciConfigBootFailure::CgctlWrite,
+                        removed?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR);
         }
         if(!gate.Allowed() || gate.Removed()) {
             bus.InterfaceDereference(bus.Context);
-            StageTraceStatus(L"H8C_CGCTL_GATE_LOST",STATUS_DELETE_PENDING);
-            return STATUS_DELETE_PENDING;
+            return Fail(PciConfigBootFailure::CgctlGateLost,STATUS_DELETE_PENDING);
         }
         ULONG verify=0;
         if(!ReadDword(bus,kCgctlOffset,&verify) || verify!=desiredCgctl) {
             if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
-            StageTraceStatus(L"H8C_CGCTL_VERIFY_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
-            return STATUS_DEVICE_CONFIGURATION_ERROR;
+            return Fail(PciConfigBootFailure::CgctlVerify,
+                        STATUS_DEVICE_CONFIGURATION_ERROR);
         }
     }
-    StageTrace(L"H8C_CGCTL_OK");
 
     // Then prevent opportunistic ADSP power gating while firmware boots.
     const ULONG desiredPgctl=pgctl|kPgctlAdspPgd;
@@ -271,29 +259,28 @@ NTSTATUS PciConfigBootPolicy::Apply(
         if(!gate.Allowed() || gate.Removed() ||
            !WriteDword(bus,kPgctlOffset,desiredPgctl)) {
             if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
+            const bool removed=gate.Removed();
             bus.InterfaceDereference(bus.Context);
-            const auto fail=gate.Removed()?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR;
-            StageTraceStatus(L"H8D_PGCTL_WRITE_FAIL",fail);
-            return fail;
+            return Fail(removed?PciConfigBootFailure::PgctlGateLost:
+                                PciConfigBootFailure::PgctlWrite,
+                        removed?STATUS_DELETE_PENDING:STATUS_DEVICE_CONFIGURATION_ERROR);
         }
         if(!gate.Allowed() || gate.Removed()) {
             bus.InterfaceDereference(bus.Context);
-            StageTraceStatus(L"H8D_PGCTL_GATE_LOST",STATUS_DELETE_PENDING);
-            return STATUS_DELETE_PENDING;
+            return Fail(PciConfigBootFailure::PgctlGateLost,STATUS_DELETE_PENDING);
         }
         ULONG verify=0;
         if(!ReadDword(bus,kPgctlOffset,&verify) || verify!=desiredPgctl) {
             if(gate.Allowed() && !gate.Removed()) (void)RestoreWithBus(bus);
             bus.InterfaceDereference(bus.Context);
-            StageTraceStatus(L"H8D_PGCTL_VERIFY_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
-            return STATUS_DEVICE_CONFIGURATION_ERROR;
+            return Fail(PciConfigBootFailure::PgctlVerify,
+                        STATUS_DEVICE_CONFIGURATION_ERROR);
         }
     }
-    StageTrace(L"H8D_PGCTL_OK");
 
     applied_=true;
     bus.InterfaceDereference(bus.Context);
-    StageTrace(L"H8E_PCI_POLICY_APPLIED_OK");
+    failure_=PciConfigBootFailure::None;
     return STATUS_SUCCESS;
 }
 
