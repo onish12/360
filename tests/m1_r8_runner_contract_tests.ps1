@@ -7,7 +7,7 @@ $tokens=$null;$parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path).Path,[ref]$tokens,[ref]$parseErrors)
 if($parseErrors.Count){throw ($parseErrors|Out-String)}
 function Check([bool]$ok,[string]$name){if(-not$ok){throw "RUNNER_CONTRACT_FAILED: $name"}}
-foreach($name in @('DecodeStageTrace','StopStageTrace')){
+foreach($name in @('DecodeStageTrace','StopStageTrace','AssertBootTrace')){
   $fn=$ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true)
   Check ($fn.Count-eq1) "function $name"
   . ([scriptblock]::Create($fn[0].Extent.Text))
@@ -50,6 +50,21 @@ try{
   StopStageTrace $trace $dir
   Check (-not$trace.Stopped -and $trace.StopExitCode-eq5) 'failed ETW stop cannot report stopped'
 
+  foreach($scenario in @('valid','not_stopped','not_decoded','header_missing','events_lost','buffers_lost','reload','repeated_boot')){
+    $trace=[pscustomobject]@{Stopped=$true;Decoded=$true;LossChecked=$true;EventsLost=0;BuffersLost=0;DriverEntries=1;BootEntries=1}
+    switch($scenario){
+      'not_stopped'{$trace.Stopped=$false}
+      'not_decoded'{$trace.Decoded=$false}
+      'header_missing'{$trace.LossChecked=$false}
+      'events_lost'{$trace.EventsLost=1}
+      'buffers_lost'{$trace.BuffersLost=1}
+      'reload'{$trace.DriverEntries=2}
+      'repeated_boot'{$trace.BootEntries=2}
+    }
+    $accepted=$true;try{AssertBootTrace $trace}catch{$accepted=$false}
+    Check ($accepted-eq($scenario-ceq'valid')) "$scenario boot trace validation"
+  }
+
   Add-Type -TypeDefinition @'
 using System;
 namespace Phaser360 { public static class M1FastNative {
@@ -59,18 +74,19 @@ namespace Phaser360 { public static class M1FastNative {
  }
 } }
 '@
-  function StopStageTrace($trace,[string]$dir){throw 'MOCK_TRACE_IO_FAILURE'}
+  function StopStageTrace($trace,[string]$dir){$script:order.Add('TRACE_STOP');throw 'MOCK_TRACE_IO_FAILURE'}
   function PublishedM1{if($script:remaining){'oem29.inf'}}
-  function PnP($a){if(-not$script:keepPackage){$script:remaining=$false};[pscustomobject]@{ExitCode=0;Output='MOCK_DELETE'}}
+  function PnP($a){$script:order.Add('DELETE');if(-not$script:keepPackage){$script:remaining=$false};[pscustomobject]@{ExitCode=0;Output='MOCK_DELETE'}}
   function WaitIntel([string]$instance,[int]$seconds){
     if($script:autoIntel -or [Phaser360.M1FastNative]::Calls-gt0){return [pscustomobject]@{Status='OK'}}
     throw 'MOCK_INTEL_TIMEOUT'
   }
   function IsIntel($s){$null-ne$s -and $s.Status-ceq'OK'}
-  function CertUtil($a){++$script:certCalls;[pscustomobject]@{ExitCode=0;Output='MOCK_CERT_DELETE'}}
+  function CertUtil($a){$script:order.Add('CERT');++$script:certCalls;[pscustomobject]@{ExitCode=0;Output='MOCK_CERT_DELETE'}}
   $export=Join-Path $dir 'intel.inf';[IO.File]::WriteAllText($export,'MOCK')
   foreach($scenario in @('auto','fallback','bind_failure','package_remains','export_missing','trace_failure')){
     $script:writes=@{};$script:remaining=$true;$script:certCalls=0
+    $script:order=New-Object System.Collections.Generic.List[string]
     $script:keepPackage=($scenario-ceq'package_remains');$script:autoIntel=($scenario-ceq'auto')
     [Phaser360.M1FastNative]::Calls=0;[Phaser360.M1FastNative]::Fail=($scenario-ceq'bind_failure')
     $rollbackComplete=$false;$published=$true;$bindAttempted=$true
@@ -87,8 +103,20 @@ namespace Phaser360 { public static class M1FastNative {
     Check ($script:certCalls-eq$(if($expectSafe){2}else{0})) "$scenario trust policy"
     Check ($script:writes.ContainsKey('emergency_rollback.txt')) "$scenario recovery log"
     Check (-not$fallbackRebootSignalled) "$scenario no automatic reboot"
+    if($scenario-ceq'trace_failure'){
+      Check (($script:order -join ',')-ceq'DELETE,CERT,CERT,TRACE_STOP') 'trace stops only after emergency rollback'
+    }
   }
-  Write-Host 'M1_R8_RUNNER_CONTRACT_TESTS=PASS; device=MOCKED; native_bind=MOCKED; trace_cases=6; rollback_cases=6'
+  $rollbackComplete=$true;$stageTrace=[pscustomobject]@{Stopped=$false}
+  $script:order=New-Object System.Collections.Generic.List[string]
+  . $recovery
+  Check (($script:order -join ',')-ceq'TRACE_STOP') 'normal rollback also finalizes trace'
+  # No production StopStageTrace invocation may precede the recovery finally.
+  $calls=@($outer[0].Body.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName()-ceq'StopStageTrace'},$true))
+  Check ($calls.Count-eq0) 'normal body keeps trace alive through rollback'
+  $calls=@($outer[0].CatchClauses[0].Body.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName()-ceq'StopStageTrace'},$true))
+  Check ($calls.Count-eq0) 'failure body keeps trace alive through rollback'
+  Write-Host 'M1_R8_RUNNER_CONTRACT_TESTS=PASS; device=MOCKED; native_bind=MOCKED; trace_cases=6; trace_validation_cases=8; rollback_cases=7'
 }finally{
   Remove-Item -LiteralPath $dir -Recurse -Force
 }

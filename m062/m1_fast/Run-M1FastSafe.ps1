@@ -118,6 +118,11 @@ function PublishedM1{
        $t.IndexOf($ExactHwid,[StringComparison]::OrdinalIgnoreCase)-ge0){$r+=$f.Name}
   };@($r)
 }
+function AssertBootTrace($trace){
+  if(-not$trace -or -not$trace.Stopped -or -not$trace.Decoded){throw 'M1_STAGE_TRACE_NOT_VALIDATED'}
+  if(-not$trace.LossChecked -or $trace.EventsLost-ne0 -or $trace.BuffersLost-ne0){throw 'M1_STAGE_TRACE_LOSS_NOT_EXCLUDED'}
+  if($trace.DriverEntries-ne1 -or $trace.BootEntries-ne1){throw "M1_ONE_SHOT_VIOLATED: driver_entries=$($trace.DriverEntries); boot_entries=$($trace.BootEntries)"}
+}
 function WaitIntel([string]$instance,[int]$seconds=30){
   $end=(Get-Date).AddSeconds($seconds);do{Start-Sleep -Milliseconds 500;try{$s=Target}catch{$s=$null};if($s -and $s.InstanceId -ceq $instance -and (IsIntel $s)){return $s}}while((Get-Date)-lt$end);throw 'INTEL_BASELINE_TIMEOUT'
 }
@@ -289,7 +294,7 @@ if($baselineExportInfs.Count-ne1){throw "BASELINE_EXPORT_INF_COUNT_INVALID: coun
 $baselineExportInf=$baselineExportInfs[0].FullName
 WriteUtf8 (Join-Path $dir 'baseline_export_inf.txt') $baselineExportInf
 
-$rootAdded=$false;$pubAdded=$false;$published=$false;$publishedInf=$null;$bindAttempted=$false;$bindRebootSignalled=$false;$m1Bound=$false;$bootProved=$false;$rollbackComplete=$false;$fallbackIntel=$false;$fallbackAttempted=$false;$fallbackRebootSignalled=$false;$err=$null;$stageTrace=$null
+$rootAdded=$false;$pubAdded=$false;$published=$false;$publishedInf=$null;$bindAttempted=$false;$bindRebootSignalled=$false;$m1Bound=$false;$bootTelemetryHealthy=$false;$bootProved=$false;$rollbackComplete=$false;$fallbackIntel=$false;$fallbackAttempted=$false;$fallbackRebootSignalled=$false;$err=$null;$stageTrace=$null
 try{
   $x=CertUtil @('-f','-addstore','Root',$pkg.Cer);WriteUtf8 (Join-Path $dir 'cert_add_root.txt') $x.Output;if($x.ExitCode-ne0){throw 'CERT_ROOT_ADD_FAILED'};$rootAdded=$true
   $x=CertUtil @('-f','-addstore','TrustedPublisher',$pkg.Cer);WriteUtf8 (Join-Path $dir 'cert_add_publisher.txt') $x.Output;if($x.ExitCode-ne0){throw 'CERT_PUBLISHER_ADD_FAILED'};$pubAdded=$true
@@ -334,11 +339,9 @@ try{
        $tq.CompletedD0-ne0 -or $tq.FailedD0-ne0 -or $tq.LastD0StatusValue-ne0){throw 'M1_BOOT_TELEMETRY_NOT_HEALTHY'}
   }
   if($t1.SessionGeneration-ne$t2.SessionGeneration){throw 'M1_SESSION_CHANGED_DURING_STABILITY_WINDOW'}
-  StopStageTrace $stageTrace $dir
-  if(-not$stageTrace.Stopped -or -not$stageTrace.Decoded){throw 'M1_STAGE_TRACE_NOT_VALIDATED'}
-  if(-not$stageTrace.LossChecked -or $stageTrace.EventsLost-ne0 -or $stageTrace.BuffersLost-ne0){throw 'M1_STAGE_TRACE_LOSS_NOT_EXCLUDED'}
-  if($stageTrace.DriverEntries-ne1 -or $stageTrace.BootEntries-ne1){throw "M1_ONE_SHOT_VIOLATED: driver_entries=$($stageTrace.DriverEntries); boot_entries=$($stageTrace.BootEntries)"}
-  $bootProved=$true
+  # Keep ETW alive through removal so DMA/DSP/HDA cleanup is observable.
+  # Boot proof is committed only after the complete capture is validated.
+  $bootTelemetryHealthy=$true
 
   $x=PnP @('/delete-driver',$publishedInf,'/uninstall','/force');WriteUtf8 (Join-Path $dir 'pnputil_remove_m1.txt') $x.Output
   if($x.ExitCode-ne0){throw 'M1_UNINSTALL_FAILED'}
@@ -367,10 +370,8 @@ try{
     $props=@(Get-PnpDeviceProperty -InstanceId $before.InstanceId -ErrorAction Stop|Select-Object KeyName,Type,Data)
     WriteUtf8 (Join-Path $dir 'target_transaction_failure_properties.json') ($props|ConvertTo-Json -Depth 10)
   }catch{}
-  if($stageTrace){try{StopStageTrace $stageTrace $dir}catch{}}
 }finally{
-  # Diagnostic failure must never prevent the recovery path from running.
-  if($stageTrace -and -not$stageTrace.Stopped){try{StopStageTrace $stageTrace $dir}catch{}}
+  try{
   if(-not$rollbackComplete){
     $log=New-Object System.Collections.Generic.List[string]
     if($published){
@@ -405,6 +406,15 @@ try{
     }
     WriteUtf8 (Join-Path $dir 'emergency_rollback.txt') ($log -join [Environment]::NewLine)
   }
+  }finally{
+    # Diagnostic failure must never prevent recovery. Capture includes removal
+    # and its framework release boundary on both success and failure paths.
+    if($stageTrace -and -not$stageTrace.Stopped){try{StopStageTrace $stageTrace $dir}catch{}}
+  }
+}
+
+if($bootTelemetryHealthy){
+  try{AssertBootTrace $stageTrace;$bootProved=$true}catch{if(-not$err){$err=$_.Exception}}
 }
 
 $final=$null;try{$final=Target}catch{}
@@ -414,11 +424,12 @@ $trustRestored=(-not$ft.Root -and -not$ft.TrustedPublisher)
 $status=if($bootProved -and $rollbackComplete -and $baselineRestored -and $trustRestored -and -not$err){'M1_FAST_SAFE_DSP_BOOT_AND_INTEL_ROLLBACK_COMPLETE'}else{'M1_FAST_SAFE_TRANSACTION_FAILED'}
 if($final){WriteUtf8 (Join-Path $dir 'target_final.json') ($final|ConvertTo-Json -Depth 8)}
 WriteUtf8 (Join-Path $dir 'transaction.json') ([ordered]@{
- Status=$status;RunnerBuild=$Build;PublishedInf=$publishedInf;BindAttempted=$bindAttempted;BindRebootSignalled=$bindRebootSignalled;M1Bound=$m1Bound;BootProved=$bootProved
+ Status=$status;RunnerBuild=$Build;PublishedInf=$publishedInf;BindAttempted=$bindAttempted;BindRebootSignalled=$bindRebootSignalled;M1Bound=$m1Bound;BootTelemetryHealthy=$bootTelemetryHealthy;BootProved=$bootProved
  BaselineRestored=$baselineRestored;TrustRestored=$trustRestored;IntelFallbackAttempted=$fallbackAttempted;IntelFallbackUsed=$fallbackIntel;IntelFallbackRebootSignalled=$fallbackRebootSignalled
  StageTraceProvider=$StageProviderGuid.ToString();StageTraceCaptured=[bool]($stageTrace -and $stageTrace.Stopped -and (Test-Path $stageTrace.Etl -PathType Leaf))
  StageTraceDecoded=[bool]($stageTrace -and $stageTrace.Decoded);StageTraceDriverEntries=$(if($stageTrace){$stageTrace.DriverEntries}else{0});StageTraceBootEntries=$(if($stageTrace){$stageTrace.BootEntries}else{0});StageTraceStopExitCode=$(if($stageTrace){$stageTrace.StopExitCode}else{$null})
  StageTraceLossChecked=[bool]($stageTrace -and $stageTrace.LossChecked);StageTraceEventsLost=$(if($stageTrace){$stageTrace.EventsLost}else{$null});StageTraceBuffersLost=$(if($stageTrace){$stageTrace.BuffersLost}else{$null})
+ StageTraceWindow='PRE_BIND_THROUGH_ROLLBACK'
  TransactionError=$(if($err){$err.Message}else{$null});FirmwareSha256=$FirmwareSha;NHLTSha256=$NHLTSha
  NHLTHashSource='DECLARED_REFERENCE_ONLY';NHLTObservedSha256=$null
  AudioPlayback='NO';CodecProgramming='NO';SpeakerEnable='NO';AutomaticReboot='NO';BcdWrite='NO'
