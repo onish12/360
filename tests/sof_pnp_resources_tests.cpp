@@ -69,6 +69,11 @@ static NTSTATUS HookExit(void* p) noexcept {
 static NTSTATUS HookRelease(void* p) noexcept {
     static_cast<HookTrace*>(p)->sequence.push_back(6); return STATUS_SUCCESS;
 }
+static NTSTATUS HookReleaseAfterHardware(void* p) noexcept {
+    check(activeGate && !activeGate->Allowed());
+    check(live.size()==2); // mappings remain until software users are retired
+    static_cast<HookTrace*>(p)->sequence.push_back(8); return STATUS_SUCCESS;
+}
 static void HookSurprise(void* p) noexcept {
     static_cast<HookTrace*>(p)->sequence.push_back(7);
 }
@@ -568,6 +573,33 @@ int main() {
         }
         check(failedNoRestartCalls==before+1 && lastFailedDevice==&failDevice);
         check(NT_SUCCESS(release(&failDevice,nullptr)) && live.empty());
+    }
+
+    // The final KMDF callback, not early Prepare unwind, carries the hardware
+    // release boundary. It must close MMIO access before invoking the consumer.
+    for(unsigned mode=0;mode<3;++mode) {
+        HardwareAccessGate finalGate; PnpResources finalOwner(finalGate); FakeObject finalDevice;
+        HookTrace trace; trace.failPrepared=(mode==0); trace.failD0=(mode==1);
+        auto hooks=MakeHooks(trace); hooks.releaseAfterHardware=HookReleaseAfterHardware;
+        activeGate=&finalGate;
+        check(finalOwner.InstallLifecycle(hooks));
+        check(NT_SUCCESS(finalOwner.Attach(&finalDevice)));
+        auto ft=validTranslated(); auto fr=validRaw(); mapCalls=0; unmaps.clear();
+        const auto prepared=prepare(&finalDevice,&fr,&ft);
+        if(mode==0) {
+            check(!NT_SUCCESS(prepared) && live.empty());
+            check(NT_SUCCESS(release(&finalDevice,nullptr)));
+            check(trace.sequence==std::vector<unsigned>({1}));
+        } else {
+            check(NT_SUCCESS(prepared));
+            const auto entry=d0Entry(&finalDevice,WdfPowerDeviceD3Final);
+            check(NT_SUCCESS(entry)==(mode==2));
+            // Mode 2 models final release after a later power-path failure;
+            // no invented successful D0Exit is needed to retire resources.
+            check(NT_SUCCESS(release(&finalDevice,nullptr)) && live.empty());
+            check(trace.sequence==std::vector<unsigned>({1,2,8}));
+            check(finalOwner.PowerPhase()==PnpPowerPhase::NoResources);
+        }
     }
 
     std::cout<<"SOF_PNP_RESOURCES_TESTS="<<checks

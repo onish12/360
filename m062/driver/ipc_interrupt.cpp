@@ -345,6 +345,29 @@ bool IpcInterrupt::DrainStopped() noexcept {
     InterlockedExchange(&pendingWork_,0); drained_=true;
     WdfWaitLockRelease(serial_); return true;
 }
+bool IpcInterrupt::ReleaseAfterHardware() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !deviceLifetimeShell_ || !interrupt_ ||
+       !serial_ || !dpc_ || !work_)
+        return false;
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    if(boot_ && (!boot_->AccessGate() || !boot_->AccessGate()->Removed())) {
+        WdfWaitLockRelease(serial_); return false;
+    }
+    // ISR/Enable/Disable are no longer running at this framework boundary.
+    // First block PASSIVE work, then wait without holding its serial lock.
+    admissionClosed_=true;
+    armed_=false; enabled_=false; ready_=false; stopped_=true;
+    disconnectedSeen_=true;
+    WdfWaitLockRelease(serial_);
+    (void)WdfDpcCancel(dpc_,TRUE);
+    WdfWorkItemFlush(work_);
+    if(WdfWaitLockAcquire(serial_,nullptr)!=STATUS_SUCCESS) return false;
+    InterlockedExchange(&pendingWork_,0);
+    drained_=true; boot_=nullptr; dsp_=nullptr;
+    bootStartAllowed_=false; hardwareEnableAllowed_=false;
+    WdfWaitLockRelease(serial_);
+    return true;
+}
 BOOLEAN IpcInterrupt::Isr(WDFINTERRUPT interrupt,ULONG) {
     auto& self=*GetIpcIrqContext(interrupt)->owner;
     if(!self.enabled_ || !self.armed_ || !self.ready_ || self.stopped_ || self.fault_) return FALSE;

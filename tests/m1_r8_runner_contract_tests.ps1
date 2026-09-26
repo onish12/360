@@ -28,7 +28,9 @@ try{
   [IO.File]::WriteAllText($xml,('<Events>'+($event-f'A00_DRIVER_ENTRY')+($event-f'D30_FIRMWARE_ENTER')+'</Events>'))
   $decoded=DecodeStageTrace $xml $dir
   Check ($decoded.EventCount-eq2 -and $decoded.DriverEntries-eq1 -and $decoded.BootEntries-eq1) 'decode direct Data and count boot'
-  $rows=@($script:writes['stage_trace_decoded.json']|ConvertFrom-Json)
+  # PS 5.1 emits a JSON array as one pipeline object. Assignment preserves
+  # that array; an extra @() would wrap it and make [0] the whole collection.
+  $rows=ConvertFrom-Json -InputObject $script:writes['stage_trace_decoded.json']
   Check ($rows[0].TimestampRaw-ceq'RAW_TIME') 'preserve original timestamp'
   [IO.File]::WriteAllText($xml,('<Events>'+($event-f'D30_FIRMWARE_ENTER')+($event-f'D30_FIRMWARE_ENTER')+'</Events>'))
   $decoded=DecodeStageTrace $xml $dir

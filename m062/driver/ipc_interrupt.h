@@ -53,6 +53,10 @@ public:
     // Previously armed sessions require pre-disable Stop. Failed/missing Enable
     // may omit Disable; that branch retries masking at PASSIVE without IRQ sync.
     bool StopAfterDisconnect() noexcept;
+    // EvtDeviceReleaseHardware only, after completed KMDF disconnect/power-off
+    // and terminal closure of the hardware gate. Drains software users without
+    // MMIO or interrupt synchronization; does not assert stream-level cleanup.
+    bool ReleaseAfterHardware() noexcept;
     sof::CommandResult Command(const UCHAR*,SIZE_T,ULONG,UCHAR*,SIZE_T) noexcept;
     bool Pop(sof::IpcNotification*) noexcept;
 private:

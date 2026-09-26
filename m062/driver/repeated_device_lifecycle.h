@@ -54,6 +54,7 @@ private:
     NTSTATUS PreInterruptsDisabled() noexcept;
     NTSTATUS D0Exit() noexcept;
     NTSTATUS Release() noexcept;
+    NTSTATUS ReleaseAfterHardware() noexcept;
     void SurpriseRemoval() noexcept;
 
     bool SamePreparedView(const PnpResourceView&) const noexcept;
@@ -70,6 +71,7 @@ private:
     static NTSTATUS PreThunk(void*) noexcept;
     static NTSTATUS ExitThunk(void*) noexcept;
     static NTSTATUS ReleaseThunk(void*) noexcept;
+    static NTSTATUS ReleaseAfterHardwareThunk(void*) noexcept;
     static void SurpriseThunk(void*) noexcept;
 };
 

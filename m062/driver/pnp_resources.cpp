@@ -57,7 +57,7 @@ NTSTATUS PnpResources::ReleaseHardware(WDFDEVICE device,WDFCMRESLIST translated)
     // Release follows failed Prepare too, including an unattached owner.
     if(!owner) return STATUS_SUCCESS;
     if(owner->device_!=device) return STATUS_INVALID_DEVICE_STATE;
-    return owner->Release();
+    return owner->Release(true);
 }
 
 NTSTATUS PnpResources::D0Entry(WDFDEVICE device,WDF_POWER_DEVICE_STATE previousState) {
@@ -321,8 +321,20 @@ NTSTATUS PnpResources::Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcep
     return STATUS_SUCCESS;
 }
 
-NTSTATUS PnpResources::Release() noexcept {
+NTSTATUS PnpResources::Release(bool frameworkRelease) noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL || !gate_) return STATUS_INVALID_DEVICE_STATE;
+    if(frameworkRelease && lifecyclePrepared_ && lifecycle_.releaseAfterHardware) {
+        // Documented EvtDeviceReleaseHardware boundary, including failed D0
+        // which has no D0Exit. No device MMIO is permitted at this point.
+        if(!gate_->CloseForRelease()) return STATUS_INVALID_DEVICE_STATE;
+        StageTrace(L"R10_FRAMEWORK_HARDWARE_RELEASE");
+        const auto status=lifecycle_.releaseAfterHardware(lifecycle_.context);
+        StageTraceStatus(NT_SUCCESS(status)?L"R20_FRAMEWORK_RELEASE_OK":
+                         L"R20_FRAMEWORK_RELEASE_FAIL",status);
+        if(!NT_SUCCESS(status)) return status;
+        lifecyclePrepared_=false;
+        phase_=PnpPowerPhase::Prepared;
+    }
     // Never unmap a resource bundle while the framework skeleton still says D0.
     // A failed D0Entry leaves phase Prepared and is therefore releasable without
     // a synthetic D0Exit, matching KMDF's documented failure semantics.

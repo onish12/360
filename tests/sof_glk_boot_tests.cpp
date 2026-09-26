@@ -39,6 +39,7 @@ static bool failPciQuery=false,shortPciRead=false,shortPciWriteOnce=false,reject
 static HardwareAccessGate* surpriseGateAfterPciWrite=nullptr;
 static bool stuckRun=false,noRun=false,power=true,halt=false,missingReady=false,badReady=false,commandTimeout=false;
 static bool sspReadZero=false;
+static bool stickRunAfterStart=false;
 static bool rejectPinnedEnter=false;
 static HardwareAccessGate* removeDuringPinnedEnter=nullptr;
 #define CHECK(x) do { ++checks; if(!(x)) { std::fprintf(stderr,"line %d: %s\n",__LINE__,#x); std::exit(1); } } while(0)
@@ -96,6 +97,7 @@ static void Write(void* p,unsigned w,ULONG v) {
             ((o-0x83)%0x20)==0;
         if(streamStatus) v=Get(b,o,w)&~v;
         if(o==0x160) {
+            if(stickRunAfterStart && (v&2)) stuckRun=true;
             if(stuckRun) v|=2;
             if(noRun) v&=~2u;
             if(v&2) {
@@ -1295,6 +1297,66 @@ int main() {
         CHECK(NT_SUCCESS(ops.release(ops.context)));
         CHECK(dmaLive==0);
         FrameworkDeleteChildren();
+    }
+
+    // R8: an early cleanup failure is not a lifetime fence against WDF parent
+    // disposal. Retain buffers in D0; retire software only at the documented
+    // ReleaseHardware boundary (disconnected and powered off by KMDF).
+    for(unsigned releaseCase=0;releaseCase<3;++releaseCase) {
+        Reset();
+        HardwareAccessGate releaseGate; CHECK(releaseGate.OpenForPrepare());
+        IpcInterrupt bridge; PinnedFirmware firmware;
+        RepeatedDeviceLifecycle lifecycle(bridge,firmware,releaseGate);
+        CHECK(NT_SUCCESS(lifecycle.CreateInterruptShell(&checks)));
+        auto ops=lifecycle.Ops(); CHECK(ops.releaseAfterHardware!=nullptr);
+        CM_PARTIAL_RESOURCE_DESCRIPTOR raw={},translated={};
+        raw.Type=CmResourceTypeInterrupt; translated.Type=CmResourceTypeInterrupt;
+        PnpResourceView view{};
+        view.hda=hda.data(); view.hdaLength=0x4000;
+        view.dsp=dsp.data(); view.dspLength=0x100000;
+        PnpDormantInterruptBinding binding{};
+        binding.gate=&releaseGate; binding.dsp=dsp.data(); binding.dspLength=0x100000;
+        binding.raw=&raw; binding.translated=&translated;
+        CHECK(NT_SUCCESS(ops.prepared(ops.context,view,binding)));
+        if(releaseCase==0) stickRunAfterStart=true;
+        const auto entry=ops.d0Entry(ops.context,&checks,view);
+        if(releaseCase==0) {
+            CHECK(!NT_SUCCESS(entry) && lifecycle.ActiveD0() && dmaLive==3);
+        } else {
+            CHECK(NT_SUCCESS(entry));
+            if(releaseCase==1) { dropIrqMask=true; Put(dsp,8,4,1); }
+            const auto enable=FrameworkEnable(true);
+            if(releaseCase==1) {
+                CHECK(!NT_SUCCESS(enable));
+                connected=false; // framework disconnect after failed Enable
+            } else {
+                CHECK(NT_SUCCESS(enable));
+                CHECK(NT_SUCCESS(ops.postInterruptsEnabled(ops.context)));
+                Notify(); CHECK(Interrupt() && queued);
+                dropIrqMask=true;
+                Put(dsp,8,4,1);
+                CHECK(!NT_SUCCESS(ops.preInterruptsDisabled(ops.context)));
+                CHECK(!NT_SUCCESS(FrameworkEnable(false)));
+                CHECK(!NT_SUCCESS(ops.d0Exit(ops.context)));
+            }
+        }
+        CHECK(!NT_SUCCESS(ops.release(ops.context))); // not a power-off witness
+        CHECK(lifecycle.ActiveD0() && dmaLive==3);
+        CHECK(!bridge.ReleaseAfterHardware()); // terminal gate is required
+        const auto writes=dspWrites,syncs=synchronizeCalls;
+        const auto pciReads=pciReadCalls,pciWrites=pciWriteCalls;
+        const auto cancelled=cancelCalls,flushed=flushCalls;
+        CHECK(!connected && releaseGate.CloseForRelease());
+        forbidMmio=true;
+        CHECK(NT_SUCCESS(ops.releaseAfterHardware(ops.context)));
+        CHECK(releaseGate.Removed() && !lifecycle.ActiveD0() &&
+              !lifecycle.PreparedResources() && !queued);
+        CHECK(dspWrites==writes && synchronizeCalls==syncs &&
+              pciReadCalls==pciReads && pciWriteCalls==pciWrites);
+        CHECK(cancelCalls==cancelled+1 && flushCalls==flushed+1);
+        CHECK(dmaLive==3); // actual buffers remain owned by WDF until disposal
+        FrameworkDeleteChildren(); CHECK(dmaLive==0);
+        stickRunAfterStart=false;
     }
 
     // Per-D0 allocation failure is retryable and cannot leave an IRQ binding.

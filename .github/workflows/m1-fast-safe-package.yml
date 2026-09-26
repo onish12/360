@@ -32,13 +32,6 @@ jobs:
       - uses: microsoft/setup-msbuild@v3
         with: {msbuild-architecture: x64}
 
-      - name: Restore pinned WDK packages
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          nuget restore .\m062\packages.config -PackagesDirectory .\m062\packages -NonInteractive
-          if($LASTEXITCODE -ne 0){throw 'M1_FAST_RESTORE_FAILED'}
-
       - name: Validate fast-safe transaction guards
         shell: pwsh
         run: |
@@ -50,6 +43,13 @@ jobs:
           if($LASTEXITCODE-ne0){throw 'M1_FAST_PS51_PARSE_FAILED'}
           & $ps51 -NoLogo -NoProfile -NonInteractive -File .\tests\m1_r8_runner_contract_tests.ps1
           if($LASTEXITCODE-ne0){throw 'M1_R8_RUNNER_CONTRACT_TESTS_FAILED'}
+
+      - name: Restore pinned WDK packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          nuget restore .\m062\packages.config -PackagesDirectory .\m062\packages -NonInteractive
+          if($LASTEXITCODE -ne 0){throw 'M1_FAST_RESTORE_FAILED'}
 
       - name: Build SOF inspector and verify exact upstream firmware
         shell: pwsh

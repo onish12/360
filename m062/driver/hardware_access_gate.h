@@ -21,6 +21,11 @@ public:
         return old==kOpen || old==kClosed || old==kRemoved;
     }
     void SurpriseRemove() noexcept {
+        CloseTerminally();
+    }
+    // Also used at final framework resource release after failed cleanup.
+    // This closes software access; it is not a hardware-stop assertion.
+    void CloseTerminally() noexcept {
         (void)InterlockedExchange(&state_,kRemoved);
     }
     bool Allowed() const noexcept {

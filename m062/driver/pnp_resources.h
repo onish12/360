@@ -69,6 +69,10 @@ struct PnpLifecycleOps {
     NTSTATUS(*preInterruptsDisabled)(void*) noexcept=nullptr;
     NTSTATUS(*d0Exit)(void*) noexcept=nullptr;
     NTSTATUS(*release)(void*) noexcept=nullptr;
+    // Only EvtDeviceReleaseHardware may supply this boundary: KMDF has
+    // disabled/disconnected interrupts and powered the device off. Never
+    // invoke it from PrepareHardware unwind or failed D0 cleanup.
+    NTSTATUS(*releaseAfterHardware)(void*) noexcept=nullptr;
     void(*surpriseRemoval)(void*) noexcept=nullptr;
 };
 
@@ -121,7 +125,7 @@ private:
     PnpPowerPhase phase_=PnpPowerPhase::NoResources;
 
     NTSTATUS Prepare(WDFCMRESLIST raw,WDFCMRESLIST translated) noexcept;
-    NTSTATUS Release() noexcept;
+    NTSTATUS Release(bool frameworkRelease=false) noexcept;
     static NTSTATUS PrepareHardware(WDFDEVICE,WDFCMRESLIST,WDFCMRESLIST);
     static NTSTATUS ReleaseHardware(WDFDEVICE,WDFCMRESLIST);
     static void SurpriseRemoval(WDFDEVICE);

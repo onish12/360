@@ -29,6 +29,7 @@ PnpLifecycleOps RepeatedDeviceLifecycle::Ops() noexcept {
     ops.preInterruptsDisabled=PreThunk;
     ops.d0Exit=ExitThunk;
     ops.release=ReleaseThunk;
+    ops.releaseAfterHardware=ReleaseAfterHardwareThunk;
     ops.surpriseRemoval=SurpriseThunk;
     return ops;
 }
@@ -290,6 +291,33 @@ NTSTATUS RepeatedDeviceLifecycle::Release() noexcept {
     prepared_=false;
     if(telemetry_) telemetry_->SetFlag(TelemetryResourcesPrepared,false);
     return STATUS_SUCCESS;
+}
+
+NTSTATUS RepeatedDeviceLifecycle::ReleaseAfterHardware() noexcept {
+    if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return STATUS_INVALID_DEVICE_STATE;
+    if(!active_ && !irqBound_ && !sessions_.Active()) return Release();
+
+    // This entry is wired only to EvtDeviceReleaseHardware, not to early
+    // cleanup. KMDF has completed disconnect/power-off. Keeping local WDF
+    // handles cannot defer parent disposal; retire software users here without
+    // issuing any more MMIO or claiming a successful stream-level stop.
+    gate_.CloseTerminally();
+    if(!irq_.ReleaseAfterHardware()) return STATUS_DEVICE_CONFIGURATION_ERROR;
+    if(sessions_.Active() && !sessions_.AbandonRemoved(gate_))
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    active_=false; irqBound_=false;
+    if(telemetry_) {
+        telemetry_->SetFlag(TelemetryD0Active,false);
+        telemetry_->SetFlag(TelemetryRemoved,true);
+    }
+    StageTrace(L"R15_SOFTWARE_USERS_DRAINED");
+    return Release();
+}
+
+NTSTATUS RepeatedDeviceLifecycle::ReleaseAfterHardwareThunk(void* context) noexcept {
+    return context
+        ? static_cast<RepeatedDeviceLifecycle*>(context)->ReleaseAfterHardware()
+        : STATUS_INVALID_DEVICE_STATE;
 }
 
 void RepeatedDeviceLifecycle::SurpriseRemoval() noexcept {
