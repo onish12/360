@@ -4,13 +4,16 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 
 ## Current continuation status
 
-- **2026-09-26 audit / R8 source candidate:** the R7 result failed at the
+- **2026-09-26 audit / R8 compiled candidate:** the R7 result failed at the
   mandatory SSP readback poll, before ROM_CONTROL and firmware transfer. The
   candidate follows upstream masked SSP setup, requests NoRestart on boot
-  failure, and repairs failure-path Intel fallback and ETW decoding. See
-  [the audit](docs/M1_R8_AUDIT_20260926.md). Portable model tests pass; Windows
-  PowerShell, WDK and physical validation are still required. No DSP boot or
-  working audio is claimed for this candidate.
+  failure, repairs failure-path Intel fallback, and keeps ETW capture active
+  through rollback. Software users are drained at the documented KMDF hardware
+  release boundary. See [the audit](docs/M1_R8_AUDIT_20260926.md).
+  Commit `be2e17a7` passed [Windows PowerShell 5.1, WDK, host tests and package
+  signing checks](https://github.com/onish12/360/actions/runs/36267895367).
+  Physical validation is still required. No DSP boot or working audio is
+  claimed for this candidate.
 
 - **Adaptive entry point 1.1.1:** [PHASER360_AUDIO_AUTO](docs/M051_AUDIO_AUTO.md).
   RUN_AUDIO.cmd verifies the current package and signing state. For the exact
