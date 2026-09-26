@@ -17,11 +17,11 @@ $st=Get-Content (Join-Path $root 'tests\sof_stream_tests.cpp') -Raw
 $gt=Get-Content (Join-Path $root 'tests\sof_glk_boot_tests.cpp') -Raw
 $rom=Get-Content (Join-Path $root 'src\sof\glk_rom.cpp') -Raw
 foreach($x in @(
- 'm1-fast-safe-20260925-r7-rom-phase-trace','EXACT_WINDOWS_BUILD_19044_REQUIRED','PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
+ 'm1-fast-safe-20260926-r8-candidate-ssp-contract','EXACT_WINDOWS_BUILD_19044_REQUIRED','PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06',
  "BaselineInf='oem14.inf'","BaselineVersion='9.22.0.4832'",'/export-driver',
  'M1_FAST_RECOVERY_POINTER.txt','/add-driver','$bindAttempted=$true','ForceUpdate($ExactHwid,$pkg.Inf)',
  '[Phaser360.M1FastNative]::Query($TelemetryGuid,$TelemetryIoctl,32)','WaitTelemetry([string]$instance,[string]$inf,[int]$seconds=15)','telemetry_interface_wait.json','Start-Sleep -Milliseconds 500',
- 'ebaed0db-f9db-42ea-a162-5f4111384051','StartStageTrace','StopStageTrace','M1_R7_STAGE_TRACE.etl','M1_TARGET_FAILED_START_CODE10','DEVPKEY_Device_ProblemStatus',
+ 'ebaed0db-f9db-42ea-a162-5f4111384051','StartStageTrace','StopStageTrace','M1_R8_CANDIDATE_STAGE_TRACE.etl','M1_TARGET_FAILED_START_CODE10','DEVPKEY_Device_ProblemStatus',
  '/delete-driver',$null,'BASELINE_RESTORED','TRUST_RETAINED_FOR_SAFETY=TRUE','DO_NOT_REBOOT_UNTIL_TARGET_STATE_IS_REVIEWED=TRUE',
  "AudioPlayback='NO'","CodecProgramming='NO'","SpeakerEnable='NO'","AutomaticReboot='NO'","BcdWrite='NO'"
 )){
@@ -34,8 +34,8 @@ if($r.IndexOf('ForceUpdate($ExactHwid,$baselineExportInf)',[StringComparison]::O
 foreach($bad in @('bcdedit','Restart-Computer','shutdown.exe','AUDIO_PLAYBACK=YES','CODEC_PROGRAMMING=YES','SPEAKER_ENABLE=YES')){
  if($r.IndexOf($bad,[StringComparison]::OrdinalIgnoreCase)-ge0){throw "M1_FAST_FORBIDDEN:$bad"}
 }
-foreach($x in @('-NonInteractive','Run-M1FastSafe.ps1','m1-fast-safe-20260925-r7-rom-phase-trace')){if($c.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_CMD_MISSING:$x"}}
-foreach($x in @('verify-sof-reference.py','generate-embedded-firmware.py','phaser360_m1_boot.vcxproj','Inf2Cat.exe','New-SelfSignedCertificate','KeyExportPolicy NonExportable','phaser360_m1_fast_safe.cer','package_manifest.json','upload-artifact','M1_FAST_SAFE_R7_ROM_PHASE_TRACE_DSP_BOOT','PHASER360_M1_R7_ROM_PHASE_TRACE','0.6.15.136')){if($w.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_WORKFLOW_MISSING:$x"}}
+foreach($x in @('-NonInteractive','Run-M1FastSafe.ps1','m1-fast-safe-20260926-r8-candidate-ssp-contract')){if($c.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_CMD_MISSING:$x"}}
+foreach($x in @('verify-sof-reference.py','generate-embedded-firmware.py','phaser360_m1_boot.vcxproj','Inf2Cat.exe','New-SelfSignedCertificate','KeyExportPolicy NonExportable','phaser360_m1_fast_safe.cer','package_manifest.json','upload-artifact','M1_FAST_SAFE_R8_CANDIDATE_SSP_CONTRACT_DSP_BOOT','PHASER360_M1_R8_CANDIDATE_SSP_CONTRACT','0.6.15.137')){if($w.IndexOf($x,[StringComparison]::OrdinalIgnoreCase)-lt0){throw "M1_FAST_WORKFLOW_MISSING:$x"}}
 # R3: DMA framework objects belong to the PrepareHardware/ReleaseHardware
 # lifetime. D0 may stage/publish the preallocated buffers, but must not create
 # the DMA enabler or common buffers.
@@ -108,8 +108,8 @@ foreach($x in @('RomPhase::InitPreAdspcs','RomPhase::InitPowerUpCores','RomPhase
 foreach($x in @('G71_ROM_PRE_ADSPCS_FAIL','G74_ROM_POWERUP_CORES_FAIL','G77_ROM_RUN_CORE0_FAIL','G7B_ROM_WAIT_INIT_FAIL','G7E_ROM_ERR_TIMEOUT','StageTraceStatusValue')){
  if($g.IndexOf($x,[StringComparison]::Ordinal)-lt0 -and $s.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R7_ROM_TRACE_GUARD_MISSING:$x"}
 }
-foreach($x in @('EtwRegister','EtwWriteString','EtwUnregister','PHASER360_R7 ')){
- if($s.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R7_STAGE_TRACE_PROVIDER_MISSING:$x"}
+foreach($x in @('EtwRegister','EtwWriteString','EtwUnregister','PHASER360_R8_CANDIDATE ')){
+ if($s.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R8_CANDIDATE_STAGE_TRACE_PROVIDER_MISSING:$x"}
 }
 foreach($x in @('StageTraceRegister','Phaser360EvtDriverUnload','A00_DRIVER_ENTRY','A20_DEVICE_OWNER_OK')){
  if($e.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R7_DRIVER_ENTRY_TRACE_MISSING:$x"}
@@ -130,4 +130,4 @@ foreach($x in @('I10_INTERRUPT_ENABLE_ENTER','I20_MASK_GLOBAL_OK','I30_MASK_LOCA
  if($i.IndexOf($x,[StringComparison]::Ordinal)-lt0){throw "M1_R7_IRQ_TRACE_MISSING:$x"}
 }
 
-Write-Host 'M1_FAST_SAFE_STATIC_TESTS=PASS; r7_rom_phase_trace=YES; stage_trace=ETW_PRE_BIND; exact_target=YES; baseline_backup_before_bind=YES; recovery_pointer_before_bind=YES; telemetry=DOUBLE_READ; dma_lifetime=PREPARE_TO_RELEASE; rollback=AUTOMATIC; playback=NO; reboot=NO'
+Write-Host 'M1_FAST_SAFE_STATIC_TESTS=PASS; r8_candidate_ssp_contract=YES; stage_trace=ETW_PRE_BIND; exact_target=YES; baseline_backup_before_bind=YES; recovery_pointer_before_bind=YES; telemetry=DOUBLE_READ; dma_lifetime=PREPARE_TO_RELEASE; rollback=AUTOMATIC; playback=NO; reboot=NO'

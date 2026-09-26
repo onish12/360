@@ -1,8 +1,8 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo PHASER360 M1 R7 ROM-PHASE-TRACE - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK
-echo RUNNER_BUILD=m1-fast-safe-20260925-r7-rom-phase-trace
+echo PHASER360 M1 R8 CANDIDATE SSP-CONTRACT - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK
+echo RUNNER_BUILD=m1-fast-safe-20260926-r8-candidate-ssp-contract
 echo Fara playback, codec, speaker, BCD sau reboot.
 echo Diagnostic: aceeasi secventa hardware R6; ETW G71-G7B + valoare registru; rollback Intel automat.
 echo.

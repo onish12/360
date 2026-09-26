@@ -15,6 +15,8 @@ using phaser360::windows::PnpDormantInterruptBinding;
 using phaser360::windows::PnpLifecycleOps;
 
 static unsigned checks=0,irql=0,mapCalls=0,failMap=0;
+static unsigned failedNoRestartCalls=0;
+static WDFDEVICE lastFailedDevice=nullptr;
 static void check(bool ok) { ++checks; if(!ok) { std::cerr<<"PNP check failed: "<<checks<<'\n'; std::exit(1); } }
 
 struct FakeObject { void* owner=nullptr; };
@@ -34,6 +36,7 @@ struct HookTrace {
     std::vector<unsigned> sequence;
     bool failPrepared=false;
     bool failPre=false;
+    bool failD0=false,failPost=false;
     bool removeDuringPrepared=false;
     HardwareAccessGate* removeAfterEntry=nullptr;
 };
@@ -50,10 +53,11 @@ static NTSTATUS HookD0Entry(void* p,WDFDEVICE,const PnpResourceView& view) noexc
     auto& h=*static_cast<HookTrace*>(p); h.sequence.push_back(2);
     check(view.hda && view.dsp);
     if(h.removeAfterEntry) h.removeAfterEntry->SurpriseRemove();
-    return STATUS_SUCCESS;
+    return h.failD0?STATUS_DEVICE_CONFIGURATION_ERROR:STATUS_SUCCESS;
 }
 static NTSTATUS HookPost(void* p) noexcept {
-    static_cast<HookTrace*>(p)->sequence.push_back(3); return STATUS_SUCCESS;
+    auto& h=*static_cast<HookTrace*>(p); h.sequence.push_back(3);
+    return h.failPost?STATUS_DEVICE_CONFIGURATION_ERROR:STATUS_SUCCESS;
 }
 static NTSTATUS HookPre(void* p) noexcept {
     auto& h=*static_cast<HookTrace*>(p); h.sequence.push_back(4);
@@ -76,6 +80,10 @@ static PnpLifecycleOps MakeHooks(HookTrace& h) {
 }
 
 unsigned KeGetCurrentIrql() { return irql; }
+void WdfDeviceSetFailed(WDFDEVICE device,WDF_DEVICE_FAILED_ACTION action) {
+    check(device!=nullptr && action==WdfDeviceFailedNoRestart);
+    ++failedNoRestartCalls; lastFailedDevice=device;
+}
 void* FakeWdfContext(WDFINTERRUPT object) { return &object->owner; }
 void WdfDeviceInitSetPnpPowerEventCallbacks(PWDFDEVICE_INIT init,WDF_PNPPOWER_EVENT_CALLBACKS* c) { init->callbacks=*c; }
 ULONG WdfCmResourceListGetCount(WDFCMRESLIST list) { return static_cast<ULONG>(list->entries.size()); }
@@ -533,6 +541,33 @@ int main() {
         check(trace.sequence==std::vector<unsigned>({1}));
         check(live.empty() && !failGate.Allowed() &&
               failOwner.PowerPhase()==PnpPowerPhase::NoResources);
+    }
+
+    // A failed boot must request no automatic PnP reload. Failed D0 needs no
+    // synthetic D0Exit; post-enable failure retains the normal exit ordering.
+    check(failedNoRestartCalls==0);
+    for(unsigned mode=0;mode<2;++mode) {
+        HardwareAccessGate failGate; PnpResources failOwner(failGate); FakeObject failDevice;
+        HookTrace trace; trace.failD0=(mode==0); trace.failPost=(mode==1);
+        activeGate=&failGate;
+        check(failOwner.InstallLifecycle(MakeHooks(trace)));
+        check(NT_SUCCESS(failOwner.Attach(&failDevice)));
+        auto ft=validTranslated(); auto fr=validRaw(); mapCalls=0; unmaps.clear();
+        check(NT_SUCCESS(prepare(&failDevice,&fr,&ft)));
+        const auto before=failedNoRestartCalls;
+        if(mode==0) {
+            check(d0Entry(&failDevice,WdfPowerDeviceD3Final)==STATUS_DEVICE_CONFIGURATION_ERROR);
+            check(failOwner.PowerPhase()==PnpPowerPhase::Prepared);
+        } else {
+            check(NT_SUCCESS(d0Entry(&failDevice,WdfPowerDeviceD3Final)));
+            check(failedNoRestartCalls==before);
+            check(postEnable(&failDevice,WdfPowerDeviceD3Final)==STATUS_DEVICE_CONFIGURATION_ERROR);
+            check(failOwner.PowerPhase()==PnpPowerPhase::D0Entered);
+            check(NT_SUCCESS(preDisable(&failDevice,WdfPowerDeviceD3Final)));
+            check(NT_SUCCESS(d0Exit(&failDevice,WdfPowerDeviceD3Final)));
+        }
+        check(failedNoRestartCalls==before+1 && lastFailedDevice==&failDevice);
+        check(NT_SUCCESS(release(&failDevice,nullptr)) && live.empty());
     }
 
     std::cout<<"SOF_PNP_RESOURCES_TESTS="<<checks

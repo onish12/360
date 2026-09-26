@@ -71,7 +71,13 @@ NTSTATUS PnpResources::D0Entry(WDFDEVICE device,WDF_POWER_DEVICE_STATE previousS
         PnpResourceView snapshot{};
         if(!owner->CopyPreparedView(&snapshot)) return STATUS_INVALID_DEVICE_STATE;
         const auto status=owner->lifecycle_.d0Entry(owner->lifecycle_.context,device,snapshot);
-        if(!NT_SUCCESS(status)) return status; // failed entry gets no D0Exit
+        if(!NT_SUCCESS(status)) {
+            // A callback failure otherwise lets PnP reload and repeat the
+            // hardware transaction. M1 is an explicitly bounded boot attempt.
+            WdfDeviceSetFailed(device,WdfDeviceFailedNoRestart);
+            StageTraceStatus(L"D60_FAILED_NO_RESTART",status);
+            return status; // failed entry gets no D0Exit
+        }
     }
     owner->phase_=PnpPowerPhase::D0Entered;
     if(!owner->gate_->Allowed()) {
@@ -101,7 +107,11 @@ NTSTATUS PnpResources::D0EntryPostInterruptsEnabled(
         return STATUS_INVALID_DEVICE_STATE;
     if(owner->lifecycle_.postInterruptsEnabled) {
         const auto status=owner->lifecycle_.postInterruptsEnabled(owner->lifecycle_.context);
-        if(!NT_SUCCESS(status)) return status;
+        if(!NT_SUCCESS(status)) {
+            WdfDeviceSetFailed(device,WdfDeviceFailedNoRestart);
+            StageTraceStatus(L"POST30_FAILED_NO_RESTART",status);
+            return status;
+        }
     }
     owner->phase_=PnpPowerPhase::Operational;
     return STATUS_SUCCESS;

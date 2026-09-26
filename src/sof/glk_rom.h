@@ -43,12 +43,21 @@ public:
     RomError Error() const noexcept { return error_; }
     RomPhase Phase() const noexcept { return phase_; }
     uint32_t LastValue() const noexcept { return last_; }
+    uint32_t LastOffset() const noexcept { return lastOffset_; }
+    uint32_t SspObservedMask() const noexcept { return sspObservedMask_; }
+    uint32_t SspMismatchMask() const noexcept { return sspMismatchMask_; }
+    uint32_t SspObserved(unsigned index) const noexcept {
+        return index<6 ? sspObserved_[index] : 0;
+    }
 private:
     RomIo io_={};
     RomState state_=RomState::Unbound;
     RomError error_=RomError::None;
     RomPhase phase_=RomPhase::None;
     uint32_t last_=0;
+    uint32_t lastOffset_=0;
+    uint32_t sspObserved_[6]={};
+    uint32_t sspObservedMask_=0,sspMismatchMask_=0;
     bool Fail(RomError) noexcept;
     bool Read(uint32_t,uint32_t&) noexcept;
     bool Write(uint32_t,uint32_t) noexcept;

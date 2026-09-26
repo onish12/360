@@ -4,6 +4,14 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
 
 ## Current continuation status
 
+- **2026-09-26 audit / R8 source candidate:** the R7 result failed at the
+  mandatory SSP readback poll, before ROM_CONTROL and firmware transfer. The
+  candidate follows upstream masked SSP setup, requests NoRestart on boot
+  failure, and repairs failure-path Intel fallback and ETW decoding. See
+  [the audit](docs/M1_R8_AUDIT_20260926.md). Portable model tests pass; Windows
+  PowerShell, WDK and physical validation are still required. No DSP boot or
+  working audio is claimed for this candidate.
+
 - **Adaptive entry point 1.1.1:** [PHASER360_AUDIO_AUTO](docs/M051_AUDIO_AUTO.md).
   RUN_AUDIO.cmd verifies the current package and signing state. For the exact
   reviewed Intel bytes it performs an [instance-scoped handoff](docs/M051_HANDOFF.md)
@@ -329,20 +337,23 @@ Open-source Windows audio enablement project for Lenovo 300e Chromebook 2nd Gen 
   Adds CORBCTL/RIRBCTL/all-stream RUN proof while CRST is ready and captures
   ADSPIC/HIPCCTL. GCTL.CRST remains the only MMIO write; DSP MMIO, ADSPCS, PCI
   config, DMA, IRQ ownership, firmware and playback remain blocked.
-- **Working Windows audio:** not yet implemented. Integration of the pinned image into the device driver,
-  PnP/power ownership and platform IRQ routing, remaining notification types, machine/codec integration, stream DMA
-  and WaveRT remain separate milestones.
+- **Working Windows audio:** not yet implemented. M1 embeds the pinned image
+  and attempts DSP boot; the R7 physical run stopped before its transfer.
+  Platform validation, machine/codec integration, audio stream DMA and WaveRT
+  remain separate work.
 
 The older bootstrap description below is retained for source history. Do not
 interpret either milestone's CI success as permission to enable hardware writes.
 
-## Verified hardware target
+## Hardware evidence and historical notes
 
 - Intel Gemini Lake HD Audio / AudioDSP controller: `PCI\\VEN_8086&DEV_3198`
-- ADSP child created by `sklhdaudbus`: `CSAUDIO\\ADSP&CTLR_VEN_8086&CTLR_DEV_3198`
-- Headset codec: `ACPI\\DLGS7219` (DA7219)
-- Speaker amplifier: `ACPI\\MX98357A` (MAX98357A)
-- Firmware topology/NHLT already verified on the target machine.
+- Historical ADSP child: `CSAUDIO\\ADSP&CTLR_VEN_8086&CTLR_DEV_3198`.
+  It is not a prerequisite to reinstall for the current PCI path.
+- Historical headset label: `ACPI\\DLGS7219` (DA7219); R7 does not inventory it.
+- The previous MAX98357A and SSP1 speaker assignment is not established by
+  the R7 evidence. Identify the actual amplifier and routing before M2.
+- R7 exports a declared NHLT reference hash, not a new live NHLT measurement.
 
 ## Why this repository exists
 
@@ -379,8 +390,8 @@ Expected artifact: an **unsigned** `phaser360_adsp_probe.sys`. Do not install it
 2. **M0.2** — read-only `GetResources`: validate HDA BAR, ADSP BAR, PP capability pointer, NHLT pointer/size and PCI config interface. No MMIO writes.
 3. **M0.3** — SOF firmware parser/loader design + emulator/unit tests; still no speaker output.
 4. **M1** — controlled SOF DSP boot + IPC handshake.
-5. **M2** — single safe speaker path at 48 kHz stereo, SSP1 -> MAX98357A, with hard volume/amp safety gates.
-6. **M3** — DA7219 headphone/headset path on SSP2.
+5. **M2** — speaker path after live topology, amplifier identity and SSP routing are established, with volume/amp safety gates.
+6. **M3** — headphone/headset path after codec identity and routing are established.
 7. **M4** — internal PDM microphone.
 8. **M5** — suspend/resume, jack detection, recovery and stress testing.
 

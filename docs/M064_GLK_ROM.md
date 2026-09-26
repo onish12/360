@@ -13,7 +13,9 @@ Initialize requires that cold state and an idle HIPCI request, then:
 
 1. Clears stale HIPCIE DONE using its W1C bit and verifies it is clear.
 2. Powers both cores and waits for both CPA bits.
-3. Sets all six APL/GLK SSP SSC1 clock/frame-consumer bits, with readback.
+3. Sets all six APL/GLK SSP SSC1 clock/frame-consumer bits. R8 candidate records
+   one readback per port without treating echo of these configuration bits as
+   a ROM acknowledgement. I/O failures and all-ones reads still stop boot.
 4. Issues cold ROM_CONTROL/PURGE with stream-tag-minus-one encoding.
 5. Releases reset/stall on core 0 and checks SPA/CPA/reset/stall together.
 6. Waits for a fresh DONE, acknowledges it and verifies its clearing.

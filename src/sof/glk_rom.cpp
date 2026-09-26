@@ -4,6 +4,7 @@ namespace phaser360 { namespace sof {
 namespace { constexpr uint32_t cs=4, hipci=0x48, hipcie=0x4c, rom=0x80000; }
 bool GlkRom::Fail(RomError e) noexcept { error_=e; state_=RomState::Fault; return false; }
 bool GlkRom::Read(uint32_t o,uint32_t& v) noexcept {
+    lastOffset_=o;
     v=0;
     if((o&3) || o>io_.length || io_.length-o<4 || !io_.read(io_.context,o,&v))
         return Fail(RomError::Io);
@@ -12,6 +13,7 @@ bool GlkRom::Read(uint32_t o,uint32_t& v) noexcept {
     return true;
 }
 bool GlkRom::Write(uint32_t o,uint32_t v) noexcept {
+    lastOffset_=o;
     if((o&3) || o>io_.length || io_.length-o<4 || !io_.write(io_.context,o,v))
         return Fail(RomError::Io);
     return true;
@@ -67,6 +69,7 @@ bool GlkRom::Initialize(uint8_t tag) noexcept {
     if(state_!=RomState::Cold) { error_=RomError::State; return false; }
     if(tag==0 || tag>15) { error_=RomError::Argument; return false; }
     error_=RomError::None;
+    sspObservedMask_=0; sspMismatchMask_=0;
     uint32_t v=0;
 
     phase_=RomPhase::InitPreAdspcs;
@@ -87,9 +90,17 @@ bool GlkRom::Initialize(uint8_t tag) noexcept {
     if(!Update(cs,0x30000,0x30000) || !Poll(cs,0x03000000,0x03000000,50000)) return false;
 
     phase_=RomPhase::InitConfigureSsp;
-    for(uint32_t i=0;i<6;++i)
-        if(!Update(0x2004+i*0x1000,0x03000000,0x03000000) ||
-           !Poll(0x2004+i*0x1000,0x03000000,0x03000000,50000)) return false;
+    for(uint32_t i=0;i<6;++i) {
+        const uint32_t offset=0x2004+i*0x1000;
+        // Linux v6.12 hda_ssp_set_cbp_cfp() performs a masked update here;
+        // SSC1 is not a ROM acknowledgement register. R7 incorrectly added
+        // a mandatory 50 ms readback handshake before even issuing ROM_CONTROL.
+        // Keep one bounded observation for diagnosis and hard I/O/all-ones
+        // checks, but let actual ROM DONE and INIT_DONE determine readiness.
+        if(!Update(offset,0x03000000,0x03000000) || !Read(offset,v)) return false;
+        sspObserved_[i]=v; sspObservedMask_|=uint32_t{1}<<i;
+        if((v&0x03000000)!=0x03000000) sspMismatchMask_|=uint32_t{1}<<i;
+    }
 
     const uint32_t command=0x81004000u|((static_cast<uint32_t>(tag)-1)<<9);
     phase_=RomPhase::InitWriteRomCommand;

@@ -2,10 +2,10 @@
 param([Parameter(Mandatory=$true)][string]$PackageRoot,[string]$OutputRoot='')
 $ErrorActionPreference='Stop';Set-StrictMode -Version 2
 
-$Build='m1-fast-safe-20260925-r7-rom-phase-trace'
+$Build='m1-fast-safe-20260926-r8-candidate-ssp-contract'
 $ExactHwid='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06'
 $M1Service='Phaser360M1'
-$M1Version='0.6.15.136'
+$M1Version='0.6.15.137'
 $M1Provider='PHASER360 Experimental'
 $BaselineService='IntcAudioBus'
 $BaselineInf='oem14.inf'
@@ -51,18 +51,41 @@ function PnP([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\pnputil.exe';$
 function CertUtil([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\certutil.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
 function Logman([string[]]$a){$e=Join-Path $env:SystemRoot 'System32\logman.exe';$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=(& $e @a 2>&1|Out-String -Width 8192);$c=$LASTEXITCODE}finally{$ErrorActionPreference=$old};[pscustomobject]@{ExitCode=$c;Output=$o}}
 function StartStageTrace([string]$dir,[string]$suffix){
-  $name='PHASER360_M1_R7_'+$suffix
-  $etl=Join-Path $dir 'M1_R7_STAGE_TRACE.etl'
+  $name='PHASER360_M1_R8_CANDIDATE_'+$suffix
+  $etl=Join-Path $dir 'M1_R8_CANDIDATE_STAGE_TRACE.etl'
   $provider='{'+$StageProviderGuid.ToString()+'}'
   $x=Logman @('start',$name,'-ets','-p',$provider,'0x1','0xFF','-o',$etl,'-bs','64','-nb','16','64')
   WriteUtf8 (Join-Path $dir 'stage_trace_start.txt') $x.Output
-  if($x.ExitCode-ne0){throw "M1_R7_STAGE_TRACE_START_FAILED: exit=$($x.ExitCode)"}
-  [pscustomobject]@{Name=$name;Etl=$etl;Started=$true;Stopped=$false}
+  if($x.ExitCode-ne0){throw "M1_R8_CANDIDATE_STAGE_TRACE_START_FAILED: exit=$($x.ExitCode)"}
+  [pscustomobject]@{Name=$name;Etl=$etl;Started=$true;Stopped=$false;StopExitCode=$null;Decoded=$false;EventCount=0;DriverEntries=0;BootEntries=0;LossChecked=$false;EventsLost=$null;BuffersLost=$null}
+}
+function DecodeStageTrace([string]$xml,[string]$dir){
+  [xml]$doc=Get-Content -LiteralPath $xml -Raw
+  $ns=[Xml.XmlNamespaceManager]::new($doc.NameTable)
+  $ns.AddNamespace('e','http://schemas.microsoft.com/win/2004/08/events/event')
+  $rows=@(foreach($event in $doc.SelectNodes('//e:Event',$ns)){
+    $data=$event.SelectSingleNode('e:Data',$ns)
+    if(-not$data){continue}
+    $message=$data.InnerText.Trim()
+    if($message -notmatch '^PHASER360_R8_CANDIDATE (?<stage>\S+) status=(?<status>0x[0-9A-Fa-f]{8})(?: value=(?<value>0x[0-9A-Fa-f]{8}))?$'){continue}
+    $stamp=$event.SelectSingleNode('e:System/e:TimeCreated',$ns)
+    [pscustomobject]@{TimestampRaw=$(if($stamp){$stamp.GetAttribute('SystemTime')}else{$null});Stage=$Matches['stage'];Status=$Matches['status'];Value=$Matches['value'];Message=$message}
+  })
+  WriteUtf8 (Join-Path $dir 'stage_trace_decoded.json') (ConvertTo-Json -InputObject $rows -Depth 5)
+  $header=$doc.SelectSingleNode('//e:Event[e:System/e:Provider/@Guid="{9e814aad-3204-11d2-9a82-006008a86939}" and e:System/e:Opcode="0"]/e:EventData',$ns)
+  $eventsLost=$null;$buffersLost=$null
+  if($header){
+    $n=$header.SelectSingleNode('e:Data[@Name="EventsLost"]',$ns);if($n){$eventsLost=[uint64]$n.InnerText.Trim()}
+    $n=$header.SelectSingleNode('e:Data[@Name="BuffersLost"]',$ns);if($n){$buffersLost=[uint64]$n.InnerText.Trim()}
+  }
+  [pscustomobject]@{EventCount=$rows.Count;DriverEntries=@($rows|Where-Object{$_.Stage -ceq 'A00_DRIVER_ENTRY'}).Count;BootEntries=@($rows|Where-Object{$_.Stage -ceq 'D30_FIRMWARE_ENTER'}).Count;LossChecked=($null-ne$eventsLost -and $null-ne$buffersLost);EventsLost=$eventsLost;BuffersLost=$buffersLost}
 }
 function StopStageTrace($trace,[string]$dir){
   if(-not$trace -or -not$trace.Started -or $trace.Stopped){return}
   $x=Logman @('stop',[string]$trace.Name,'-ets')
   WriteUtf8 (Join-Path $dir 'stage_trace_stop.txt') $x.Output
+  $trace.StopExitCode=$x.ExitCode
+  if($x.ExitCode-ne0){WriteUtf8 (Join-Path $dir 'stage_trace_decode_error.txt') "ETW_STOP_FAILED: exit=$($x.ExitCode)";return}
   $trace.Stopped=$true
   if(-not(Test-Path $trace.Etl -PathType Leaf)){WriteUtf8 (Join-Path $dir 'stage_trace_decode_error.txt') 'ETL_MISSING';return}
   try{
@@ -77,10 +100,15 @@ function StopStageTrace($trace,[string]$dir){
   }catch{WriteUtf8 (Join-Path $dir 'stage_trace_getwinevent_error.txt') $_.Exception.ToString()}
   try{
     $tracerpt=Join-Path $env:SystemRoot 'System32\tracerpt.exe'
-    $xml=Join-Path $dir 'M1_R7_STAGE_TRACE.xml'
+    $xml=Join-Path $dir 'M1_R8_CANDIDATE_STAGE_TRACE.xml'
     $old=$ErrorActionPreference;$ErrorActionPreference='Continue'
     try{$o=(& $tracerpt $trace.Etl '-o' $xml '-of' 'XML' '-y' 2>&1|Out-String -Width 8192);$ec=$LASTEXITCODE}finally{$ErrorActionPreference=$old}
     WriteUtf8 (Join-Path $dir 'stage_trace_tracerpt.txt') ("EXIT=$ec"+[Environment]::NewLine+$o)
+    if($ec-ne0){throw "TRACERPT_FAILED: exit=$ec"}
+    $decoded=DecodeStageTrace $xml $dir
+    $trace.EventCount=$decoded.EventCount;$trace.DriverEntries=$decoded.DriverEntries;$trace.BootEntries=$decoded.BootEntries
+    $trace.LossChecked=$decoded.LossChecked;$trace.EventsLost=$decoded.EventsLost;$trace.BuffersLost=$decoded.BuffersLost
+    $trace.Decoded=($decoded.EventCount-gt0)
   }catch{WriteUtf8 (Join-Path $dir 'stage_trace_tracerpt_error.txt') $_.Exception.ToString()}
 }
 function PublishedM1{
@@ -128,7 +156,7 @@ function Package([string]$root,[switch]$Trusted){
   if(-not$c -or $c.HasPrivateKey -or $c.Subject -cne $CertSubject -or $c.Issuer -cne $CertSubject){throw 'M1_CERT_IDENTITY_INVALID'}
   if($c.NotBefore.ToUniversalTime()-gt[DateTime]::UtcNow -or $c.NotAfter.ToUniversalTime()-le[DateTime]::UtcNow){throw 'M1_CERT_NOT_CURRENTLY_VALID'}
   $m=Get-Content $man -Raw|ConvertFrom-Json
-  if([string]$m.Purpose -cne 'M1_FAST_SAFE_R7_ROM_PHASE_TRACE_DSP_BOOT' -or [string]$m.RunnerBuild -cne $Build -or
+  if([string]$m.Purpose -cne 'M1_FAST_SAFE_R8_CANDIDATE_SSP_CONTRACT_DSP_BOOT' -or [string]$m.RunnerBuild -cne $Build -or
      [string]$m.ExactHardwareId -cne $ExactHwid -or [int]$m.WindowsBuildExact -ne19044 -or
      [string]$m.BaselineInf -cne $BaselineInf -or [string]$m.BaselineVersion -cne $BaselineVersion -or
      [string]$m.FirmwareSha256 -cne $FirmwareSha -or [string]$m.NhltSha256 -cne $NHLTSha -or
@@ -233,7 +261,7 @@ function ParseTelemetry([byte[]]$b){
 
 if(-not(Admin)){throw 'ADMINISTRATOR_REQUIRED'}
 if(-not[Environment]::Is64BitProcess){throw 'WINDOWS_X64_REQUIRED'}
-Write-Host 'PHASER360 M1 R7 ROM-PHASE-TRACE - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK'
+Write-Host 'PHASER360 M1 R8 CANDIDATE SSP-CONTRACT - ONE-SHOT DSP BOOT / AUTOMATIC INTEL ROLLBACK'
 Write-Host "RUNNER_BUILD=$Build"
 Write-Host 'AUDIO_PLAYBACK=NO; CODEC_PROGRAMMING=NO; SPEAKER_ENABLE=NO; BCD_WRITE=NO; REBOOT=NO'
 Write-Host ("STAGE_TRACE_PROVIDER={"+$StageProviderGuid.ToString()+"}")
@@ -261,7 +289,7 @@ if($baselineExportInfs.Count-ne1){throw "BASELINE_EXPORT_INF_COUNT_INVALID: coun
 $baselineExportInf=$baselineExportInfs[0].FullName
 WriteUtf8 (Join-Path $dir 'baseline_export_inf.txt') $baselineExportInf
 
-$rootAdded=$false;$pubAdded=$false;$published=$false;$publishedInf=$null;$bindAttempted=$false;$bindRebootSignalled=$false;$m1Bound=$false;$bootProved=$false;$rollbackComplete=$false;$fallbackIntel=$false;$fallbackRebootSignalled=$false;$err=$null;$stageTrace=$null
+$rootAdded=$false;$pubAdded=$false;$published=$false;$publishedInf=$null;$bindAttempted=$false;$bindRebootSignalled=$false;$m1Bound=$false;$bootProved=$false;$rollbackComplete=$false;$fallbackIntel=$false;$fallbackAttempted=$false;$fallbackRebootSignalled=$false;$err=$null;$stageTrace=$null
 try{
   $x=CertUtil @('-f','-addstore','Root',$pkg.Cer);WriteUtf8 (Join-Path $dir 'cert_add_root.txt') $x.Output;if($x.ExitCode-ne0){throw 'CERT_ROOT_ADD_FAILED'};$rootAdded=$true
   $x=CertUtil @('-f','-addstore','TrustedPublisher',$pkg.Cer);WriteUtf8 (Join-Path $dir 'cert_add_publisher.txt') $x.Output;if($x.ExitCode-ne0){throw 'CERT_PUBLISHER_ADD_FAILED'};$pubAdded=$true
@@ -306,8 +334,11 @@ try{
        $tq.CompletedD0-ne0 -or $tq.FailedD0-ne0 -or $tq.LastD0StatusValue-ne0){throw 'M1_BOOT_TELEMETRY_NOT_HEALTHY'}
   }
   if($t1.SessionGeneration-ne$t2.SessionGeneration){throw 'M1_SESSION_CHANGED_DURING_STABILITY_WINDOW'}
-  $bootProved=$true
   StopStageTrace $stageTrace $dir
+  if(-not$stageTrace.Stopped -or -not$stageTrace.Decoded){throw 'M1_STAGE_TRACE_NOT_VALIDATED'}
+  if(-not$stageTrace.LossChecked -or $stageTrace.EventsLost-ne0 -or $stageTrace.BuffersLost-ne0){throw 'M1_STAGE_TRACE_LOSS_NOT_EXCLUDED'}
+  if($stageTrace.DriverEntries-ne1 -or $stageTrace.BootEntries-ne1){throw "M1_ONE_SHOT_VIOLATED: driver_entries=$($stageTrace.DriverEntries); boot_entries=$($stageTrace.BootEntries)"}
+  $bootProved=$true
 
   $x=PnP @('/delete-driver',$publishedInf,'/uninstall','/force');WriteUtf8 (Join-Path $dir 'pnputil_remove_m1.txt') $x.Output
   if($x.ExitCode-ne0){throw 'M1_UNINSTALL_FAILED'}
@@ -315,6 +346,7 @@ try{
   if(@(PublishedM1).Count-ne0){throw 'M1_PACKAGE_REMAINS_AFTER_UNINSTALL'}
   try{$after=WaitIntel $before.InstanceId 20}catch{
     if(-not(Test-Path $baselineExportInf -PathType Leaf)){throw}
+    $fallbackAttempted=$true
     $fallbackRebootSignalled=[Phaser360.M1FastNative]::ForceUpdate($ExactHwid,$baselineExportInf)
     WriteUtf8 (Join-Path $dir 'intel_fallback_update_result.json') ([ordered]@{
       Api='UpdateDriverForPlugAndPlayDevicesW';Succeeded=$true;RebootRequired=[bool]$fallbackRebootSignalled;AutomaticReboot=$false
@@ -328,9 +360,17 @@ try{
   $rollbackComplete=$true
 }catch{
   $err=$_.Exception
-  if($stageTrace){StopStageTrace $stageTrace $dir}
+  # Capture the failure before rollback, including failures after WaitM1.
+  try{
+    $failed=Target
+    WriteUtf8 (Join-Path $dir 'target_transaction_failure.json') ($failed|ConvertTo-Json -Depth 8)
+    $props=@(Get-PnpDeviceProperty -InstanceId $before.InstanceId -ErrorAction Stop|Select-Object KeyName,Type,Data)
+    WriteUtf8 (Join-Path $dir 'target_transaction_failure_properties.json') ($props|ConvertTo-Json -Depth 10)
+  }catch{}
+  if($stageTrace){try{StopStageTrace $stageTrace $dir}catch{}}
 }finally{
-  if($stageTrace -and -not$stageTrace.Stopped){StopStageTrace $stageTrace $dir}
+  # Diagnostic failure must never prevent the recovery path from running.
+  if($stageTrace -and -not$stageTrace.Stopped){try{StopStageTrace $stageTrace $dir}catch{}}
   if(-not$rollbackComplete){
     $log=New-Object System.Collections.Generic.List[string]
     if($published){
@@ -340,6 +380,22 @@ try{
     }
     $safe=$false;$s=$null
     try{$s=WaitIntel $before.InstanceId 10;$safe=(IsIntel $s)-and(@(PublishedM1).Count-eq0)}catch{$log.Add("INTEL_RETURN_EXCEPTION=$($_.Exception.Message)")}
+    # The old runner only had this fallback on the successful boot path.
+    # Use the pre-bind export once; never bind M1 again or reboot here.
+    if(-not$safe -and $bindAttempted -and -not$fallbackAttempted){
+      try{
+        if(@(PublishedM1).Count-ne0){throw 'M1_PACKAGE_REMAINS_BEFORE_INTEL_FALLBACK'}
+        if(-not(Test-Path $baselineExportInf -PathType Leaf)){throw 'INTEL_EXPORT_MISSING_FOR_FALLBACK'}
+        $fallbackAttempted=$true
+        $fallbackRebootSignalled=[Phaser360.M1FastNative]::ForceUpdate($ExactHwid,$baselineExportInf)
+        $fallbackIntel=$true
+        WriteUtf8 (Join-Path $dir 'intel_fallback_update_result.json') ([ordered]@{
+          Api='UpdateDriverForPlugAndPlayDevicesW';Succeeded=$true;RebootRequired=[bool]$fallbackRebootSignalled;AutomaticReboot=$false;Path='FAILURE_RECOVERY'
+        }|ConvertTo-Json)
+        $s=WaitIntel $before.InstanceId 20;$safe=(IsIntel $s)-and(@(PublishedM1).Count-eq0)
+        $log.Add("INTEL_FALLBACK_SAFE=$safe")
+      }catch{$log.Add("INTEL_FALLBACK_EXCEPTION=$($_.Exception.Message)")}
+    }
     if($safe){
       if($pubAdded){$x=CertUtil @('-delstore','TrustedPublisher',$pkg.Thumb);$log.Add("CERT TrustedPublisher EXIT=$($x.ExitCode)");if($x.ExitCode-eq0){$pubAdded=$false}}
       if($rootAdded){$x=CertUtil @('-delstore','Root',$pkg.Thumb);$log.Add("CERT Root EXIT=$($x.ExitCode)");if($x.ExitCode-eq0){$rootAdded=$false}}
@@ -359,9 +415,12 @@ $status=if($bootProved -and $rollbackComplete -and $baselineRestored -and $trust
 if($final){WriteUtf8 (Join-Path $dir 'target_final.json') ($final|ConvertTo-Json -Depth 8)}
 WriteUtf8 (Join-Path $dir 'transaction.json') ([ordered]@{
  Status=$status;RunnerBuild=$Build;PublishedInf=$publishedInf;BindAttempted=$bindAttempted;BindRebootSignalled=$bindRebootSignalled;M1Bound=$m1Bound;BootProved=$bootProved
- BaselineRestored=$baselineRestored;TrustRestored=$trustRestored;IntelFallbackUsed=$fallbackIntel;IntelFallbackRebootSignalled=$fallbackRebootSignalled
+ BaselineRestored=$baselineRestored;TrustRestored=$trustRestored;IntelFallbackAttempted=$fallbackAttempted;IntelFallbackUsed=$fallbackIntel;IntelFallbackRebootSignalled=$fallbackRebootSignalled
  StageTraceProvider=$StageProviderGuid.ToString();StageTraceCaptured=[bool]($stageTrace -and $stageTrace.Stopped -and (Test-Path $stageTrace.Etl -PathType Leaf))
+ StageTraceDecoded=[bool]($stageTrace -and $stageTrace.Decoded);StageTraceDriverEntries=$(if($stageTrace){$stageTrace.DriverEntries}else{0});StageTraceBootEntries=$(if($stageTrace){$stageTrace.BootEntries}else{0});StageTraceStopExitCode=$(if($stageTrace){$stageTrace.StopExitCode}else{$null})
+ StageTraceLossChecked=[bool]($stageTrace -and $stageTrace.LossChecked);StageTraceEventsLost=$(if($stageTrace){$stageTrace.EventsLost}else{$null});StageTraceBuffersLost=$(if($stageTrace){$stageTrace.BuffersLost}else{$null})
  TransactionError=$(if($err){$err.Message}else{$null});FirmwareSha256=$FirmwareSha;NHLTSha256=$NHLTSha
+ NHLTHashSource='DECLARED_REFERENCE_ONLY';NHLTObservedSha256=$null
  AudioPlayback='NO';CodecProgramming='NO';SpeakerEnable='NO';AutomaticReboot='NO';BcdWrite='NO'
 }|ConvertTo-Json -Depth 6)
 $pointerFinal=@("PHASER360_M1_FAST_SAFE_RECOVERY=1","STATUS=$status","CUSTOM_INF=$publishedInf","BASELINE_RESTORED=$baselineRestored","TRUST_RESTORED=$trustRestored","DO_NOT_REBOOT=$(if($baselineRestored){'FALSE'}else{'TRUE'})") -join [Environment]::NewLine

@@ -1,4 +1,4 @@
-; PHASER360 M1 FAST-SAFE R7 ROM PHASE TRACE
+; PHASER360 M1 FAST-SAFE R8 CANDIDATE SSP CONTRACT
 ; Exact-target M1 diagnostic package. R6 keeps the physical HDA cap-chain fix and
 ; uses a bounded PCI live contract before the owned 0x44/0x48 policy writes.
 
@@ -9,7 +9,7 @@ ClassGuid={4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider=%ProviderName%
 CatalogFile=phaser360_m1_boot.cat
 PnpLockdown=1
-DriverVer=09/25/2026,0.6.15.136
+DriverVer=09/26/2026,0.6.15.137
 
 [DestinationDirs]
 DefaultDestDir=13

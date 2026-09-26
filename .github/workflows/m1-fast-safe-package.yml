@@ -1,9 +1,9 @@
-name: M1 R7 ROM phase-trace one-shot DSP boot package
-# R7 keeps the proven R6 hardware sequence unchanged and adds precise ROM phase/value tracing.
+name: M1 R8 candidate SSP-contract DSP boot package
+# R8 source candidate: validate on Windows before any hardware execution.
 on:
   workflow_dispatch:
   push:
-    branches: [codex/audio-auto-20260915, codex/m1-r7-rom-phase-trace-20260925]
+    branches: [codex/audio-auto-20260915, codex/m1-r7-rom-phase-trace-20260925, codex/m1-r8-ssp-contract-20260926]
     paths:
       - 'm062/m1_fast/**'
       - 'm062/m1/**'
@@ -15,6 +15,11 @@ on:
       - 'tests/m0615_m1_fast_safe_tests.ps1'
       - 'tests/sof_glk_boot_tests.cpp'
       - 'tests/sof_rom_tests.cpp'
+      - 'tests/sof_ssp_contract_tests.cpp'
+      - 'tests/sof_pnp_resources_tests.cpp'
+      - 'tests/m1_r8_runner_contract_tests.ps1'
+      - 'tests/fake_wdf/**'
+      - 'CMakeLists.txt'
       - '.github/workflows/m1-fast-safe-package.yml'
 permissions: {contents: read}
 jobs:
@@ -43,6 +48,8 @@ jobs:
           $ps51=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
           & $ps51 -NoLogo -NoProfile -NonInteractive -Command '$null=[scriptblock]::Create((Get-Content -LiteralPath ".\m062\m1_fast\Run-M1FastSafe.ps1" -Raw)); "M1_FAST_PS51_PARSE=PASS"'
           if($LASTEXITCODE-ne0){throw 'M1_FAST_PS51_PARSE_FAILED'}
+          & $ps51 -NoLogo -NoProfile -NonInteractive -File .\tests\m1_r8_runner_contract_tests.ps1
+          if($LASTEXITCODE-ne0){throw 'M1_R8_RUNNER_CONTRACT_TESTS_FAILED'}
 
       - name: Build SOF inspector and verify exact upstream firmware
         shell: pwsh
@@ -63,16 +70,16 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'M1_FAST_PROVIDER_GENERATION_FAILED'}
           "M1_FAST_GENERATED_PROVIDER=$generated" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Run R7 transport, ROM, PCI-policy and DMA regressions
+      - name: Run R8 candidate transport, SSP, PnP and DMA regressions
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          cmake --build build-m1-fast --config Release --target phaser360_dma_owner_tests phaser360_glk_boot_tests phaser360_stream_tests phaser360_rom_tests
+          cmake --build build-m1-fast --config Release --target phaser360_dma_owner_tests phaser360_glk_boot_tests phaser360_stream_tests phaser360_rom_tests phaser360_ssp_contract_tests phaser360_pnp_resources_tests
           if($LASTEXITCODE -ne 0){throw 'M1_R7_HOST_TEST_BUILD_FAILED'}
-          ctest --test-dir build-m1-fast -C Release -R '^(sof_dma_owner|sof_glk_boot|sof_stream|sof_rom)$' --output-on-failure
+          ctest --test-dir build-m1-fast -C Release -R '^(sof_dma_owner|sof_glk_boot|sof_stream|sof_rom|sof_ssp_contract|sof_pnp_resources)$' --output-on-failure
           if($LASTEXITCODE -ne 0){throw 'M1_R7_HOST_TESTS_FAILED'}
 
-      - name: Build R7 M1 ROM-phase-trace driver
+      - name: Build R8 candidate M1 driver
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -151,10 +158,10 @@ jobs:
 
             $runnerSha=(Get-FileHash (Join-Path $package 'Run-M1FastSafe.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
             [ordered]@{
-              Schema=1;Purpose='M1_FAST_SAFE_R7_ROM_PHASE_TRACE_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260925-r7-rom-phase-trace';RunnerSha256=$runnerSha
+              Schema=1;Purpose='M1_FAST_SAFE_R8_CANDIDATE_SSP_CONTRACT_DSP_BOOT';SourceCommit=$env:GITHUB_SHA;RunnerBuild='m1-fast-safe-20260926-r8-candidate-ssp-contract';RunnerSha256=$runnerSha
               ExactHardwareId='PCI\VEN_8086&DEV_3198&SUBSYS_00000000&REV_06';WindowsBuildExact=19044
               BaselineService='IntcAudioBus';BaselineInf='oem14.inf';BaselineVersion='9.22.0.4832';BaselineProvider='Intel(R) Corporation'
-              M1Service='Phaser360M1';M1Version='0.6.15.136';M1Provider='PHASER360 Experimental'
+              M1Service='Phaser360M1';M1Version='0.6.15.137';M1Provider='PHASER360 Experimental'
               FirmwareBytes=287488;FirmwareSha256='40029b5a05665f19a492ef00b8c0a24c42e90d7c00fc57146e07947fd1407d5c'
               NhltBytes=3684;NhltSha256='4764aba0316e9a039a127285cc4ff9e97e22c75bfddb6d865d9f77b59dd2a6b9'
               StageTraceProvider='ebaed0db-f9db-42ea-a162-5f4111384051';StageTrace='ETW_PRE_BIND'
@@ -176,7 +183,7 @@ jobs:
       - name: Upload M1 fast-safe package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: PHASER360_M1_R7_ROM_PHASE_TRACE
+          name: PHASER360_M1_R8_CANDIDATE_SSP_CONTRACT
           path: _m1_fast_package/
           if-no-files-found: error
           retention-days: 3

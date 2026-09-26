@@ -116,8 +116,21 @@ NTSTATUS GlkBoot::Prepare(WDFDEVICE device,UCHAR* hda,ULONG hdaLength,UCHAR* dsp
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
     StageTrace(L"G60_IPC_ARM_OK");
-    if(!rom_.Initialize(hda_.Tag())) {
+    const bool initialized=rom_.Initialize(hda_.Tag());
+    static const wchar_t* const sspStages[6]={
+        L"G75_SSP0_2004_READBACK",L"G75_SSP1_3004_READBACK",
+        L"G75_SSP2_4004_READBACK",L"G75_SSP3_5004_READBACK",
+        L"G75_SSP4_6004_READBACK",L"G75_SSP5_7004_READBACK"
+    };
+    for(unsigned i=0;i<6;++i)
+        if(rom_.SspObservedMask()&(ULONG{1}<<i))
+            StageTraceStatusValue(sspStages[i],STATUS_SUCCESS,rom_.SspObserved(i));
+    StageTraceStatusValue(L"G75_SSP_READBACK_MISMATCH_MASK",STATUS_SUCCESS,
+                          rom_.SspMismatchMask());
+    if(!initialized) {
         primaryError_=rom_.Error();
+        StageTraceStatusValue(L"G7D_ROM_LAST_OFFSET",STATUS_DEVICE_CONFIGURATION_ERROR,
+                              rom_.LastOffset());
         TraceRomPhase(rom_.Phase(),rom_.LastValue());
         TraceRomError(rom_.Error(),rom_.LastValue());
         StageTraceStatus(L"G70_ROM_INITIALIZE_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
@@ -179,10 +192,23 @@ bool GlkBoot::PopNotification(sof::IpcNotification* event) noexcept {
 bool GlkBoot::Shutdown() noexcept {
     if(KeGetCurrentIrql()!=PASSIVE_LEVEL) return false;
     prepared_=false; ipcLive_=false; commands_.Close();
-    if(!hda_.StopAndRelease()) return false;
+    if(!hda_.StopAndRelease()) {
+        StageTraceStatus(L"C10_DMA_DETACH_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
+        return false;
+    }
+    StageTrace(L"C10_DMA_DETACH_OK");
     // Keep HDA global processing alive after firmware DMA has been detached:
     // IPC/FW runtime still owns the DSP. Quiesce HDA only after DSP power-down.
-    if(dspTouched_ && !rom_.PowerDown()) return false;
-    return hda_.QuiesceController();
+    if(dspTouched_) {
+        if(!rom_.PowerDown()) {
+            StageTraceStatus(L"C20_DSP_POWERDOWN_FAIL",STATUS_DEVICE_CONFIGURATION_ERROR);
+            return false;
+        }
+        StageTrace(L"C20_DSP_POWERDOWN_OK");
+    }
+    const bool quiesced=hda_.QuiesceController();
+    StageTraceStatus(quiesced?L"C30_HDA_PCI_QUIESCE_OK":L"C30_HDA_PCI_QUIESCE_FAIL",
+                     quiesced?STATUS_SUCCESS:STATUS_DEVICE_CONFIGURATION_ERROR);
+    return quiesced;
 }
 } }

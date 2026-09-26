@@ -38,6 +38,7 @@ static unsigned pciQueryCalls=0,pciReadCalls=0,pciWriteCalls=0,pciDereferenceCal
 static bool failPciQuery=false,shortPciRead=false,shortPciWriteOnce=false,rejectPciWrite=false;
 static HardwareAccessGate* surpriseGateAfterPciWrite=nullptr;
 static bool stuckRun=false,noRun=false,power=true,halt=false,missingReady=false,badReady=false,commandTimeout=false;
+static bool sspReadZero=false;
 static bool rejectPinnedEnter=false;
 static HardwareAccessGate* removeDuringPinnedEnter=nullptr;
 #define CHECK(x) do { ++checks; if(!(x)) { std::fprintf(stderr,"line %d: %s\n",__LINE__,#x); std::exit(1); } } while(0)
@@ -72,6 +73,8 @@ static void Write(void* p,unsigned w,ULONG v) {
         if(dropIrqUnmask && o==8 && (v&1)) v&=~1u;
         if(dropIrqMask && o==8 && !(v&1)) v|=Get(b,o,w)&1;
         ++dspWrites;
+        if(sspReadZero && w==4 && o>=0x2004 && o<=0x7004 &&
+           ((o-0x2004)%0x1000)==0) return;
         if(o==0x40) v=Get(b,o,w)&~(v&0x80000000u);
         if(o==0x48 && v==0x80000000 && !commandTimeout) {
             CHECK(Get(b,0xa0000,4)==8 && Get(b,0xa0004,4)==0x30020000);
@@ -327,6 +330,7 @@ static void Reset() {
     dspWrites=0; irql=0; sequence=0; ticks=100000; sessionMemoryCreates=0;
     alignmentCalls=0; alignmentValue=0;
     stuckRun=false; noRun=false; power=true; halt=false; missingReady=false; badReady=false; commandTimeout=false;
+    sspReadZero=false;
     rejectPinnedEnter=false; removeDuringPinnedEnter=nullptr;
     pciQueryCalls=0; pciReadCalls=0; pciWriteCalls=0; pciDereferenceCalls=0;
     failPciQuery=false; shortPciRead=false; shortPciWriteOnce=false; rejectPciWrite=false;
@@ -546,6 +550,17 @@ int main() {
         phaser360::sof::IpcNotification event;
         CHECK(boot.PopNotification(&event) && event.acknowledged && event.bytes==24);
         CHECK(boot.Shutdown()); CHECK(!boot.Windows()); CHECK((Get(dsp,4,4)&0x03030303)==0x303);
+    }
+    // R7 physical failure shape: SSP readback stays zero. The protocol must
+    // still require ROM and FW_READY, and retain full cleanup on either path.
+    for(unsigned mode=0;mode<2;++mode) {
+        Reset(); GlkBoot boot; sspReadZero=true; missingReady=(mode==1);
+        CHECK(NT_SUCCESS(Prepare(boot)));
+        const auto result=boot.Transfer();
+        CHECK(result.started && result.firmwareEntered && result.dmaReleased);
+        CHECK(result.ipcReady==(mode==0) && result.commandReady==(mode==0));
+        CHECK(boot.Shutdown() && (Get(dsp,4,4)&0x03030303)==0x303);
+        CHECK(live==0 && dmaLive==3);
     }
     // H15B establishes HDA global state instead of inheriting Intel's state.
     Reset(); { GlkBoot boot;

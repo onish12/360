@@ -3,6 +3,10 @@
 #include "ntddk.h"
 struct FakeObject;
 using WDFDEVICE = void*;
+enum WDF_DEVICE_FAILED_ACTION {
+    WdfDeviceFailedUndefined=0,WdfDeviceFailedAttemptRestart,WdfDeviceFailedNoRestart
+};
+void WdfDeviceSetFailed(WDFDEVICE,WDF_DEVICE_FAILED_ACTION);
 NTSTATUS WdfFdoQueryForInterface(WDFDEVICE,LPCGUID,PINTERFACE,USHORT,USHORT,void*);
 using WDFDMAENABLER = FakeObject*;
 using WDFCOMMONBUFFER = FakeObject*;
